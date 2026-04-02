@@ -22,6 +22,7 @@ class MyApp extends StatelessWidget {
       title: 'Manavizha App',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
+        fontFamily: 'Satoshi',
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6A11CB)),
         useMaterial3: true,
       ),

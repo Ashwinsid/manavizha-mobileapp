@@ -26,6 +26,135 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FE), // Soft luxury web background
       extendBody: true, // The body content will scroll under the floating bottom nav dock
+      drawer: Drawer(
+        backgroundColor: Colors.white,
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF6A11CB), Color(0xFF2575FC)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Text(
+                      'M',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF6A11CB),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Manavizha',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Group 1: General
+            ListTile(
+              leading: const Icon(Icons.favorite_border, color: Color(0xFF6A11CB)),
+              title: const Text('I Liked', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                // TODO: Navigate to I Liked page
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.favorite, color: Color(0xFF6A11CB)),
+              title: const Text('Liked Me', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                // TODO: Navigate to Liked Me page
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.tune_rounded, color: Color(0xFF6A11CB)),
+              title: const Text('Preferences', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                // TODO: Navigate to Preferences
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.auto_awesome, color: Color(0xFF6A11CB)),
+              title: const Text('Generate Horoscope', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                // TODO: Navigate to Generate Horoscope
+              },
+            ),
+            const Divider(height: 32),
+            
+            // Group 2: Parental Access
+            const Padding(
+              padding: EdgeInsets.only(left: 16.0, bottom: 8.0),
+              child: Text(
+                'PARENTAL ACCESS',
+                style: TextStyle(
+                  color: Colors.black45,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.check_circle_outline, color: Colors.blueGrey),
+              title: const Text('Selections', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                // TODO: Navigate to Selections
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.supervisor_account, color: Colors.blueGrey),
+              title: const Text('Parents', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                // TODO: Navigate to Parents
+              },
+            ),
+            const Divider(height: 32),
+
+            // Group 3: Profile Status
+            const Padding(
+              padding: EdgeInsets.only(left: 16.0, bottom: 8.0),
+              child: Text(
+                'PROFILE STATUS',
+                style: TextStyle(
+                  color: Colors.black45,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.celebration, color: Colors.green),
+              title: const Text('Mark as Married', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                // TODO: Trigger Mark as Married logic
+              },
+            ),
+            const SizedBox(height: 24),
+          ],
+        ),
+      ),
       appBar: AppBar(
         title: const Text(
           'Manavizha',
