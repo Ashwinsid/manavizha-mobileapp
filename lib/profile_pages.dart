@@ -87,12 +87,51 @@ class UserPhotosPage extends StatefulWidget {
 class _UserPhotosPageState extends State<UserPhotosPage> {
   final ImagePicker _picker = ImagePicker();
   
-  List<XFile> profilePhotos = [];
-  XFile? familyPhoto;
-  XFile? aadharFront;
-  XFile? aadharBack;
+  List<dynamic> profilePhotos = [];
+  dynamic familyPhoto;
+  dynamic aadharFront;
+  dynamic aadharBack;
+
+  bool _isLoading = true;
+  bool _isSaving = false;
+  bool _isEditing = false;
 
   final int maxFileSizeInBytes = 5 * 1024 * 1024; // 5 MB
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchPhotos();
+  }
+
+  Future<void> _fetchPhotos() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      final data = await Supabase.instance.client
+          .from('photos')
+          .select()
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (data != null && mounted) {
+        setState(() {
+          profilePhotos = List<dynamic>.from(data['user_photos'] ?? []);
+          familyPhoto = data['family_photo'];
+          aadharFront = data['aadhar_front'];
+          aadharBack = data['aadhar_back'];
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching photos: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   Future<void> _pickImage(ImageSource source, String category) async {
     try {
@@ -100,19 +139,12 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
       if (pickedFile != null) {
         final length = await pickedFile.length();
         if (length > maxFileSizeInBytes) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('File exceeds 5MB size limit')),
-            );
-          }
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('File exceeds 5MB size limit')));
           return;
         }
-
         setState(() {
           if (category == 'profile') {
-            if (profilePhotos.length < 6) {
-              profilePhotos.add(pickedFile);
-            }
+            if (profilePhotos.length < 6) profilePhotos.add(pickedFile);
           } else if (category == 'family') {
             familyPhoto = pickedFile;
           } else if (category == 'aadhar_front') {
@@ -123,27 +155,18 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
         });
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to pick image: $e')),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to pick image: $e')));
     }
   }
 
   void _showPickerOptions(String category) {
     if (category == 'profile' && profilePhotos.length >= 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Max 6 profile photos allowed')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Max 6 profile photos allowed')));
       return;
     }
-
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (BuildContext context) {
         return SafeArea(
           child: Wrap(
@@ -151,18 +174,12 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
               ListTile(
                 leading: const Icon(Icons.photo_library),
                 title: const Text('Photo Library'),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  _pickImage(ImageSource.gallery, category);
-                },
+                onTap: () { Navigator.of(context).pop(); _pickImage(ImageSource.gallery, category); },
               ),
               ListTile(
                 leading: const Icon(Icons.photo_camera),
                 title: const Text('Camera'),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  _pickImage(ImageSource.camera, category);
-                },
+                onTap: () { Navigator.of(context).pop(); _pickImage(ImageSource.camera, category); },
               ),
             ],
           ),
@@ -171,9 +188,22 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
     );
   }
 
-  Widget _buildPhotoSlot(XFile? file, String label, String category, {double size = 100}) {
+  ImageProvider _getImageProvider(dynamic fileOrUrl) {
+    if (fileOrUrl is String) return NetworkImage(fileOrUrl);
+    if (fileOrUrl is XFile) return FileImage(File(fileOrUrl.path));
+    throw Exception('Unknown image type');
+  }
+
+  Widget _buildPhotoSlot(dynamic fileOrUrl, String label, String category, {double size = 100}) {
+    if (!_isEditing && fileOrUrl == null) {
+      return Container(
+        width: size, height: size,
+        decoration: BoxDecoration(color: const Color(0xFFF8F9FE), borderRadius: BorderRadius.circular(16)),
+        child: const Center(child: Text('No File', style: TextStyle(color: Colors.black26, fontSize: 12))),
+      );
+    }
     return GestureDetector(
-      onTap: () => _showPickerOptions(category),
+      onTap: _isEditing ? () => _showPickerOptions(category) : null,
       child: Container(
         width: size,
         height: size,
@@ -181,18 +211,18 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
           color: const Color(0xFFF0F0F5),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: file != null ? const Color(0xFF6A11CB) : Colors.black12,
+            color: fileOrUrl != null ? const Color(0xFF6A11CB) : Colors.black12,
             width: 2,
-            style: file != null ? BorderStyle.solid : BorderStyle.none,
+            style: fileOrUrl != null ? BorderStyle.solid : BorderStyle.none,
           ),
-          image: file != null 
+          image: fileOrUrl != null 
             ? DecorationImage(
-                image: FileImage(File(file.path)),
+                image: _getImageProvider(fileOrUrl),
                 fit: BoxFit.cover,
               )
             : null,
         ),
-        child: file == null
+        child: fileOrUrl == null
             ? Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -201,7 +231,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
                   Text(label, style: const TextStyle(fontSize: 10, color: Colors.black45, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
                 ],
               )
-            : Align(
+            : (_isEditing ? Align(
                 alignment: Alignment.topRight,
                 child: GestureDetector(
                   onTap: () {
@@ -214,53 +244,47 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
                   child: Container(
                     margin: const EdgeInsets.all(4),
                     padding: const EdgeInsets.all(4),
-                    decoration: const BoxDecoration(
-                      color: Colors.black54,
-                      shape: BoxShape.circle,
-                    ),
+                    decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
                     child: const Icon(Icons.close, color: Colors.white, size: 14),
                   ),
                 ),
-              ),
+              ) : null),
       ),
     );
   }
 
   Widget _buildProfilePhotoSlot(int index) {
     if (index < profilePhotos.length) {
+      final item = profilePhotos[index];
       return GestureDetector(
-        onTap: () => _showPickerOptions('profile'),
+        onTap: _isEditing ? () => _showPickerOptions('profile') : null,
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: const Color(0xFF6A11CB), width: 2),
             image: DecorationImage(
-              image: FileImage(File(profilePhotos[index].path)),
+              image: _getImageProvider(item),
               fit: BoxFit.cover,
             ),
           ),
-          child: Align(
+          child: _isEditing ? Align(
             alignment: Alignment.topRight,
             child: GestureDetector(
               onTap: () {
-                setState(() {
-                  profilePhotos.removeAt(index);
-                });
+                setState(() => profilePhotos.removeAt(index));
               },
               child: Container(
                 margin: const EdgeInsets.all(4),
                 padding: const EdgeInsets.all(4),
-                decoration: const BoxDecoration(
-                  color: Colors.black54,
-                  shape: BoxShape.circle,
-                ),
+                decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
                 child: const Icon(Icons.close, color: Colors.white, size: 14),
               ),
             ),
-          ),
+          ) : null,
         ),
       );
     } else if (index == profilePhotos.length) {
+      if (!_isEditing) return const SizedBox.shrink();
       return GestureDetector(
         onTap: () => _showPickerOptions('profile'),
         child: Container(
@@ -269,12 +293,11 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: Colors.black12, width: 2),
           ),
-          child: const Center(
-            child: Icon(Icons.add_a_photo, color: Colors.black45, size: 28),
-          ),
+          child: const Center(child: Icon(Icons.add_a_photo, color: Colors.black45, size: 28)),
         ),
       );
     } else {
+      if (!_isEditing) return const SizedBox.shrink();
       return Container(
         decoration: BoxDecoration(
           color: const Color(0xFFF0F0F5).withOpacity(0.5),
@@ -284,7 +307,22 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
     }
   }
 
-  void _verifyRequirements() {
+  Future<String> _processUpload(dynamic item, String bucket, String prefix) async {
+    final userId = Supabase.instance.client.auth.currentUser!.id;
+    if (item is String) return item; // It's already a Signed URL from DB
+    if (item is XFile) {
+      final ext = item.path.split('.').last.toLowerCase();
+      final bytes = await item.readAsBytes();
+      final path = '$userId/${prefix}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      await Supabase.instance.client.storage.from(bucket).uploadBinary(
+        path, bytes, fileOptions: const FileOptions(upsert: true, contentType: 'image/*'),
+      );
+      return await Supabase.instance.client.storage.from(bucket).createSignedUrl(path, 31536000);
+    }
+    throw Exception('Invalid image item variable');
+  }
+
+  Future<void> _savePhotos() async {
     if (profilePhotos.length < 3) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please upload at least 3 profile photos')));
       return;
@@ -297,26 +335,83 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Aadhar Front & Back are mandatory')));
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('All documents verified locally! Ready for Supabase.')));
+
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    setState(() => _isSaving = true);
+
+    try {
+      List<String> uploadedUserPhotos = [];
+      for (int i = 0; i < profilePhotos.length; i++) {
+        final url = await _processUpload(profilePhotos[i], 'user-photos', 'photo_${i + 1}');
+        uploadedUserPhotos.add(url);
+      }
+
+      final familyUrl = await _processUpload(familyPhoto, 'family-photos', 'family');
+      final aadharFrontUrl = await _processUpload(aadharFront, 'aadhar-photos', 'front');
+      final aadharBackUrl = await _processUpload(aadharBack, 'aadhar-photos', 'back');
+
+      await Supabase.instance.client.from('photos').upsert({
+        'user_id': userId,
+        'user_photos': uploadedUserPhotos,
+        'family_photo': familyUrl,
+        'aadhar_front': aadharFrontUrl,
+        'aadhar_back': aadharBackUrl,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Photos verified and saved successfully!')));
+        setState(() => _isEditing = false); // Exit edit mode after successful save!
+      }
+    } catch (e) {
+      debugPrint('Photo upload crash: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save photos: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator(color: Color(0xFF6A11CB)));
+    }
+
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: [
-        const SizedBox(height: 24),
-        const Text(
-          'Profile Photos (3 to 6)',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Your Gallery', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF6A11CB))),
+            IconButton(
+              icon: Icon(_isEditing ? Icons.close : Icons.edit, color: _isEditing ? Colors.redAccent : Colors.black54),
+              onPressed: () {
+                setState(() {
+                  _isEditing = !_isEditing;
+                  // Refetch to reset local un-verified edits if they abort!
+                  if (!_isEditing) {
+                     setState(() => _isLoading = true);
+                     _fetchPhotos();
+                  }
+                });
+              },
+            ),
+          ],
         ),
+        const SizedBox(height: 16),
+        const Text('Profile Photos (3 to 6)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         const Text('Max 5MB each. The first photo acts as your display picture.', style: TextStyle(color: Colors.black54, fontSize: 12)),
         const SizedBox(height: 16),
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          itemCount: 6,
+          itemCount: _isEditing ? 6 : profilePhotos.length,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 3,
             crossAxisSpacing: 10,
@@ -328,10 +423,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
         ),
         
         const SizedBox(height: 32),
-        const Text(
-          'Family Photo',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
+        const Text('Family Photo', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         const Text('Mandatory. Max 5MB.', style: TextStyle(color: Colors.black54, fontSize: 12)),
         const SizedBox(height: 16),
@@ -341,10 +433,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
         ),
 
         const SizedBox(height: 32),
-        const Text(
-          'Aadhar Card',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
+        const Text('Aadhar Card', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         const Text('Mandatory. Front and back sides required for KYC.', style: TextStyle(color: Colors.black54, fontSize: 12)),
         const SizedBox(height: 16),
@@ -356,19 +445,23 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
           ],
         ),
 
-        const SizedBox(height: 48),
-        SizedBox(
-          height: 56,
-          child: ElevatedButton(
-            onPressed: _verifyRequirements,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF6A11CB),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        if (_isEditing) ...[
+          const SizedBox(height: 48),
+          SizedBox(
+            height: 56,
+            child: ElevatedButton(
+              onPressed: _isSaving ? null : _savePhotos,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6A11CB),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+              child: _isSaving 
+                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Text('Verify & Save Uploads', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             ),
-            child: const Text('Verify Uploads', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ),
-        ),
+        ],
         const SizedBox(height: 100), // Spacing for bottom dock
       ],
     );

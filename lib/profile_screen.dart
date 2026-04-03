@@ -53,8 +53,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       bottomNavigationBar: SafeArea(
         child: Container(
-          margin: const EdgeInsets.fromLTRB(24, 16, 24, 24), // Dock spacing
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          margin: const EdgeInsets.fromLTRB(16, 16, 16, 24), // Dock spacing
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(32),
@@ -92,7 +92,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
         curve: Curves.fastOutSlowIn,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected ? const Color(0xFF6A11CB).withOpacity(0.12) : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
@@ -112,7 +112,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: isSelected
                   ? Row(
                       children: [
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 4),
                         Text(
                           label,
                           style: const TextStyle(
