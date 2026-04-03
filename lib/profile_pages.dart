@@ -918,6 +918,8 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
         decoration: InputDecoration(
           labelText: label,
           counterText: "",
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           filled: readOnly,
           fillColor: readOnly ? Colors.black.withOpacity(0.04) : Colors.transparent,
@@ -933,7 +935,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
       child: GestureDetector(
         onTap: () => _showAreaPicker(isPermanent),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
             border: Border.all(color: Colors.black45),
             borderRadius: BorderRadius.circular(12),
