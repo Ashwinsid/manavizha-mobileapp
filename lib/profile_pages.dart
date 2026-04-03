@@ -5,8 +5,52 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class UserDetailsPage extends StatelessWidget {
+class UserDetailsPage extends StatefulWidget {
   const UserDetailsPage({super.key});
+
+  @override
+  State<UserDetailsPage> createState() => _UserDetailsPageState();
+}
+
+class _UserDetailsPageState extends State<UserDetailsPage> {
+  String? _profilePhotoUrl;
+  bool _isLoadingPhoto = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchProfilePhoto();
+  }
+
+  Future<void> _fetchProfilePhoto() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) {
+        if (mounted) setState(() => _isLoadingPhoto = false);
+        return;
+      }
+
+      final data = await Supabase.instance.client
+          .from('photos')
+          .select('user_photos')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (data != null && data['user_photos'] != null && (data['user_photos'] as List).isNotEmpty) {
+        if (mounted) {
+          setState(() {
+            _profilePhotoUrl = data['user_photos'][0];
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching profile photo: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingPhoto = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -14,10 +58,37 @@ class UserDetailsPage extends StatelessWidget {
       padding: const EdgeInsets.all(16.0),
       children: [
         const SizedBox(height: 24),
-        const CircleAvatar(
-          radius: 50,
-          backgroundColor: Color(0xFFF0F0F5),
-          child: Icon(Icons.person, size: 50, color: Color(0xFF6A11CB)),
+        Center(
+          child: Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF0F0F5),
+              shape: BoxShape.circle,
+              border: Border.all(color: const Color(0xFF6A11CB).withOpacity(0.1), width: 4),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF6A11CB).withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                )
+              ],
+            ),
+            child: ClipOval(
+              child: _isLoadingPhoto 
+                ? const Padding(
+                    padding: EdgeInsets.all(30.0),
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6A11CB)),
+                  )
+                : _profilePhotoUrl != null 
+                  ? Image.network(
+                      _profilePhotoUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => const Icon(Icons.person, size: 50, color: Color(0xFF6A11CB)),
+                    )
+                  : const Icon(Icons.person, size: 50, color: Color(0xFF6A11CB)),
+            ),
+          ),
         ),
         const SizedBox(height: 16),
         const Text(
@@ -58,14 +129,14 @@ class UserDetailsPage extends StatelessWidget {
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
         shape: const Border(), // Removes the default border lines upon expansion
         children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 20.0),
+          const Padding(
+            padding: EdgeInsets.only(left: 16.0, right: 16.0, bottom: 20.0),
             child: Row(
               children: [
                 Expanded(
                   child: Text(
-                    'Dummy content for $title goes here...',
-                    style: const TextStyle(color: Colors.black54),
+                    'Update details for category...',
+                    style: TextStyle(color: Colors.black54),
                   ),
                 ),
               ],
