@@ -15,11 +15,117 @@ class UserDetailsPage extends StatefulWidget {
 class _UserDetailsPageState extends State<UserDetailsPage> {
   String? _profilePhotoUrl;
   bool _isLoadingPhoto = true;
+  bool _isLoadingData = true;
+
+  // Personal Details State
+  final TextEditingController _nameCtrl = TextEditingController();
+  final TextEditingController _dobCtrl = TextEditingController();
+  final TextEditingController _ageCtrl = TextEditingController();
+  final TextEditingController _heightCtrl = TextEditingController();
+  final TextEditingController _weightCtrl = TextEditingController();
+  final TextEditingController _aboutCtrl = TextEditingController();
+
+  String? _selectedGender;
+  String? _selectedCreatedBy;
+  String? _selectedPhysicalStatus;
+  String? _selectedSkinColor;
+  String? _selectedBodyType;
+  String? _selectedMaritalStatus;
+  String? _selectedFoodPreference;
+  List<String> _selectedLanguages = [];
+
+  // Master Data Lists
+  List<String> _genderOptions = ['Male', 'Female'];
+  List<String> _createdByOptions = ['Self', 'Parents', 'Sibling', 'Relative', 'Friend'];
+  List<String> _physicalStatusOptions = ['Normal', 'Physically Challenged'];
+  List<dynamic> _skinColorOptions = [
+    {'value': 'Fair', 'colour_code': '#FCD5B5'},
+    {'value': 'Wheatish', 'colour_code': '#E1B382'},
+    {'value': 'Dark', 'colour_code': '#8D5524'}
+  ];
+  List<String> _bodyTypeOptions = ['Slim', 'Average', 'Athletic', 'Heavy'];
+  List<String> _maritalStatusOptions = ['Never Married', 'Divorced', 'Widowed', 'Awaiting Divorce'];
+  List<String> _foodPreferenceOptions = ['Vegetarian', 'Non-Vegetarian', 'Eggetarian', 'Vegan'];
+  List<String> _indianLanguages = ['Tamil', 'English', 'Hindi', 'Telugu', 'Malayalam', 'Kannada'];
+  List<String> _internationalLanguages = ['English', 'French', 'German', 'Spanish'];
 
   @override
   void initState() {
     super.initState();
-    _fetchProfilePhoto();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    await Future.wait([
+      _fetchProfilePhoto(),
+      _fetchMasterData(),
+      _fetchPersonalDetails(),
+    ]);
+    if (mounted) setState(() => _isLoadingData = false);
+  }
+
+  Future<void> _fetchMasterData() async {
+    try {
+      final supabase = Supabase.instance.client;
+      
+      final results = await Future.wait([
+        supabase.from('master_gender').select('value'),
+        supabase.from('master_skin_colour').select('value, colour_code'),
+        supabase.from('master_body_type').select('value'),
+        supabase.from('master_marital_status').select('value'),
+        supabase.from('master_food_preferences').select('value'),
+        supabase.from('master_indian_languages').select('value'),
+        supabase.from('master_international_languages').select('value'),
+      ]);
+
+      if (mounted) {
+        setState(() {
+          if ((results[0] as List).isNotEmpty) _genderOptions = (results[0] as List).map((e) => e['value'] as String).toList();
+          if ((results[1] as List).isNotEmpty) _skinColorOptions = results[1] as List;
+          if ((results[2] as List).isNotEmpty) _bodyTypeOptions = (results[2] as List).map((e) => e['value'] as String).toList();
+          if ((results[3] as List).isNotEmpty) _maritalStatusOptions = (results[3] as List).map((e) => e['value'] as String).toList();
+          if ((results[4] as List).isNotEmpty) _foodPreferenceOptions = (results[4] as List).map((e) => e['value'] as String).toList();
+          if ((results[5] as List).isNotEmpty) _indianLanguages = (results[5] as List).map((e) => e['value'] as String).toList();
+          if ((results[6] as List).isNotEmpty) _internationalLanguages = (results[6] as List).map((e) => e['value'] as String).toList();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching master data: $e');
+    }
+  }
+
+  Future<void> _fetchPersonalDetails() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+
+      final data = await Supabase.instance.client
+          .from('personal_details')
+          .select()
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (data != null && mounted) {
+        setState(() {
+          _nameCtrl.text = data['name'] ?? '';
+          _dobCtrl.text = data['date_of_birth'] ?? '';
+          _ageCtrl.text = data['age']?.toString() ?? '';
+          _heightCtrl.text = data['height']?.toString() ?? '';
+          _weightCtrl.text = data['weight']?.toString() ?? '';
+          _aboutCtrl.text = data['about'] ?? '';
+          _selectedGender = data['sex'];
+          _selectedCreatedBy = data['created_by'];
+          _selectedPhysicalStatus = data['physical_status'];
+          _selectedSkinColor = data['skin_color'];
+          _selectedBodyType = data['body_type'];
+          _selectedMaritalStatus = data['marital_status'];
+          _selectedFoodPreference = data['food_preference'];
+          _selectedLanguages = List<String>.from(data['languages'] ?? []);
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching personal details: $e');
+    }
   }
 
   Future<void> _fetchProfilePhoto() async {
@@ -50,6 +156,308 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
         setState(() => _isLoadingPhoto = false);
       }
     }
+  }
+
+  void _calculateAge(DateTime birthDate) {
+    DateTime today = DateTime.now();
+    int age = today.year - birthDate.year;
+    if (today.month < birthDate.month || (today.month == birthDate.month && today.day < birthDate.day)) {
+      age--;
+    }
+    _ageCtrl.text = age.toString();
+  }
+
+  Future<void> _savePersonalDetails() async {
+    // Validation
+    if (_nameCtrl.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Name is required')));
+      return;
+    }
+    if (_dobCtrl.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Date of Birth is required')));
+      return;
+    }
+    if (_selectedGender == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gender is required')));
+      return;
+    }
+    if (_heightCtrl.text.isNotEmpty && int.parse(_heightCtrl.text) > 251) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Height cannot exceed 251cm')));
+      return;
+    }
+    if (_aboutCtrl.text.length < 100) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('About yourself must be at least 100 characters')));
+      return;
+    }
+
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+
+      setState(() => _isLoadingData = true);
+
+      await Supabase.instance.client.from('personal_details').upsert({
+        'user_id': userId,
+        'name': _nameCtrl.text,
+        'date_of_birth': _dobCtrl.text,
+        'age': int.tryParse(_ageCtrl.text),
+        'created_by': _selectedCreatedBy,
+        'physical_status': _selectedPhysicalStatus,
+        'sex': _selectedGender,
+        'height': int.tryParse(_heightCtrl.text),
+        'weight': int.tryParse(_weightCtrl.text),
+        'skin_color': _selectedSkinColor,
+        'body_type': _selectedBodyType,
+        'marital_status': _selectedMaritalStatus,
+        'food_preference': _selectedFoodPreference,
+        'languages': _selectedLanguages,
+        'about': _aboutCtrl.text,
+        'updated_at': DateTime.now().toIso8601String(),
+      }, onConflict: 'user_id');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Basic details saved successfully!')));
+        Navigator.pop(context); // Close the editor modal
+        _fetchPersonalDetails();
+      }
+    } catch (e) {
+      debugPrint('Error saving personal details: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to save details!')));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingData = false);
+    }
+  }
+
+  Widget _buildTextField(String label, TextEditingController controller, {bool readOnly = false, bool isNumber = false, int? maxLength, int maxLines = 1}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: TextField(
+        controller: controller,
+        readOnly: readOnly,
+        keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+        maxLength: maxLength,
+        maxLines: maxLines,
+        decoration: InputDecoration(
+          labelText: label,
+          counterText: "",
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          filled: readOnly,
+          fillColor: readOnly ? Colors.black.withOpacity(0.04) : Colors.transparent,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDropdownField(String label, String? value, List<String> options, ValueChanged<String?> onChanged) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: DropdownButtonFormField<String>(
+        value: (value != null && options.contains(value)) ? value : null,
+        onChanged: onChanged,
+        hint: Text('Select $label'),
+        decoration: InputDecoration(
+          labelText: label,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          filled: false,
+        ),
+        items: options.isEmpty 
+          ? null 
+          : options.map((opt) => DropdownMenuItem<String>(
+              value: opt, 
+              child: Text(opt, style: const TextStyle(color: Colors.black87)),
+            )).toList(),
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF6A11CB))),
+    );
+  }
+
+  void _showBasicDetailsEditor() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.85,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                children: [
+                  const SizedBox(height: 12),
+                  Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2))),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Edit Basic Details', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                    ],
+                  ),
+                  const Divider(),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.only(bottom: 40),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildSectionTitle('Identity'),
+                          _buildTextField('Full Name', _nameCtrl),
+                          GestureDetector(
+                            onTap: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: DateTime.tryParse(_dobCtrl.text) ?? DateTime.now().subtract(const Duration(days: 365 * 20)),
+                                firstDate: DateTime.now().subtract(const Duration(days: 365 * 100)),
+                                lastDate: DateTime.now().subtract(const Duration(days: 365 * 18)),
+                              );
+                              if (picked != null) {
+                                setModalState(() {
+                                  _dobCtrl.text = picked.toIso8601String().split('T')[0];
+                                  _calculateAge(picked);
+                                });
+                              }
+                            },
+                            child: AbsorbPointer(child: _buildTextField('Date of Birth', _dobCtrl, readOnly: true)),
+                          ),
+                          _buildTextField('Age', _ageCtrl, readOnly: true, isNumber: true),
+                          _buildDropdownField('Gender', _selectedGender, _genderOptions, (val) => setModalState(() => _selectedGender = val)),
+                          _buildDropdownField('Profile Created By', _selectedCreatedBy, _createdByOptions, (val) => setModalState(() => _selectedCreatedBy = val)),
+                          
+                          _buildSectionTitle('Physical Attributes'),
+                          _buildDropdownField('Physical Status', _selectedPhysicalStatus, _physicalStatusOptions, (val) => setModalState(() => _selectedPhysicalStatus = val)),
+                          _buildTextField('Height (cm)', _heightCtrl, isNumber: true, maxLength: 3),
+                          _buildTextField('Weight (kg)', _weightCtrl, isNumber: true, maxLength: 3),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: DropdownButtonFormField<String>(
+                              value: _skinColorOptions.any((e) => e['value'] == _selectedSkinColor) ? _selectedSkinColor : null,
+                              onChanged: (val) => setModalState(() => _selectedSkinColor = val),
+                              decoration: InputDecoration(
+                                labelText: 'Skin Color',
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              items: _skinColorOptions.map((opt) {
+                                final colorCode = opt['colour_code'] ?? '#000000';
+                                final colorValue = int.parse(colorCode.replaceFirst('#', '0xFF'));
+                                final color = Color(colorValue);
+                                return DropdownMenuItem(
+                                  value: opt['value'] as String,
+                                  child: Row(
+                                    children: [
+                                      Container(width: 20, height: 20, decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: Border.all(color: Colors.black12))),
+                                      const SizedBox(width: 12),
+                                      Text(opt['value'] as String),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                          _buildDropdownField('Body Type', _selectedBodyType, _bodyTypeOptions, (val) => setModalState(() => _selectedBodyType = val)),
+                          
+                          _buildSectionTitle('Preferences & Background'),
+                          _buildDropdownField('Marital Status', _selectedMaritalStatus, _maritalStatusOptions, (val) => setModalState(() => _selectedMaritalStatus = val)),
+                          _buildDropdownField('Food Preference', _selectedFoodPreference, _foodPreferenceOptions, (val) => setModalState(() => _selectedFoodPreference = val)),
+                          
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 8.0, top: 8.0),
+                            child: Text('Languages', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF6A11CB))),
+                          ),
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              ..._selectedLanguages.map((lang) => Chip(
+                                label: Text(lang, style: const TextStyle(fontSize: 12)),
+                                onDeleted: () => setModalState(() => _selectedLanguages.remove(lang)),
+                                deleteIcon: const Icon(Icons.close, size: 14),
+                                backgroundColor: const Color(0xFF6A11CB).withOpacity(0.1),
+                              )),
+                              ActionChip(
+                                label: const Text('Add Language', style: TextStyle(fontSize: 12)),
+                                onPressed: () async {
+                                  final List<String> allLangs = [..._indianLanguages, ..._internationalLanguages];
+                                  final result = await showDialog<String>(
+                                    context: context,
+                                    builder: (context) => AlertDialog(
+                                      title: const Text('Select Language'),
+                                      content: SizedBox(
+                                        width: double.maxFinite,
+                                        child: ListView.builder(
+                                          shrinkWrap: true,
+                                          itemCount: allLangs.length,
+                                          itemBuilder: (ctx, i) => ListTile(
+                                            title: Text(allLangs[i]),
+                                            onTap: () => Navigator.pop(ctx, allLangs[i]),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                  if (result != null && !_selectedLanguages.contains(result)) {
+                                    setModalState(() => _selectedLanguages.add(result));
+                                  }
+                                },
+                                avatar: const Icon(Icons.add, size: 14),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+                          
+                          _buildSectionTitle('About Yourself'),
+                          _buildTextField('Tell us about yourself...', _aboutCtrl, maxLines: 5, maxLength: 600),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: Builder(
+                              builder: (context) {
+                                // Redraw character count on change
+                                return Text(
+                                  '${_aboutCtrl.text.length} / 600 ${_aboutCtrl.text.length < 100 ? "(min 100 chars required)" : ""}',
+                                  style: TextStyle(fontSize: 12, color: _aboutCtrl.text.length < 100 ? Colors.orange : Colors.grey),
+                                );
+                              }
+                            ),
+                          ),
+                          
+                          const SizedBox(height: 32),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: _savePersonalDetails,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF6A11CB),
+                                padding: const EdgeInsets.all(16),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              ),
+                              child: const Text('Save Details', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -115,7 +523,21 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     );
   }
 
+  Widget _buildDataRow(String label, String? value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.black54, fontSize: 13)),
+          Text(value != null && value.isNotEmpty ? value : 'Not set', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCategoryTile(String title, IconData icon) {
+    bool isBasic = title == 'Basic Details';
     return Card(
       elevation: 0,
       margin: const EdgeInsets.symmetric(vertical: 8),
@@ -129,16 +551,37 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
         shape: const Border(), // Removes the default border lines upon expansion
         children: [
-          const Padding(
-            padding: EdgeInsets.only(left: 16.0, right: 16.0, bottom: 20.0),
-            child: Row(
+          Padding(
+            padding: const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 20.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text(
+                if (isBasic) ...[
+                  _buildDataRow('Name', _nameCtrl.text),
+                  _buildDataRow('Gender', _selectedGender),
+                  _buildDataRow('Age', _ageCtrl.text),
+                  _buildDataRow('Height', _heightCtrl.text.isNotEmpty ? '${_heightCtrl.text} cm' : null),
+                  _buildDataRow('Weight', _weightCtrl.text.isNotEmpty ? '${_weightCtrl.text} kg' : null),
+                  _buildDataRow('Marital Status', _selectedMaritalStatus),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _showBasicDetailsEditor,
+                      icon: const Icon(Icons.edit, size: 16),
+                      label: const Text('Edit Details'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF6A11CB),
+                        side: const BorderSide(color: Color(0xFF6A11CB)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ] else
+                  const Text(
                     'Update details for category...',
                     style: TextStyle(color: Colors.black54),
                   ),
-                ),
               ],
             ),
           )
