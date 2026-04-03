@@ -402,6 +402,168 @@ class ContactDetailsPage extends StatefulWidget {
 }
 
 class _ContactDetailsPageState extends State<ContactDetailsPage> {
+  bool _isLoading = true;
+  Map<String, dynamic>? _userData;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchData();
+  }
+
+  Future<void> _fetchData() async {
+    setState(() => _isLoading = true);
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+      final data = await Supabase.instance.client.from('contact_details').select().eq('user_id', userId).maybeSingle();
+      if (mounted) setState(() { _userData = data; _isLoading = false; });
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Widget _buildDisplayRow(String label, String? value) {
+    String displayValue = (value == null || value.trim().isEmpty) ? 'Not Provided' : value;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(flex: 2, child: Text(label, style: const TextStyle(color: Colors.black54, fontSize: 13))),
+          Expanded(flex: 3, child: Text(displayValue, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryCard(String title, List<Widget> children, IconData icon) {
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 16),
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Colors.black.withOpacity(0.05)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: const Color(0xFF6A11CB), size: 20),
+                const SizedBox(width: 8),
+                Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const Divider(height: 24),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openEditor() async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => ContactDetailsEditorSheet(initialData: _userData),
+    );
+    _fetchData(); // After it closes, refetch to show new results!
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) return const Center(child: CircularProgressIndicator(color: Color(0xFF6A11CB)));
+
+    return ListView(
+      padding: const EdgeInsets.all(24.0),
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                   Text('Contact Details', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF6A11CB))),
+                   SizedBox(height: 4),
+                   Text('Your active communication lines', style: TextStyle(color: Colors.black54)),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.edit_note, color: Color(0xFF6A11CB), size: 30),
+              style: IconButton.styleFrom(backgroundColor: const Color(0xFF6A11CB).withOpacity(0.1)),
+              onPressed: _openEditor,
+            ),
+          ],
+        ),
+        const SizedBox(height: 32),
+
+        _buildSummaryCard(
+          'Communication',
+          [
+            _buildDisplayRow('Phone Number', _userData?['phone']),
+            _buildDisplayRow('WhatsApp Number', _userData?['whatsapp_number']),
+          ],
+          Icons.phone_iphone,
+        ),
+
+        _buildSummaryCard(
+          'Permanent Address',
+          [
+            _buildDisplayRow('Line 1', _userData?['permanent_address_line1']),
+            _buildDisplayRow('Line 2', _userData?['permanent_address_line2']),
+            _buildDisplayRow('Pincode', _userData?['permanent_pincode']),
+            _buildDisplayRow('Area', _userData?['permanent_area']),
+            _buildDisplayRow('Taluk / Tehsil', _userData?['permanent_taluk']),
+            _buildDisplayRow('District', _userData?['permanent_district']),
+            _buildDisplayRow('Division', _userData?['permanent_division']),
+            _buildDisplayRow('State', _userData?['permanent_state']),
+            _buildDisplayRow('Country', _userData?['permanent_country']),
+            _buildDisplayRow('Landmark', _userData?['permanent_landmark']),
+          ],
+          Icons.home_outlined,
+        ),
+
+        _buildSummaryCard(
+          'Current Address',
+          [
+            _buildDisplayRow('Line 1', _userData?['current_address_line1']),
+            _buildDisplayRow('Line 2', _userData?['current_address_line2']),
+            _buildDisplayRow('Pincode', _userData?['current_pincode']),
+            _buildDisplayRow('Area', _userData?['current_area']),
+            _buildDisplayRow('Taluk / Tehsil', _userData?['current_taluk']),
+            _buildDisplayRow('District', _userData?['current_district']),
+            _buildDisplayRow('Division', _userData?['current_division']),
+            _buildDisplayRow('State', _userData?['current_state']),
+            _buildDisplayRow('Country', _userData?['current_country']),
+            _buildDisplayRow('Landmark', _userData?['current_landmark']),
+          ],
+          Icons.location_on_outlined,
+        ),
+        const SizedBox(height: 100),
+      ],
+    );
+  }
+}
+
+class ContactDetailsEditorSheet extends StatefulWidget {
+  final Map<String, dynamic>? initialData;
+  const ContactDetailsEditorSheet({super.key, this.initialData});
+
+  @override
+  State<ContactDetailsEditorSheet> createState() => _ContactDetailsEditorSheetState();
+}
+
+class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
   bool _isLoadingData = true;
 
   final _phoneCtrl = TextEditingController(text: '+91');
@@ -572,6 +734,7 @@ class _ContactDetailsPageState extends State<ContactDetailsPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact details successfully synced to backend!')));
+        Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
@@ -793,21 +956,48 @@ class _ContactDetailsPageState extends State<ContactDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final double modalHeight = MediaQuery.of(context).size.height * 0.75;
+
     if (_isLoadingData) {
-      return const Center(
-        child: CircularProgressIndicator(color: Color(0xFF6A11CB)),
+      return SizedBox(
+        height: modalHeight,
+        child: const Center(
+          child: CircularProgressIndicator(color: Color(0xFF6A11CB)),
+        ),
       );
     }
 
-    return ListView(
-      padding: const EdgeInsets.all(24.0),
-      children: [
-        const Text('Contact Information', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF6A11CB))),
-        const SizedBox(height: 8),
-        const Text('Fill out your communication lines and exact addresses.', style: TextStyle(color: Colors.black54)),
-        const SizedBox(height: 32),
-
-        _buildTextField('Phone Number', _phoneCtrl, isNumber: true, maxLength: 13),
+    return SizedBox(
+      height: modalHeight,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Edit Contacts', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF6A11CB))),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.black54),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Text('Fill out your communication lines and exact addresses.', style: TextStyle(color: Colors.black54)),
+                const Divider(height: 32),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              children: [
+                _buildTextField('Phone Number', _phoneCtrl, isNumber: true, maxLength: 13),
         Row(
           children: [
             Checkbox(
@@ -816,7 +1006,11 @@ class _ContactDetailsPageState extends State<ContactDetailsPage> {
               onChanged: (val) {
                 setState(() {
                   _sameAsPhone = val ?? false;
-                  if (_sameAsPhone) _whatsappCtrl.text = _phoneCtrl.text;
+                  if (_sameAsPhone) {
+                    _whatsappCtrl.text = _phoneCtrl.text;
+                  } else {
+                    _whatsappCtrl.text = '+91 ';
+                  }
                 });
               },
             ),
@@ -888,7 +1082,11 @@ class _ContactDetailsPageState extends State<ContactDetailsPage> {
           ),
         ),
         const SizedBox(height: 100), // spacing for bottom dock
-      ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
