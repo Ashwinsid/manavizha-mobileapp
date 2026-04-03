@@ -188,10 +188,91 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
     );
   }
 
-  ImageProvider _getImageProvider(dynamic fileOrUrl) {
-    if (fileOrUrl is String) return NetworkImage(fileOrUrl);
-    if (fileOrUrl is XFile) return FileImage(File(fileOrUrl.path));
-    throw Exception('Unknown image type');
+  Widget _buildImageWidget(dynamic fileOrUrl, BoxFit fit) {
+    if (fileOrUrl is String) {
+      return Image.network(
+        fileOrUrl, 
+        fit: fit, 
+        errorBuilder: (context, error, stackTrace) => Center(child: Icon(Icons.broken_image, color: Colors.black.withOpacity(0.3), size: 40)),
+      );
+    }
+    if (fileOrUrl is XFile) {
+      return Image.file(
+        File(fileOrUrl.path), 
+        fit: fit, 
+        errorBuilder: (context, error, stackTrace) => Center(child: Icon(Icons.broken_image, color: Colors.black.withOpacity(0.3), size: 40)),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  void _showImageViewer(dynamic fileOrUrl) {
+    if (fileOrUrl == null) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.black,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height * 0.85,
+            child: Column(
+              children: [
+                Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8.0, top: 8.0),
+                    child: IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: InteractiveViewer(
+                    panEnabled: true,
+                    minScale: 1.0,
+                    maxScale: 4.0,
+                    child: Center(
+                      child: _buildImageWidget(fileOrUrl, BoxFit.contain),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmDelete(String title, VoidCallback onConfirm) async {
+    final bool? shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Remove Photo?'),
+          content: Text('Are you sure you want to remove this $title?'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete == true) {
+      onConfirm();
+    }
   }
 
   Widget _buildPhotoSlot(dynamic fileOrUrl, String label, String category, {double size = 100}) {
@@ -203,7 +284,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
       );
     }
     return GestureDetector(
-      onTap: _isEditing ? () => _showPickerOptions(category) : null,
+      onTap: _isEditing ? () => _showPickerOptions(category) : (fileOrUrl != null ? () => _showImageViewer(fileOrUrl) : null),
       child: Container(
         width: size,
         height: size,
@@ -215,12 +296,6 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
             width: 2,
             style: fileOrUrl != null ? BorderStyle.solid : BorderStyle.none,
           ),
-          image: fileOrUrl != null 
-            ? DecorationImage(
-                image: _getImageProvider(fileOrUrl),
-                fit: BoxFit.cover,
-              )
-            : null,
         ),
         child: fileOrUrl == null
             ? Column(
@@ -231,24 +306,36 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
                   Text(label, style: const TextStyle(fontSize: 10, color: Colors.black45, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
                 ],
               )
-            : (_isEditing ? Align(
-                alignment: Alignment.topRight,
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      if (category == 'family') familyPhoto = null;
-                      if (category == 'aadhar_front') aadharFront = null;
-                      if (category == 'aadhar_back') aadharBack = null;
-                    });
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.all(4),
-                    padding: const EdgeInsets.all(4),
-                    decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                    child: const Icon(Icons.close, color: Colors.white, size: 14),
+            : Stack(
+                fit: StackFit.expand,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: _buildImageWidget(fileOrUrl, BoxFit.cover),
                   ),
-                ),
-              ) : null),
+                  if (_isEditing)
+                    Align(
+                      alignment: Alignment.topRight,
+                      child: GestureDetector(
+                        onTap: () {
+                          _confirmDelete(label.replaceAll('\n', ' ').toLowerCase(), () {
+                            setState(() {
+                              if (category == 'family') familyPhoto = null;
+                              if (category == 'aadhar_front') aadharFront = null;
+                              if (category == 'aadhar_back') aadharBack = null;
+                            });
+                          });
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.all(4),
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                          child: const Icon(Icons.close, color: Colors.white, size: 14),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
       ),
     );
   }
@@ -257,30 +344,39 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
     if (index < profilePhotos.length) {
       final item = profilePhotos[index];
       return GestureDetector(
-        onTap: _isEditing ? () => _showPickerOptions('profile') : null,
+        onTap: _isEditing ? () => _showPickerOptions('profile') : () => _showImageViewer(item),
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: const Color(0xFF6A11CB), width: 2),
-            image: DecorationImage(
-              image: _getImageProvider(item),
-              fit: BoxFit.cover,
-            ),
+            color: const Color(0xFFF0F0F5),
           ),
-          child: _isEditing ? Align(
-            alignment: Alignment.topRight,
-            child: GestureDetector(
-              onTap: () {
-                setState(() => profilePhotos.removeAt(index));
-              },
-              child: Container(
-                margin: const EdgeInsets.all(4),
-                padding: const EdgeInsets.all(4),
-                decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                child: const Icon(Icons.close, color: Colors.white, size: 14),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: _buildImageWidget(item, BoxFit.cover),
               ),
-            ),
-          ) : null,
+              if (_isEditing)
+                Align(
+                  alignment: Alignment.topRight,
+                  child: GestureDetector(
+                    onTap: () {
+                      _confirmDelete('profile photo', () {
+                        setState(() => profilePhotos.removeAt(index));
+                      });
+                    },
+                    child: Container(
+                      margin: const EdgeInsets.all(4),
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                      child: const Icon(Icons.close, color: Colors.white, size: 14),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       );
     } else if (index == profilePhotos.length) {
@@ -314,8 +410,13 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
       final ext = item.path.split('.').last.toLowerCase();
       final bytes = await item.readAsBytes();
       final path = '$userId/${prefix}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      
+      String mimeType = 'image/jpeg';
+      if (ext == 'png') mimeType = 'image/png';
+      else if (ext == 'webp') mimeType = 'image/webp';
+
       await Supabase.instance.client.storage.from(bucket).uploadBinary(
-        path, bytes, fileOptions: const FileOptions(upsert: true, contentType: 'image/*'),
+        path, bytes, fileOptions: FileOptions(upsert: true, contentType: mimeType),
       );
       return await Supabase.instance.client.storage.from(bucket).createSignedUrl(path, 31536000);
     }
@@ -359,7 +460,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
         'aadhar_front': aadharFrontUrl,
         'aadhar_back': aadharBackUrl,
         'updated_at': DateTime.now().toIso8601String(),
-      });
+      }, onConflict: 'user_id');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Photos verified and saved successfully!')));
