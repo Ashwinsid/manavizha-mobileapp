@@ -49,6 +49,18 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
   List<String> _indianLanguages = ['Tamil', 'English', 'Hindi', 'Telugu', 'Malayalam', 'Kannada'];
   List<String> _internationalLanguages = ['English', 'French', 'German', 'Spanish'];
 
+  // Social Habits State
+  String? _selectedSmoking;
+  String? _selectedDrinking;
+  String? _selectedParties;
+  String? _selectedPubs;
+
+  // Social Master Data
+  List<String> _smokingOptions = ['Never', 'Occasional', 'Regular'];
+  List<String> _drinkingOptions = ['Never', 'Occasional', 'Regular'];
+  List<String> _partiesOptions = ['Never', 'Occasional', 'Regular'];
+  List<String> _pubsOptions = ['Never', 'Occasional', 'Regular'];
+
   @override
   void initState() {
     super.initState();
@@ -60,6 +72,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       _fetchProfilePhoto(),
       _fetchMasterData(),
       _fetchPersonalDetails(),
+      _fetchSocialHabits(),
     ]);
     if (mounted) setState(() => _isLoadingData = false);
   }
@@ -76,6 +89,10 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
         supabase.from('master_food_preferences').select('value'),
         supabase.from('master_indian_languages').select('value'),
         supabase.from('master_international_languages').select('value'),
+        supabase.from('master_smoking').select('value'),
+        supabase.from('master_drinking').select('value'),
+        supabase.from('master_parties').select('value'),
+        supabase.from('master_pubs').select('value'),
       ]);
 
       if (mounted) {
@@ -87,6 +104,19 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
           if ((results[4] as List).isNotEmpty) _foodPreferenceOptions = (results[4] as List).map((e) => e['value'] as String).toList();
           if ((results[5] as List).isNotEmpty) _indianLanguages = (results[5] as List).map((e) => e['value'] as String).toList();
           if ((results[6] as List).isNotEmpty) _internationalLanguages = (results[6] as List).map((e) => e['value'] as String).toList();
+          
+          if (results[7] is List && (results[7] as List).isNotEmpty) {
+            _smokingOptions = (results[7] as List).map((e) => e['value'] as String).toList();
+          }
+          if (results[8] is List && (results[8] as List).isNotEmpty) {
+            _drinkingOptions = (results[8] as List).map((e) => e['value'] as String).toList();
+          }
+          if (results[9] is List && (results[9] as List).isNotEmpty) {
+            _partiesOptions = (results[9] as List).map((e) => e['value'] as String).toList();
+          }
+          if (results[10] is List && (results[10] as List).isNotEmpty) {
+            _pubsOptions = (results[10] as List).map((e) => e['value'] as String).toList();
+          }
         });
       }
     } catch (e) {
@@ -128,6 +158,30 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     }
   }
 
+  Future<void> _fetchSocialHabits() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+
+      final data = await Supabase.instance.client
+          .from('social_habits')
+          .select()
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (data != null && mounted) {
+        setState(() {
+          _selectedSmoking = data['smoking'];
+          _selectedDrinking = data['drinking'];
+          _selectedParties = data['parties'];
+          _selectedPubs = data['pubs'];
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching social habits: $e');
+    }
+  }
+
   Future<void> _fetchProfilePhoto() async {
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
@@ -166,6 +220,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     }
     _ageCtrl.text = age.toString();
   }
+
+  final _socialFormKey = GlobalKey<FormState>();
 
   Future<void> _savePersonalDetails() async {
     // Validation
@@ -230,6 +286,40 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     }
   }
 
+  Future<void> _saveSocialHabits() async {
+    if (!(_socialFormKey.currentState?.validate() ?? false)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select all social habits')));
+      return;
+    }
+
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+
+      setState(() => _isLoadingData = true);
+
+      await Supabase.instance.client.from('social_habits').upsert({
+        'user_id': userId,
+        'smoking': _selectedSmoking,
+        'drinking': _selectedDrinking,
+        'parties': _selectedParties,
+        'pubs': _selectedPubs,
+        'updated_at': DateTime.now().toIso8601String(),
+      }, onConflict: 'user_id');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Social habits saved successfully!')));
+        Navigator.pop(context); 
+        _fetchSocialHabits();
+      }
+    } catch (e) {
+      debugPrint('Error saving social habits: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to save social habits')));
+    } finally {
+      if (mounted) setState(() => _isLoadingData = false);
+    }
+  }
+
   Widget _buildTextField(String label, TextEditingController controller, {bool readOnly = false, bool isNumber = false, int? maxLength, int maxLines = 1}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -252,13 +342,17 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     );
   }
 
-  Widget _buildDropdownField(String label, String? value, List<String> options, ValueChanged<String?> onChanged) {
+  Widget _buildDropdownField(String label, String? value, List<String> options, ValueChanged<String?> onChanged, {String? Function(String?)? validator}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: DropdownButtonFormField<String>(
         value: (value != null && options.contains(value)) ? value : null,
         onChanged: onChanged,
         hint: Text('Select $label'),
+        validator: validator ?? (val) {
+          if (val == null || val.isEmpty) return '$label is required';
+          return null;
+        },
         decoration: InputDecoration(
           labelText: label,
           isDense: true,
@@ -460,6 +554,71 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     );
   }
 
+  void _showSocialHabitsEditor() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.6,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                children: [
+                  const SizedBox(height: 12),
+                  Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2))),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Edit Social Habits', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                    ],
+                  ),
+                  const Divider(),
+                  Expanded(
+                    child: Form(
+                      key: _socialFormKey,
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.only(bottom: 40, top: 10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildDropdownField('Smoking', _selectedSmoking, _smokingOptions, (val) => setModalState(() => _selectedSmoking = val)),
+                            _buildDropdownField('Drinking', _selectedDrinking, _drinkingOptions, (val) => setModalState(() => _selectedDrinking = val)),
+                            _buildDropdownField('Parties', _selectedParties, _partiesOptions, (val) => setModalState(() => _selectedParties = val)),
+                            _buildDropdownField('Pubs', _selectedPubs, _pubsOptions, (val) => setModalState(() => _selectedPubs = val)),
+                            
+                            const SizedBox(height: 32),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _saveSocialHabits,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF6A11CB),
+                                  padding: const EdgeInsets.all(16),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                ),
+                                child: const Text('Save Social Habits', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListView(
@@ -570,6 +729,44 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       onPressed: _showBasicDetailsEditor,
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit Details'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF6A11CB),
+                        side: const BorderSide(color: Color(0xFF6A11CB)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ] else if (title == 'Social Habits') ...[
+                  _buildDataRow('Smoking', _selectedSmoking),
+                  _buildDataRow('Drinking', _selectedDrinking),
+                  _buildDataRow('Parties', _selectedParties),
+                  _buildDataRow('Pubs', _selectedPubs),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _showSocialHabitsEditor,
+                      icon: const Icon(Icons.edit, size: 16),
+                      label: const Text('Edit Social Habits'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF6A11CB),
+                        side: const BorderSide(color: Color(0xFF6A11CB)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ] else if (title == 'Social Habits') ...[
+                  _buildDataRow('Smoking', _selectedSmoking),
+                  _buildDataRow('Drinking', _selectedDrinking),
+                  _buildDataRow('Parties', _selectedParties),
+                  _buildDataRow('Pubs', _selectedPubs),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _showSocialHabitsEditor,
+                      icon: const Icon(Icons.edit, size: 16),
+                      label: const Text('Edit Social Habits'),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFF6A11CB),
                         side: const BorderSide(color: Color(0xFF6A11CB)),
