@@ -61,6 +61,12 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
   List<String> _partiesOptions = ['Never', 'Occasional', 'Regular'];
   List<String> _pubsOptions = ['Never', 'Occasional', 'Regular'];
 
+  // Interests (hobbies + interests from master tables, stored in `interests`)
+  List<String> _selectedHobbies = [];
+  List<String> _selectedInterests = [];
+  List<String> _hobbyMasterOptions = [];
+  List<String> _interestMasterOptions = [];
+
   @override
   void initState() {
     super.initState();
@@ -73,6 +79,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       _fetchMasterData(),
       _fetchPersonalDetails(),
       _fetchSocialHabits(),
+      _fetchInterestsDetails(),
     ]);
     if (mounted) setState(() => _isLoadingData = false);
   }
@@ -93,6 +100,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
         supabase.from('master_drinking').select('value'),
         supabase.from('master_parties').select('value'),
         supabase.from('master_pubs').select('value'),
+        supabase.from('master_hobbies').select('value'),
+        supabase.from('master_interests').select('value'),
       ]);
 
       if (mounted) {
@@ -116,6 +125,12 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
           }
           if (results[10] is List && (results[10] as List).isNotEmpty) {
             _pubsOptions = (results[10] as List).map((e) => e['value'] as String).toList();
+          }
+          if (results[11] is List && (results[11] as List).isNotEmpty) {
+            _hobbyMasterOptions = (results[11] as List).map((e) => e['value'] as String).toList();
+          }
+          if (results[12] is List && (results[12] as List).isNotEmpty) {
+            _interestMasterOptions = (results[12] as List).map((e) => e['value'] as String).toList();
           }
         });
       }
@@ -179,6 +194,28 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       }
     } catch (e) {
       debugPrint('Error fetching social habits: $e');
+    }
+  }
+
+  Future<void> _fetchInterestsDetails() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+
+      final data = await Supabase.instance.client
+          .from('interests')
+          .select()
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (data != null && mounted) {
+        setState(() {
+          _selectedHobbies = List<String>.from(data['hobbies'] ?? []);
+          _selectedInterests = List<String>.from(data['interests'] ?? []);
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching interests: $e');
     }
   }
 
@@ -318,6 +355,236 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     } finally {
       if (mounted) setState(() => _isLoadingData = false);
     }
+  }
+
+  Future<void> _saveInterests({required List<String> hobbies, required List<String> interests}) async {
+    if (hobbies.length < 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select at least 3 hobbies')),
+      );
+      return;
+    }
+    if (interests.length < 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select at least 3 interests')),
+      );
+      return;
+    }
+
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+
+      setState(() => _isLoadingData = true);
+
+      final completionPct = (hobbies.length >= 3 && interests.length >= 3) ? 100 : 0;
+
+      await Supabase.instance.client.from('interests').upsert({
+        'user_id': userId,
+        'hobbies': hobbies,
+        'interests': interests,
+        'completion_percentage': completionPct,
+        'updated_at': DateTime.now().toIso8601String(),
+      }, onConflict: 'user_id');
+
+      if (mounted) {
+        setState(() {
+          _selectedHobbies = List<String>.from(hobbies);
+          _selectedInterests = List<String>.from(interests);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Interests saved successfully!')),
+        );
+        Navigator.pop(context);
+        _fetchInterestsDetails();
+      }
+    } catch (e) {
+      debugPrint('Error saving interests: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to save interests')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingData = false);
+    }
+  }
+
+  void _showInterestsEditor() {
+    List<String> localHobbies = List<String>.from(_selectedHobbies);
+    List<String> localInterests = List<String>.from(_selectedInterests);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              child: Container(
+                height: MediaQuery.of(context).size.height * 0.88,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.black12,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Edit Interests',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                    const Text(
+                      'Choose at least 3 hobbies and 3 interests (same as web profile setup).',
+                      style: TextStyle(color: Colors.black54, fontSize: 13),
+                    ),
+                    const Divider(height: 24),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.only(bottom: 40),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildSectionTitle('Hobbies'),
+                            if (_hobbyMasterOptions.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 16),
+                                child: Text(
+                                  'No hobby options loaded. Check master_hobbies in Supabase.',
+                                  style: TextStyle(color: Colors.black45, fontSize: 13),
+                                ),
+                              )
+                            else
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: _hobbyMasterOptions.map((h) {
+                                  final selected = localHobbies.contains(h);
+                                  return FilterChip(
+                                    label: Text(h, style: const TextStyle(fontSize: 13)),
+                                    selected: selected,
+                                    onSelected: (v) {
+                                      setModalState(() {
+                                        if (v) {
+                                          if (!localHobbies.contains(h)) localHobbies.add(h);
+                                        } else {
+                                          localHobbies.remove(h);
+                                        }
+                                      });
+                                    },
+                                    selectedColor: const Color(0xFF6A11CB).withOpacity(0.2),
+                                    checkmarkColor: const Color(0xFF6A11CB),
+                                  );
+                                }).toList(),
+                              ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '${localHobbies.length} selected (min 3)',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: localHobbies.length < 3 ? Colors.orange : Colors.grey,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            _buildSectionTitle('Interests'),
+                            if (_interestMasterOptions.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 16),
+                                child: Text(
+                                  'No interest options loaded. Check master_interests in Supabase.',
+                                  style: TextStyle(color: Colors.black45, fontSize: 13),
+                                ),
+                              )
+                            else
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: _interestMasterOptions.map((item) {
+                                  final selected = localInterests.contains(item);
+                                  return FilterChip(
+                                    label: Text(item, style: const TextStyle(fontSize: 13)),
+                                    selected: selected,
+                                    onSelected: (v) {
+                                      setModalState(() {
+                                        if (v) {
+                                          if (!localInterests.contains(item)) localInterests.add(item);
+                                        } else {
+                                          localInterests.remove(item);
+                                        }
+                                      });
+                                    },
+                                    selectedColor: const Color(0xFF6A11CB).withOpacity(0.2),
+                                    checkmarkColor: const Color(0xFF6A11CB),
+                                  );
+                                }).toList(),
+                              ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '${localInterests.length} selected (min 3)',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: localInterests.length < 3 ? Colors.orange : Colors.grey,
+                              ),
+                            ),
+                            const SizedBox(height: 32),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _isLoadingData
+                                    ? null
+                                    : () => _saveInterests(
+                                          hobbies: localHobbies,
+                                          interests: localInterests,
+                                        ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF6A11CB),
+                                  padding: const EdgeInsets.all(16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Save Interests',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Widget _buildTextField(String label, TextEditingController controller, {bool readOnly = false, bool isNumber = false, int? maxLength, int maxLines = 1}) {
@@ -736,18 +1003,59 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       ),
                     ),
                   ),
-                ] else if (title == 'Social Habits') ...[
-                  _buildDataRow('Smoking', _selectedSmoking),
-                  _buildDataRow('Drinking', _selectedDrinking),
-                  _buildDataRow('Parties', _selectedParties),
-                  _buildDataRow('Pubs', _selectedPubs),
+                ] else if (title == 'Interests') ...[
+                  const Text(
+                    'Hobbies',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: Colors.black45),
+                  ),
+                  const SizedBox(height: 8),
+                  if (_selectedHobbies.isEmpty)
+                    const Text('None selected', style: TextStyle(color: Colors.black54, fontSize: 13))
+                  else
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: _selectedHobbies
+                          .map(
+                            (h) => Chip(
+                              label: Text(h, style: const TextStyle(fontSize: 12)),
+                              backgroundColor: const Color(0xFF6A11CB).withOpacity(0.1),
+                              padding: EdgeInsets.zero,
+                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Interests',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: Colors.black45),
+                  ),
+                  const SizedBox(height: 8),
+                  if (_selectedInterests.isEmpty)
+                    const Text('None selected', style: TextStyle(color: Colors.black54, fontSize: 13))
+                  else
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: _selectedInterests
+                          .map(
+                            (item) => Chip(
+                              label: Text(item, style: const TextStyle(fontSize: 12)),
+                              backgroundColor: const Color(0xFF2575FC).withOpacity(0.12),
+                              padding: EdgeInsets.zero,
+                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          )
+                          .toList(),
+                    ),
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: _showSocialHabitsEditor,
+                      onPressed: _showInterestsEditor,
                       icon: const Icon(Icons.edit, size: 16),
-                      label: const Text('Edit Social Habits'),
+                      label: const Text('Edit Interests'),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFF6A11CB),
                         side: const BorderSide(color: Color(0xFF6A11CB)),
