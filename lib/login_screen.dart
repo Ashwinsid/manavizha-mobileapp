@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'admin_home_screen.dart';
-import 'partner_home_screen.dart';
-import 'user_home_screen.dart';
+
+import 'auth_navigation.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -42,44 +41,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (response.user != null) {
         final userId = response.user!.id;
-
-        // 1. Check if user is an admin
-        final adminData = await Supabase.instance.client
-            .from('admins')
-            .select('user_id')
-            .eq('user_id', userId)
-            .maybeSingle();
-
-        if (adminData != null && mounted) {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (context) => const AdminHomeScreen()),
-            (route) => false,
-          );
-          return;
-        }
-
-        // 2. Check if user is a referral partner
-        final partnerData = await Supabase.instance.client
-            .from('referral_partners')
-            .select('user_id')
-            .eq('user_id', userId)
-            .maybeSingle();
-
-        if (partnerData != null && mounted) {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (context) => const PartnerHomeScreen()),
-            (route) => false,
-          );
-          return;
-        }
-
-        // 3. Default to Normal User
-        if (mounted) {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (context) => const UserHomeScreen()),
-            (route) => false,
-          );
-        }
+        await Future<void>.delayed(Duration.zero);
+        if (!mounted) return;
+        await navigateToRoleHome(context, userId);
       }
     } on AuthException catch (e) {
       if (mounted) {
