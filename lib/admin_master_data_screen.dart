@@ -4,6 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 
+part 'admin_master_data_table_part.dart';
+
 // ---------------------------------------------------------------------------
 // Mirrors manavizha/constants/master-data.ts
 // ---------------------------------------------------------------------------
@@ -455,14 +457,26 @@ class AdminMasterDataScreen extends StatelessWidget {
                         onTap: () {
                           final cfg = kMasterTableConfigs[item.id];
                           if (cfg == null) return;
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (context) => MasterDataTableScreen(
+                          if (section.title == 'Personal Details') {
+                            showModalBottomSheet<void>(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              builder: (sheetContext) => MasterDataListModalSheet(
                                 stepId: item.id,
                                 config: cfg,
                               ),
-                            ),
-                          );
+                            );
+                          } else {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (context) => MasterDataTableScreen(
+                                  stepId: item.id,
+                                  config: cfg,
+                                ),
+                              ),
+                            );
+                          }
                         },
                       );
                     }).toList(),
@@ -504,6 +518,36 @@ class _MasterRow {
   }
 }
 
+class MasterDataListPanel extends StatefulWidget {
+  const MasterDataListPanel({
+    super.key,
+    required this.stepId,
+    required this.config,
+    this.listBottomPadding = 100,
+  });
+
+  final String stepId;
+  final MasterTableConfig config;
+  final double listBottomPadding;
+
+  @override
+  State<MasterDataListPanel> createState() => MasterDataListPanelState();
+}
+
+class MasterDataListPanelState extends State<MasterDataListPanel> with MasterDataListContentMixin<MasterDataListPanel> {
+  @override
+  String get masterDataStepId => widget.stepId;
+
+  @override
+  MasterTableConfig get masterDataConfig => widget.config;
+
+  @override
+  double get masterDataListBottomPadding => widget.listBottomPadding;
+
+  @override
+  Widget build(BuildContext context) => buildMasterDataListBody();
+}
+
 class MasterDataTableScreen extends StatefulWidget {
   const MasterDataTableScreen({
     super.key,
@@ -520,301 +564,7 @@ class MasterDataTableScreen extends StatefulWidget {
 
 class _MasterDataTableScreenState extends State<MasterDataTableScreen> {
   static const Color _pageBackground = Color(0xFFF8F9FE);
-
-  List<_MasterRow> _rows = [];
-  bool _loading = true;
-  String? _error;
-
-  bool get _colour => _showColourCode(widget.stepId);
-  bool get _category => _showCategory(widget.stepId);
-
-  @override
-  void initState() {
-    super.initState();
-    _fetch();
-  }
-
-  Future<void> _fetch() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final data = await Supabase.instance.client
-          .from(widget.config.tableName)
-          .select()
-          .order('created_at', ascending: true);
-      final list = (data as List<dynamic>).map((e) => _MasterRow.fromJson(Map<String, dynamic>.from(e as Map))).toList();
-      if (mounted) {
-        setState(() {
-          _rows = list;
-          _loading = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('Master data fetch error: $e');
-      if (mounted) {
-        setState(() {
-          _error = 'Could not load data. Check permissions and table name.';
-          _loading = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _openEditor({_MasterRow? existing}) async {
-    final valueCtrl = TextEditingController(text: existing?.value ?? '');
-    final colourCtrl = TextEditingController(text: existing?.colourCode ?? '');
-    final categoryCtrl = TextEditingController(text: existing?.category ?? '');
-    final isEdit = existing != null;
-
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-          child: StatefulBuilder(
-            builder: (context, setModal) {
-              return SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.black12,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      isEdit ? 'Edit ${widget.config.title}' : widget.config.dialogTitle,
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      isEdit
-                          ? 'Update the ${widget.config.title.toLowerCase()} value below.'
-                          : widget.config.dialogDescription,
-                      style: TextStyle(fontSize: 14, color: Colors.black.withValues(alpha: 0.55)),
-                    ),
-                    const SizedBox(height: 20),
-                    if (_category) ...[
-                      TextField(
-                        controller: categoryCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Category',
-                          hintText: 'Enter category',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                    TextField(
-                      controller: valueCtrl,
-                      decoration: InputDecoration(
-                        labelText: '${widget.config.title} value',
-                        hintText: widget.config.inputPlaceholder,
-                        border: const OutlineInputBorder(),
-                      ),
-                    ),
-                    if (_colour) ...[
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: colourCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Colour code (HEX)',
-                          hintText: '#FF5733 or #F53',
-                          border: OutlineInputBorder(),
-                        ),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(RegExp(r'[#A-Fa-f0-9]')),
-                          LengthLimitingTextInputFormatter(7),
-                        ],
-                        onChanged: (v) {
-                          if (v.isNotEmpty && !v.startsWith('#')) {
-                            colourCtrl.text = '#$v';
-                            colourCtrl.selection = TextSelection.collapsed(offset: colourCtrl.text.length);
-                          }
-                          setModal(() {});
-                        },
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Enter a valid HEX color code (e.g., #FF5733 or #F53)',
-                        style: TextStyle(fontSize: 12, color: Colors.black.withValues(alpha: 0.45)),
-                      ),
-                      if (_tryParseHex(colourCtrl.text) != null) ...[
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: _tryParseHex(colourCtrl.text),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.black12),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ],
-                    const SizedBox(height: 24),
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AdminHomeScreen.brandPurple,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      onPressed: () async {
-                        final ok = await _saveRow(
-                          context: ctx,
-                          existingId: existing?.id,
-                          valueCtrl: valueCtrl,
-                          colourCtrl: colourCtrl,
-                          categoryCtrl: categoryCtrl,
-                        );
-                        if (ok == true && ctx.mounted) Navigator.of(ctx).pop(true);
-                      },
-                      child: Text(isEdit ? 'Update' : 'Save'),
-                    ),
-                    const SizedBox(height: 8),
-                    TextButton(
-                      onPressed: () => Navigator.of(ctx).pop(false),
-                      child: const Text('Cancel'),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        );
-      },
-    );
-
-    valueCtrl.dispose();
-    colourCtrl.dispose();
-    categoryCtrl.dispose();
-
-    if (saved == true && mounted) await _fetch();
-  }
-
-  Future<bool?> _saveRow({
-    required BuildContext context,
-    required String? existingId,
-    required TextEditingController valueCtrl,
-    required TextEditingController colourCtrl,
-    required TextEditingController categoryCtrl,
-  }) async {
-    final v = valueCtrl.text.trim();
-    if (v.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please enter a ${widget.config.title.toLowerCase()} value')),
-      );
-      return false;
-    }
-
-    if (_colour) {
-      final hex = colourCtrl.text.trim().toUpperCase();
-      if (hex.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a colour code (HEX)')));
-        return false;
-      }
-      if (!_hexPattern.hasMatch(hex)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter a valid HEX color code (e.g., #FF5733 or #F53)')),
-        );
-        return false;
-      }
-    }
-
-    if (_category && categoryCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a category')));
-      return false;
-    }
-
-    final payload = <String, dynamic>{'value': v};
-    if (_colour) {
-      payload['colour_code'] = colourCtrl.text.trim().toUpperCase();
-    }
-    if (_category) {
-      payload['category'] = categoryCtrl.text.trim();
-    }
-
-    try {
-      if (existingId != null) {
-        await Supabase.instance.client.from(widget.config.tableName).update(payload).eq('id', existingId);
-      } else {
-        await Supabase.instance.client.from(widget.config.tableName).insert(payload);
-      }
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(existingId != null ? 'Updated successfully' : 'Added successfully')),
-        );
-      }
-      return true;
-    } catch (e) {
-      debugPrint('Master data save error: $e');
-      if (e is PostgrestException && e.code == '23505') {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('This ${widget.config.title.toLowerCase()} value already exists')),
-          );
-        }
-      } else {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to save: ${e is PostgrestException ? e.message : e}')),
-          );
-        }
-      }
-      return false;
-    }
-  }
-
-  Future<void> _confirmDelete(_MasterRow row) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Delete ${widget.config.title} value'),
-        content: Text('Are you sure you want to delete "${row.value}"? This cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-
-    try {
-      await Supabase.instance.client.from(widget.config.tableName).delete().eq('id', row.id);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Deleted')));
-        await _fetch();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to delete: $e')),
-        );
-      }
-    }
-  }
+  final GlobalKey<MasterDataListPanelState> _panelKey = GlobalKey<MasterDataListPanelState>();
 
   @override
   Widget build(BuildContext context) {
@@ -841,137 +591,143 @@ class _MasterDataTableScreenState extends State<MasterDataTableScreen> {
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             color: AdminHomeScreen.brandPurple,
-            onPressed: _loading ? null : _fetch,
+            onPressed: () => _panelKey.currentState?.refreshList(),
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openEditor(),
+        onPressed: () => _panelKey.currentState?.openAdd(),
         backgroundColor: AdminHomeScreen.brandPurple,
         icon: const Icon(Icons.add_rounded),
         label: Text(widget.config.addButtonText),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AdminHomeScreen.brandPurple))
-          : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(_error!, textAlign: TextAlign.center),
-                  ),
-                )
-              : RefreshIndicator(
-                  color: AdminHomeScreen.brandPurple,
-                  onRefresh: _fetch,
-                  child: _rows.isEmpty
-                      ? ListView(
-                          children: [
-                            SizedBox(height: MediaQuery.of(context).size.height * 0.2),
-                            Icon(Icons.inbox_outlined, size: 56, color: Colors.black.withValues(alpha: 0.2)),
-                            const SizedBox(height: 16),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 32),
-                              child: Text(
-                                'No ${widget.config.title.toLowerCase()} values yet. Tap "${widget.config.addButtonText}" to add one.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.black.withValues(alpha: 0.5), height: 1.4),
-                              ),
-                            ),
-                          ],
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                          itemCount: _rows.length,
-                          separatorBuilder: (context, index) => const SizedBox(height: 8),
-                          itemBuilder: (context, index) {
-                            final row = _rows[index];
-                            final swatch = _tryParseHex(row.colourCode);
-                            return Material(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(16),
-                                onTap: () => _openEditor(existing: row),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      SizedBox(
-                                        width: 28,
-                                        child: Text(
-                                          '${index + 1}.',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            color: Colors.black.withValues(alpha: 0.35),
-                                          ),
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            if (_category && (row.category ?? '').isNotEmpty)
-                                              Padding(
-                                                padding: const EdgeInsets.only(bottom: 4),
-                                                child: Text(
-                                                  row.category!,
-                                                  style: TextStyle(
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: AdminHomeScreen.brandPurple.withValues(alpha: 0.85),
-                                                  ),
-                                                ),
-                                              ),
-                                            Text(
-                                              row.value,
-                                              style: const TextStyle(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.w600,
-                                                color: Color(0xFF1E1E1E),
-                                              ),
-                                            ),
-                                            if (_colour) ...[
-                                              const SizedBox(height: 8),
-                                              Row(
-                                                children: [
-                                                  if (swatch != null)
-                                                    Container(
-                                                      width: 28,
-                                                      height: 28,
-                                                      margin: const EdgeInsets.only(right: 8),
-                                                      decoration: BoxDecoration(
-                                                        color: swatch,
-                                                        borderRadius: BorderRadius.circular(6),
-                                                        border: Border.all(color: Colors.black12),
-                                                      ),
-                                                    ),
-                                                  Text(
-                                                    row.colourCode ?? '—',
-                                                    style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-                                                  ),
-                                                ],
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                      ),
-                                      IconButton(
-                                        icon: Icon(Icons.edit_outlined, color: AdminHomeScreen.brandPurple.withValues(alpha: 0.85)),
-                                        onPressed: () => _openEditor(existing: row),
-                                      ),
-                                      IconButton(
-                                        icon: Icon(Icons.delete_outline_rounded, color: Colors.red.shade400),
-                                        onPressed: () => _confirmDelete(row),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
+      body: MasterDataListPanel(
+        key: _panelKey,
+        stepId: widget.stepId,
+        config: widget.config,
+        listBottomPadding: 100,
+      ),
+    );
+  }
+}
+
+/// Large bottom sheet for Personal Details master lists (matches profile modal pattern).
+class MasterDataListModalSheet extends StatefulWidget {
+  const MasterDataListModalSheet({
+    super.key,
+    required this.stepId,
+    required this.config,
+  });
+
+  final String stepId;
+  final MasterTableConfig config;
+
+  @override
+  State<MasterDataListModalSheet> createState() => _MasterDataListModalSheetState();
+}
+
+class _MasterDataListModalSheetState extends State<MasterDataListModalSheet>
+    with MasterDataListContentMixin<MasterDataListModalSheet> {
+  @override
+  String get masterDataStepId => widget.stepId;
+
+  @override
+  MasterTableConfig get masterDataConfig => widget.config;
+
+  @override
+  double get masterDataListBottomPadding => 16 + MediaQuery.of(context).padding.bottom;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top > 0 ? 8 : 0),
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.9,
+        decoration: const BoxDecoration(
+          color: Color(0xFFF8F9FE),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 10),
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.black12,
+                  borderRadius: BorderRadius.circular(2),
                 ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 8, 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.config.title,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: AdminHomeScreen.brandPurple,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Swipe down or tap close when done.',
+                          style: TextStyle(fontSize: 12, color: Colors.black.withValues(alpha: 0.45)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.refresh_rounded),
+                    color: AdminHomeScreen.brandPurple,
+                    tooltip: 'Refresh',
+                    onPressed: () => refreshList(),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle_outline_rounded),
+                    color: AdminHomeScreen.brandPurple,
+                    tooltip: widget.config.addButtonText,
+                    onPressed: () => openAdd(),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    color: Colors.black54,
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            Divider(height: 1, color: Colors.black.withValues(alpha: 0.06)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => openAdd(),
+                  icon: const Icon(Icons.add_rounded),
+                  label: Text(widget.config.addButtonText),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AdminHomeScreen.brandPurple,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+            ),
+            Expanded(child: buildMasterDataListBody()),
+          ],
+        ),
+      ),
     );
   }
 }
