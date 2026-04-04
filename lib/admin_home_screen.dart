@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'admin_accounts_screen.dart';
+import 'admin_manage_profiles_screen.dart';
 import 'admin_master_data_screen.dart';
 import 'welcome_screen.dart';
 
@@ -305,11 +306,14 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                           iconColor: _brandPurple,
                           title: 'Manage profiles',
                           subtitle: 'View users who have not completed their profile stages',
-                          onTap: () => _openFeature(
-                            context,
-                            'Manage profiles',
-                            'Profile funnel and stage completion tools will be added here to match the web admin.',
-                          ),
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (context) =>
+                                    const AdminManageProfilesScreen(),
+                              ),
+                            );
+                          },
                         ),
                         const SizedBox(height: 10),
                         _ActionTile(
