@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'admin_accounts_screen.dart';
 import 'admin_master_data_screen.dart';
 import 'welcome_screen.dart';
 
@@ -316,12 +317,14 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                           iconBg: const Color(0xFF2563EB).withValues(alpha: 0.1),
                           iconColor: const Color(0xFF2563EB),
                           title: 'Accounts',
-                          subtitle: 'Manage user accounts, profiles, and access permissions',
-                          onTap: () => _openFeature(
-                            context,
-                            'Accounts',
-                            'Account management will be available in a future update.',
-                          ),
+                          subtitle: 'Admins and referral partners — roles, referrals, and access',
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (context) => const AdminAccountsScreen(),
+                              ),
+                            );
+                          },
                         ),
                         const SizedBox(height: 10),
                         _ActionTile(
