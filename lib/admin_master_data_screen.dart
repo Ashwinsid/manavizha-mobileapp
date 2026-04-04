@@ -457,26 +457,15 @@ class AdminMasterDataScreen extends StatelessWidget {
                         onTap: () {
                           final cfg = kMasterTableConfigs[item.id];
                           if (cfg == null) return;
-                          if (section.title == 'Personal Details') {
-                            showModalBottomSheet<void>(
-                              context: context,
-                              isScrollControlled: true,
-                              backgroundColor: Colors.transparent,
-                              builder: (sheetContext) => MasterDataListModalSheet(
-                                stepId: item.id,
-                                config: cfg,
-                              ),
-                            );
-                          } else {
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (context) => MasterDataTableScreen(
-                                  stepId: item.id,
-                                  config: cfg,
-                                ),
-                              ),
-                            );
-                          }
+                          showModalBottomSheet<void>(
+                            context: context,
+                            isScrollControlled: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (sheetContext) => MasterDataListModalSheet(
+                              stepId: item.id,
+                              config: cfg,
+                            ),
+                          );
                         },
                       );
                     }).toList(),
@@ -518,100 +507,7 @@ class _MasterRow {
   }
 }
 
-class MasterDataListPanel extends StatefulWidget {
-  const MasterDataListPanel({
-    super.key,
-    required this.stepId,
-    required this.config,
-    this.listBottomPadding = 100,
-  });
-
-  final String stepId;
-  final MasterTableConfig config;
-  final double listBottomPadding;
-
-  @override
-  State<MasterDataListPanel> createState() => MasterDataListPanelState();
-}
-
-class MasterDataListPanelState extends State<MasterDataListPanel> with MasterDataListContentMixin<MasterDataListPanel> {
-  @override
-  String get masterDataStepId => widget.stepId;
-
-  @override
-  MasterTableConfig get masterDataConfig => widget.config;
-
-  @override
-  double get masterDataListBottomPadding => widget.listBottomPadding;
-
-  @override
-  Widget build(BuildContext context) => buildMasterDataListBody();
-}
-
-class MasterDataTableScreen extends StatefulWidget {
-  const MasterDataTableScreen({
-    super.key,
-    required this.stepId,
-    required this.config,
-  });
-
-  final String stepId;
-  final MasterTableConfig config;
-
-  @override
-  State<MasterDataTableScreen> createState() => _MasterDataTableScreenState();
-}
-
-class _MasterDataTableScreenState extends State<MasterDataTableScreen> {
-  static const Color _pageBackground = Color(0xFFF8F9FE);
-  final GlobalKey<MasterDataListPanelState> _panelKey = GlobalKey<MasterDataListPanelState>();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _pageBackground,
-      appBar: AppBar(
-        backgroundColor: _pageBackground,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          color: AdminHomeScreen.brandPurple,
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(
-          widget.config.title,
-          style: const TextStyle(
-            fontWeight: FontWeight.w800,
-            color: AdminHomeScreen.brandPurple,
-            fontSize: 18,
-          ),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            color: AdminHomeScreen.brandPurple,
-            onPressed: () => _panelKey.currentState?.refreshList(),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _panelKey.currentState?.openAdd(),
-        backgroundColor: AdminHomeScreen.brandPurple,
-        icon: const Icon(Icons.add_rounded),
-        label: Text(widget.config.addButtonText),
-      ),
-      body: MasterDataListPanel(
-        key: _panelKey,
-        stepId: widget.stepId,
-        config: widget.config,
-        listBottomPadding: 100,
-      ),
-    );
-  }
-}
-
-/// Large bottom sheet for Personal Details master lists (matches profile modal pattern).
+/// Large bottom sheet for any master list (matches profile modal pattern).
 class MasterDataListModalSheet extends StatefulWidget {
   const MasterDataListModalSheet({
     super.key,

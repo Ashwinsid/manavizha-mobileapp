@@ -1,6 +1,6 @@
 part of 'admin_master_data_screen.dart';
 
-/// Shared list + CRUD for [MasterDataListPanel] and [MasterDataListModalSheet].
+/// Shared list + CRUD for [MasterDataListModalSheet].
 /// Avoids [GlobalKey] on the modal path (fixes `_dependents.isEmpty` when swiping the sheet closed).
 mixin MasterDataListContentMixin<T extends StatefulWidget> on State<T> {
   String get masterDataStepId;
