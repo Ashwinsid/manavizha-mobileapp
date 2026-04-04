@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'admin_master_data_screen.dart';
 import 'welcome_screen.dart';
 
 class AdminHomeScreen extends StatefulWidget {
@@ -329,11 +330,13 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                           iconColor: const Color(0xFF4338CA),
                           title: 'Master data',
                           subtitle: 'Access and manage all platform data and configurations',
-                          onTap: () => _openFeature(
-                            context,
-                            'Master data',
-                            'Master data tables and editors will be available in a future update.',
-                          ),
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (context) => const AdminMasterDataScreen(),
+                              ),
+                            );
+                          },
                         ),
                         const SizedBox(height: 10),
                         _ActionTile(
