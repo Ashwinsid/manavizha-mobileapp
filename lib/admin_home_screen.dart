@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'admin_accounts_screen.dart';
 import 'admin_identity_verification_screen.dart';
 import 'admin_manage_profiles_screen.dart';
+import 'admin_profiles_screen.dart';
 import 'admin_master_data_screen.dart';
 import 'welcome_screen.dart';
 
@@ -246,11 +247,18 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                             value: _totalProfiles,
                             icon: Icons.groups_rounded,
                             accent: _brandPurple,
-                            onTap: () => _openFeature(
-                              context,
-                              'Profiles',
-                              'Browse and filter all user profiles. This will mirror the web admin profiles list in a future update.',
-                            ),
+                            onTap: () {
+                              Navigator.of(context)
+                                  .push(
+                                MaterialPageRoute<void>(
+                                  builder: (context) =>
+                                      const AdminProfilesScreen(),
+                                ),
+                              )
+                                  .then((_) {
+                                if (mounted) _loadStats();
+                              });
+                            },
                           ),
                           const SizedBox(height: 10),
                           Row(
@@ -262,11 +270,20 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                                   icon: Icons.person_rounded,
                                   accent: const Color(0xFF2563EB),
                                   compact: true,
-                                  onTap: () => _openFeature(
-                                    context,
-                                    'Profiles — men',
-                                    'Filter profiles by male users. Coming soon in the mobile admin.',
-                                  ),
+                                  onTap: () {
+                                    Navigator.of(context)
+                                        .push(
+                                      MaterialPageRoute<void>(
+                                        builder: (context) =>
+                                            const AdminProfilesScreen(
+                                          genderFilter: 'Male',
+                                        ),
+                                      ),
+                                    )
+                                        .then((_) {
+                                      if (mounted) _loadStats();
+                                    });
+                                  },
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -277,11 +294,20 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                                   icon: Icons.person_rounded,
                                   accent: const Color(0xFFDB2777),
                                   compact: true,
-                                  onTap: () => _openFeature(
-                                    context,
-                                    'Profiles — women',
-                                    'Filter profiles by female users. Coming soon in the mobile admin.',
-                                  ),
+                                  onTap: () {
+                                    Navigator.of(context)
+                                        .push(
+                                      MaterialPageRoute<void>(
+                                        builder: (context) =>
+                                            const AdminProfilesScreen(
+                                          genderFilter: 'Female',
+                                        ),
+                                      ),
+                                    )
+                                        .then((_) {
+                                      if (mounted) _loadStats();
+                                    });
+                                  },
                                 ),
                               ),
                             ],
