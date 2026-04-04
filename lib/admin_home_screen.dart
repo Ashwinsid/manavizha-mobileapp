@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'admin_accounts_screen.dart';
+import 'admin_identity_verification_screen.dart';
 import 'admin_manage_profiles_screen.dart';
 import 'admin_master_data_screen.dart';
 import 'welcome_screen.dart';
@@ -181,11 +182,18 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                               color: _brandPurple.withValues(alpha: 0.08),
                               borderRadius: BorderRadius.circular(14),
                               child: InkWell(
-                                onTap: () => _openFeature(
-                                  context,
-                                  'Verification queue',
-                                  'Review and approve pending identity verifications. Full review tools will be available in a future app update.',
-                                ),
+                                onTap: () {
+                                  Navigator.of(context)
+                                      .push(
+                                    MaterialPageRoute<void>(
+                                      builder: (context) =>
+                                          const AdminIdentityVerificationScreen(),
+                                    ),
+                                  )
+                                      .then((_) {
+                                    if (mounted) _loadStats();
+                                  });
+                                },
                                 borderRadius: BorderRadius.circular(14),
                                 child: Padding(
                                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -366,11 +374,18 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                           title: 'Identity verification',
                           subtitle: 'Review and approve pending identity status for users',
                           badgeCount: _pendingVerifications > 0 ? _pendingVerifications : null,
-                          onTap: () => _openFeature(
-                            context,
-                            'Identity verification',
-                            'Review pending ID documents and approve or reject verifications. Full workflow coming soon.',
-                          ),
+                          onTap: () {
+                            Navigator.of(context)
+                                .push(
+                              MaterialPageRoute<void>(
+                                builder: (context) =>
+                                    const AdminIdentityVerificationScreen(),
+                              ),
+                            )
+                                .then((_) {
+                              if (mounted) _loadStats();
+                            });
+                          },
                         ),
                       ]),
                     ),
