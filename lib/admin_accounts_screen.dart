@@ -462,99 +462,30 @@ class _AdminAccountsScreenState extends State<AdminAccountsScreen> with SingleTi
   }
 
   Future<void> _openAddPartnerDialog() async {
-    final nameCtrl = TextEditingController();
-    final emailCtrl = TextEditingController();
-    final phoneCtrl = TextEditingController();
-    final passCtrl = TextEditingController();
-    var obscure = true;
-
-    final ok = await showDialog<bool>(
+    final result = await showModalBottomSheet<_AddPartnerSheetResult?>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setModal) {
-          return AlertDialog(
-            title: const Text('Add referral partner'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(labelText: 'Name *', border: OutlineInputBorder()),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: emailCtrl,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(labelText: 'Email *', border: OutlineInputBorder()),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: phoneCtrl,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(10),
-                    ],
-                    decoration: InputDecoration(
-                      labelText: 'Phone',
-                      border: const OutlineInputBorder(),
-                      prefixText: '$_kIndiaDialCode ',
-                      prefixStyle: const TextStyle(
-                        color: Color(0xFF1E1E1E),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: passCtrl,
-                    obscureText: obscure,
-                    decoration: InputDecoration(
-                      labelText: 'Password *',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        icon: Icon(obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
-                        onPressed: () => setModal(() => obscure = !obscure),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-              FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: _brand),
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Create'),
-              ),
-            ],
-          );
-        },
+      isScrollControlled: true,
+      useSafeArea: true,
+      useRootNavigator: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: const _AddPartnerBottomSheet(),
       ),
     );
 
-    if (ok != true) {
-      nameCtrl.dispose();
-      emailCtrl.dispose();
-      phoneCtrl.dispose();
-      passCtrl.dispose();
-      return;
-    }
+    if (result == null) return;
 
     final err = await _postAccountsApi({
       'action': 'createPartner',
-      'name': nameCtrl.text.trim(),
-      'email': emailCtrl.text.trim(),
-      'phone': _withIndiaCountryCode(phoneCtrl.text.trim()),
-      'password': passCtrl.text,
+      'name': result.name,
+      'email': result.email,
+      'phone': _withIndiaCountryCode(result.phoneNationalDigits),
+      'password': result.password,
     });
-    nameCtrl.dispose();
-    emailCtrl.dispose();
-    phoneCtrl.dispose();
-    passCtrl.dispose();
 
     if (err != null) {
       _showSnack(err);
@@ -565,106 +496,41 @@ class _AdminAccountsScreenState extends State<AdminAccountsScreen> with SingleTi
   }
 
   Future<void> _openPartnerProfileSheet(_PartnerVm p) async {
-    final supabase = Supabase.instance.client;
     Map<String, dynamic>? row;
     try {
-      final r = await supabase.from('referral_partners').select('*').eq('user_id', p.userId).maybeSingle();
+      final r = await Supabase.instance.client
+          .from('referral_partners')
+          .select('*')
+          .eq('user_id', p.userId)
+          .maybeSingle();
       row = r != null ? Map<String, dynamic>.from(r as Map) : null;
     } catch (_) {}
 
-    final nameCtrl = TextEditingController(text: row?['name'] as String? ?? p.name);
-    final phoneCtrl = TextEditingController(
-      text: _nationalMobileDigits(row?['phone'] as String? ?? p.phone),
-    );
-    final areaCtrl = TextEditingController(text: row?['area'] as String? ?? p.area);
-    final companyCtrl = TextEditingController(text: row?['company_name'] as String? ?? '');
+    final initialName = row?['name'] as String? ?? p.name;
+    final initialPhone = _nationalMobileDigits(row?['phone'] as String? ?? p.phone);
+    final initialArea = row?['area'] as String? ?? p.area;
+    final initialCompany = row?['company_name'] as String? ?? '';
 
     if (!mounted) return;
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
+      useRootNavigator: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('Edit partner: ${p.name}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 8),
-                Text(
-                  'Document uploads and full address use the web dashboard.',
-                  style: TextStyle(fontSize: 13, color: Colors.black.withValues(alpha: 0.5)),
-                ),
-                const SizedBox(height: 20),
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: phoneCtrl,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(10),
-                  ],
-                  decoration: InputDecoration(
-                    labelText: 'Phone',
-                    border: const OutlineInputBorder(),
-                    prefixText: '$_kIndiaDialCode ',
-                    prefixStyle: const TextStyle(
-                      color: Color(0xFF1E1E1E),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: areaCtrl,
-                  decoration: const InputDecoration(labelText: 'Area', border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: companyCtrl,
-                  decoration: const InputDecoration(labelText: 'Company name', border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 24),
-                FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: _brand, padding: const EdgeInsets.symmetric(vertical: 14)),
-                  onPressed: () async {
-                    try {
-                      await supabase.from('referral_partners').update({
-                        'name': nameCtrl.text.trim(),
-                        'phone': _withIndiaCountryCode(phoneCtrl.text.trim()),
-                        'area': areaCtrl.text.trim(),
-                        'company_name': companyCtrl.text.trim(),
-                      }).eq('user_id', p.userId);
-                      if (ctx.mounted) Navigator.pop(ctx, true);
-                    } catch (e) {
-                      if (ctx.mounted) {
-                        ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('Save failed: $e')));
-                      }
-                    }
-                  },
-                  child: const Text('Save'),
-                ),
-                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-              ],
-            ),
-          ),
-        );
-      },
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: _EditPartnerBottomSheet(
+          titleName: p.name,
+          userId: p.userId,
+          initialName: initialName,
+          initialPhoneNationalDigits: initialPhone,
+          initialArea: initialArea,
+          initialCompany: initialCompany,
+        ),
+      ),
     );
-
-    nameCtrl.dispose();
-    phoneCtrl.dispose();
-    areaCtrl.dispose();
-    companyCtrl.dispose();
 
     if (saved == true) {
       _showSnack('Partner profile updated');
@@ -1292,6 +1158,356 @@ class _AddAdminBottomSheetState extends State<_AddAdminBottomSheet> {
             ),
             onPressed: _submit,
             child: const Text('Create'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AddPartnerSheetResult {
+  const _AddPartnerSheetResult({
+    required this.name,
+    required this.email,
+    required this.phoneNationalDigits,
+    required this.password,
+  });
+
+  final String name;
+  final String email;
+  final String phoneNationalDigits;
+  final String password;
+}
+
+class _AddPartnerBottomSheet extends StatefulWidget {
+  const _AddPartnerBottomSheet();
+
+  @override
+  State<_AddPartnerBottomSheet> createState() => _AddPartnerBottomSheetState();
+}
+
+class _AddPartnerBottomSheetState extends State<_AddPartnerBottomSheet> {
+  static const Color _brand = AdminHomeScreen.brandPurple;
+
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _emailCtrl;
+  late final TextEditingController _phoneCtrl;
+  late final TextEditingController _passCtrl;
+  late final ScrollController _scrollCtrl;
+
+  bool _obscure = true;
+
+  String? _errName;
+  String? _errEmail;
+  String? _errPhone;
+  String? _errPass;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController();
+    _emailCtrl = TextEditingController();
+    _phoneCtrl = TextEditingController();
+    _passCtrl = TextEditingController();
+    _scrollCtrl = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _emailCtrl.dispose();
+    _phoneCtrl.dispose();
+    _passCtrl.dispose();
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  InputDecoration _fieldDeco({
+    required String label,
+    required bool requiredField,
+    String? errorText,
+    Widget? suffixIcon,
+  }) {
+    return InputDecoration(
+      labelText: requiredField ? '$label *' : label,
+      errorText: errorText,
+      errorStyle: const TextStyle(color: Color(0xFFD32F2F), fontSize: 12),
+      errorMaxLines: 2,
+      border: const OutlineInputBorder(),
+      focusedBorder: OutlineInputBorder(
+        borderSide: BorderSide(color: _brand, width: 2),
+      ),
+      suffixIcon: suffixIcon,
+    );
+  }
+
+  void _submit() {
+    final name = _nameCtrl.text.trim();
+    final email = _emailCtrl.text.trim();
+    final phone = _phoneCtrl.text.trim();
+    final pass = _passCtrl.text;
+
+    setState(() {
+      _errName = name.isEmpty ? 'Name is required' : null;
+      _errEmail = email.isEmpty
+          ? 'Email is required'
+          : (!email.contains('@') || email.length < 5)
+              ? 'Enter a valid email'
+              : null;
+      _errPhone = phone.isEmpty ? 'Phone is required' : null;
+      _errPass = pass.isEmpty ? 'Password is required' : null;
+    });
+
+    if (_errName != null || _errEmail != null || _errPhone != null || _errPass != null) {
+      return;
+    }
+
+    Navigator.of(context).pop(
+      _AddPartnerSheetResult(
+        name: name,
+        email: email,
+        phoneNationalDigits: phone,
+        password: pass,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      primary: false,
+      controller: _scrollCtrl,
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.black12,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Add referral partner',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Fill all fields to create a referral partner account.',
+            style: TextStyle(fontSize: 14, color: Colors.black.withValues(alpha: 0.55)),
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _nameCtrl,
+            onChanged: (_) => setState(() => _errName = null),
+            decoration: _fieldDeco(label: 'Name', requiredField: true, errorText: _errName),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _emailCtrl,
+            keyboardType: TextInputType.emailAddress,
+            onChanged: (_) => setState(() => _errEmail = null),
+            decoration: _fieldDeco(label: 'Email', requiredField: true, errorText: _errEmail),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _phoneCtrl,
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(10),
+            ],
+            onChanged: (_) => setState(() => _errPhone = null),
+            decoration: _fieldDeco(label: 'Phone', requiredField: true, errorText: _errPhone).copyWith(
+              prefixText: '$_kIndiaDialCode ',
+              prefixStyle: const TextStyle(
+                color: Color(0xFF1E1E1E),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _passCtrl,
+            obscureText: _obscure,
+            onChanged: (_) => setState(() => _errPass = null),
+            decoration: _fieldDeco(
+              label: 'Password',
+              requiredField: true,
+              errorText: _errPass,
+              suffixIcon: IconButton(
+                icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                onPressed: () => setState(() => _obscure = !_obscure),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: _brand,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+            onPressed: _submit,
+            child: const Text('Create'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EditPartnerBottomSheet extends StatefulWidget {
+  const _EditPartnerBottomSheet({
+    required this.titleName,
+    required this.userId,
+    required this.initialName,
+    required this.initialPhoneNationalDigits,
+    required this.initialArea,
+    required this.initialCompany,
+  });
+
+  final String titleName;
+  final String userId;
+  final String initialName;
+  final String initialPhoneNationalDigits;
+  final String initialArea;
+  final String initialCompany;
+
+  @override
+  State<_EditPartnerBottomSheet> createState() => _EditPartnerBottomSheetState();
+}
+
+class _EditPartnerBottomSheetState extends State<_EditPartnerBottomSheet> {
+  static const Color _brand = AdminHomeScreen.brandPurple;
+
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _phoneCtrl;
+  late final TextEditingController _areaCtrl;
+  late final TextEditingController _companyCtrl;
+  late final ScrollController _scrollCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: widget.initialName);
+    _phoneCtrl = TextEditingController(text: widget.initialPhoneNationalDigits);
+    _areaCtrl = TextEditingController(text: widget.initialArea);
+    _companyCtrl = TextEditingController(text: widget.initialCompany);
+    _scrollCtrl = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _phoneCtrl.dispose();
+    _areaCtrl.dispose();
+    _companyCtrl.dispose();
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final supabase = Supabase.instance.client;
+    try {
+      await supabase.from('referral_partners').update({
+        'name': _nameCtrl.text.trim(),
+        'phone': _withIndiaCountryCode(_phoneCtrl.text.trim()),
+        'area': _areaCtrl.text.trim(),
+        'company_name': _companyCtrl.text.trim(),
+      }).eq('user_id', widget.userId);
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      primary: false,
+      controller: _scrollCtrl,
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.black12,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Edit partner: ${widget.titleName}',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Document uploads and full address use the web dashboard.',
+            style: TextStyle(fontSize: 13, color: Colors.black.withValues(alpha: 0.5)),
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _nameCtrl,
+            decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _phoneCtrl,
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(10),
+            ],
+            decoration: InputDecoration(
+              labelText: 'Phone',
+              border: const OutlineInputBorder(),
+              prefixText: '$_kIndiaDialCode ',
+              prefixStyle: const TextStyle(
+                color: Color(0xFF1E1E1E),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _areaCtrl,
+            decoration: const InputDecoration(labelText: 'Area', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _companyCtrl,
+            decoration: const InputDecoration(labelText: 'Company name', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 24),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: _brand,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+            onPressed: _save,
+            child: const Text('Save'),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
