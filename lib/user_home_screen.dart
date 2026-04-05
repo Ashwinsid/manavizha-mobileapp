@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'profile_screen.dart';
-import 'welcome_screen.dart';
 import 'user_pages.dart';
+import 'user_profile_completion.dart';
 
 class UserHomeScreen extends StatefulWidget {
   const UserHomeScreen({super.key});
@@ -12,14 +13,90 @@ class UserHomeScreen extends StatefulWidget {
 }
 
 class _UserHomeScreenState extends State<UserHomeScreen> {
+  static const Color _brand = Color(0xFF6A11CB);
+
   int _currentIndex = 0;
 
-  final List<Widget> _pages = const [
-    UserDashboardPage(),
-    MatchesPage(),
-    LikesPage(),
-    MessagesPage(),
-  ];
+  String? _appBarPhotoUrl;
+  String? _appBarNameHint;
+  bool _appBarPremium = false;
+  bool _appBarProfileLoading = true;
+
+  late final List<Widget> _pages;
+
+  Future<void> _loadAppBarProfile() async {
+    final client = Supabase.instance.client;
+    final uid = client.auth.currentUser?.id;
+    if (uid == null) {
+      if (mounted) setState(() => _appBarProfileLoading = false);
+      return;
+    }
+    try {
+      final results = await Future.wait<dynamic>([
+        client.from('photos').select('user_photos').eq('user_id', uid).maybeSingle(),
+        client.from('user_settings').select('is_premium').eq('user_id', uid).maybeSingle(),
+        client.from('personal_details').select('name').eq('user_id', uid).maybeSingle(),
+      ]);
+      final photos = results[0] as Map<String, dynamic>?;
+      final settings = results[1] as Map<String, dynamic>?;
+      final personal = results[2] as Map<String, dynamic>?;
+      final list = photos != null ? (photos['user_photos'] as List<dynamic>? ?? []) : <dynamic>[];
+      String? url;
+      if (list.isNotEmpty) {
+        url = await signUserProfilePhoto(client, uid, list.first.toString());
+      }
+      if (!mounted) return;
+      setState(() {
+        _appBarPhotoUrl = url;
+        _appBarPremium = settings?['is_premium'] == true;
+        _appBarNameHint = personal?['name']?.toString();
+        _appBarProfileLoading = false;
+      });
+    } catch (e, st) {
+      debugPrint('AppBar profile: $e\n$st');
+      if (mounted) setState(() => _appBarProfileLoading = false);
+    }
+  }
+
+  String _appBarInitial() {
+    final n = _appBarNameHint?.trim();
+    if (n != null && n.isNotEmpty) return n[0].toUpperCase();
+    final email = Supabase.instance.client.auth.currentUser?.email ?? '';
+    if (email.isNotEmpty) return email[0].toUpperCase();
+    return 'M';
+  }
+
+  void _openProfile() {
+    Navigator.of(context)
+        .push<void>(
+      MaterialPageRoute<void>(builder: (context) => const ProfileScreen()),
+    )
+        .then((_) => _loadAppBarProfile());
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadAppBarProfile());
+    _pages = [
+      UserDashboardPage(
+        onOpenProfileEditor: _openProfile,
+      ),
+      const MatchesPage(),
+      const LikesPage(),
+      const MessagesPage(),
+    ];
+  }
+
+  void _closeDrawerGoTo(int index) {
+    Navigator.of(context).pop();
+    setState(() => _currentIndex = index);
+  }
+
+  void _snack(String msg) {
+    Navigator.of(context).pop();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,30 +152,22 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
             ListTile(
               leading: const Icon(Icons.favorite_border, color: Color(0xFF6A11CB)),
               title: const Text('I Liked', style: TextStyle(fontWeight: FontWeight.w600)),
-              onTap: () {
-                // TODO: Navigate to I Liked page
-              },
+              onTap: () => _closeDrawerGoTo(2),
             ),
             ListTile(
               leading: const Icon(Icons.favorite, color: Color(0xFF6A11CB)),
               title: const Text('Liked Me', style: TextStyle(fontWeight: FontWeight.w600)),
-              onTap: () {
-                // TODO: Navigate to Liked Me page
-              },
+              onTap: () => _closeDrawerGoTo(2),
             ),
             ListTile(
               leading: const Icon(Icons.tune_rounded, color: Color(0xFF6A11CB)),
               title: const Text('Preferences', style: TextStyle(fontWeight: FontWeight.w600)),
-              onTap: () {
-                // TODO: Navigate to Preferences
-              },
+              onTap: () => _snack('Partner preferences: use Profile Setup in the app or the website dashboard.'),
             ),
             ListTile(
               leading: const Icon(Icons.auto_awesome, color: Color(0xFF6A11CB)),
               title: const Text('Generate Horoscope', style: TextStyle(fontWeight: FontWeight.w600)),
-              onTap: () {
-                // TODO: Navigate to Generate Horoscope
-              },
+              onTap: () => _snack('Horoscope tools are on the website dashboard for now.'),
             ),
             const Divider(height: 32),
             
@@ -118,16 +187,12 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
             ListTile(
               leading: const Icon(Icons.check_circle_outline, color: Colors.blueGrey),
               title: const Text('Selections', style: TextStyle(fontWeight: FontWeight.w600)),
-              onTap: () {
-                // TODO: Navigate to Selections
-              },
+              onTap: () => _snack('Parent selections: use the website dashboard.'),
             ),
             ListTile(
               leading: const Icon(Icons.supervisor_account, color: Colors.blueGrey),
               title: const Text('Parents', style: TextStyle(fontWeight: FontWeight.w600)),
-              onTap: () {
-                // TODO: Navigate to Parents
-              },
+              onTap: () => _snack('Manage parents on the website dashboard.'),
             ),
             const Divider(height: 32),
 
@@ -148,7 +213,11 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
               leading: const Icon(Icons.celebration, color: Colors.green),
               title: const Text('Mark as Married', style: TextStyle(fontWeight: FontWeight.w600)),
               onTap: () {
-                // TODO: Trigger Mark as Married logic
+                Navigator.of(context).pop();
+                setState(() => _currentIndex = 0);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Open the Home tab and use “Mark” under Found your partner?')),
+                );
               },
             ),
             const SizedBox(height: 24),
@@ -170,15 +239,50 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
           Padding(
             padding: const EdgeInsets.only(right: 16.0),
             child: GestureDetector(
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (context) => const ProfileScreen()),
-                );
-              },
-              child: const CircleAvatar(
-                radius: 20,
-                backgroundColor: Color(0xFFF0F0F5),
-                child: Icon(Icons.person, color: Color(0xFF6A11CB), size: 24),
+              onTap: _openProfile,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: const Color(0xFFF0F0F5),
+                    backgroundImage: _appBarPhotoUrl != null && _appBarPhotoUrl!.isNotEmpty
+                        ? NetworkImage(_appBarPhotoUrl!)
+                        : null,
+                    child: (_appBarPhotoUrl == null || _appBarPhotoUrl!.isEmpty)
+                        ? (_appBarProfileLoading
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: _brand),
+                              )
+                            : Text(
+                                _appBarInitial(),
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: _brand,
+                                ),
+                              ))
+                        : null,
+                  ),
+                  if (_appBarPremium)
+                    Positioned(
+                      right: -3,
+                      top: -3,
+                      child: Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF4B0082),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
+                          ],
+                        ),
+                        child: const Icon(Icons.star_rounded, size: 12, color: Colors.white),
+                      ),
+                    ),
+                ],
               ),
             ),
           )
