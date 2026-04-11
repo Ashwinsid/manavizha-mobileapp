@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Mirrors [manavizha/components/user-landing-page.tsx] profile progress logic.
@@ -321,21 +322,29 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
 }
 
 /// Resolves a [user_photos] entry to a displayable URL (signed when needed).
+/// Returns null if the object is missing from storage or signing fails (DB paths can be stale).
 Future<String?> signUserProfilePhoto(SupabaseClient client, String userId, String photo) async {
   if (photo.isEmpty) return null;
-  if (photo.startsWith('http')) {
-    if (photo.contains('/storage/v1/object/sign/user-photos/')) {
-      final parts = photo.split('/user-photos/');
-      if (parts.length > 1) {
-        var path = parts[1].split('?').first;
-        final data = await client.storage.from('user-photos').createSignedUrl(path, 31536000);
-        return data;
+  try {
+    if (photo.startsWith('http')) {
+      if (photo.contains('/storage/v1/object/sign/user-photos/')) {
+        final parts = photo.split('/user-photos/');
+        if (parts.length > 1) {
+          var path = parts[1].split('?').first;
+          final data = await client.storage.from('user-photos').createSignedUrl(path, 31536000);
+          return data;
+        }
       }
+      return photo;
     }
-    return photo;
+    var filePath = photo;
+    if (!filePath.contains('/')) filePath = '$userId/$filePath';
+    final data = await client.storage.from('user-photos').createSignedUrl(filePath, 31536000);
+    return data;
+  } catch (e) {
+    if (kDebugMode) {
+      debugPrint('signUserProfilePhoto skipped ($userId): $e');
+    }
+    return null;
   }
-  var filePath = photo;
-  if (!filePath.contains('/')) filePath = '$userId/$filePath';
-  final data = await client.storage.from('user-photos').createSignedUrl(filePath, 31536000);
-  return data;
 }

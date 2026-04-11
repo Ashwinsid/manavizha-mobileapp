@@ -1,10 +1,10 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
+import 'daily_recommendations_screen.dart';
 import 'profile_screen.dart';
+import 'user_match_service.dart';
 import 'user_profile_completion.dart';
 
 /// Member home dashboard aligned with [manavizha/components/user-landing-page.tsx].
@@ -20,22 +20,6 @@ class UserDashboardPage extends StatefulWidget {
   State<UserDashboardPage> createState() => _UserDashboardPageState();
 }
 
-class _MatchPreview {
-  _MatchPreview({
-    required this.userId,
-    required this.name,
-    this.age,
-    required this.location,
-    this.photoUrl,
-  });
-
-  final String userId;
-  final String name;
-  final int? age;
-  final String location;
-  final String? photoUrl;
-}
-
 class _UserDashboardPageState extends State<UserDashboardPage> {
   static const Color _brand = AdminHomeScreen.brandPurple;
   static const Color _pageBg = Color(0xFFF8F9FE);
@@ -45,14 +29,30 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
   UserProfileSnapshot? _snapshot;
   bool _sectionsLoading = true;
 
-  List<_MatchPreview> _daily = [];
-  List<_MatchPreview> _allMatches = [];
-  List<_MatchPreview> _newMatches = [];
+  List<MatchPreview> _daily = <MatchPreview>[];
+  List<MatchPreview> _allMatches = <MatchPreview>[];
+  List<MatchPreview> _newMatches = <MatchPreview>[];
 
   @override
   void initState() {
     super.initState();
     _refresh();
+  }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    // Hot reload keeps old State field values; refactors (e.g. _MatchPreview → MatchPreview)
+    // can leave incompatible runtime types until a full restart. Reset and refetch.
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    setState(() {
+      _daily = <MatchPreview>[];
+      _allMatches = <MatchPreview>[];
+      _newMatches = <MatchPreview>[];
+    });
+    if (uid != null) {
+      _loadMatchSections(uid);
+    }
   }
 
   Future<void> _refresh() async {
@@ -94,119 +94,12 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
     final client = Supabase.instance.client;
     setState(() => _sectionsLoading = true);
     try {
-      final userRow = await client.from('personal_details').select('sex').eq('user_id', userId).maybeSingle();
-      if (userRow == null) {
-        setState(() => _sectionsLoading = false);
-        return;
-      }
-      final sex = (userRow['sex'] as String? ?? '').toLowerCase();
-      final targetGender = sex.contains('male') && !sex.contains('female') ? 'Female' : 'Male';
-
-      final prefs = await client.from('partner_preferences').select('min_age, max_age').eq('user_id', userId).maybeSingle();
-      final minAge = prefs != null ? prefs['min_age'] as int? : null;
-      final maxAge = prefs != null ? prefs['max_age'] as int? : null;
-
-      final potential = await client
-          .from('personal_details')
-          .select('user_id, name, age, sex, marital_status, created_at')
-          .ilike('sex', targetGender)
-          .neq('user_id', userId)
-          .neq('marital_status', 'Married')
-          .limit(150);
-
-      final rows = (potential as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-      if (rows.isEmpty) {
-        if (mounted) {
-          setState(() {
-            _daily = [];
-            _allMatches = [];
-            _newMatches = [];
-            _sectionsLoading = false;
-          });
-        }
-        return;
-      }
-
-      var filtered = rows;
-      if (minAge != null) {
-        filtered = filtered.where((p) => p['age'] == null || (p['age'] as num) >= minAge).toList();
-      }
-      if (maxAge != null) {
-        filtered = filtered.where((p) => p['age'] == null || (p['age'] as num) <= maxAge).toList();
-      }
-
-      final ids = filtered.map((p) => p['user_id'].toString()).toList();
-      final photosRes = await client.from('photos').select('user_id, user_photos').inFilter('user_id', ids);
-      final contactRes = await client.from('contact_details').select('user_id, current_district, current_state').inFilter('user_id', ids);
-
-      final photoRows = (photosRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-      final contactRows = (contactRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-
-      Future<_MatchPreview> buildPreview(Map<String, dynamic> p) async {
-        final id = p['user_id'].toString();
-        Map<String, dynamic>? ph;
-        for (final r in photoRows) {
-          if (r['user_id']?.toString() == id) {
-            ph = r;
-            break;
-          }
-        }
-        final photos = ph != null ? (ph['user_photos'] as List<dynamic>? ?? []) : <dynamic>[];
-        String? url;
-        if (photos.isNotEmpty) {
-          url = await signUserProfilePhoto(client, id, photos.first.toString());
-        }
-        Map<String, dynamic>? c;
-        for (final r in contactRows) {
-          if (r['user_id']?.toString() == id) {
-            c = r;
-            break;
-          }
-        }
-        final d = c != null ? c['current_district']?.toString() : null;
-        final s = c != null ? c['current_state']?.toString() : null;
-        var loc = '—';
-        if (d != null && d.isNotEmpty) {
-          loc = s != null && s.isNotEmpty ? '$d, $s' : d;
-        } else if (s != null && s.isNotEmpty) {
-          loc = s;
-        }
-        return _MatchPreview(
-          userId: id,
-          name: p['name']?.toString().trim().isNotEmpty == true ? p['name'].toString() : 'Member',
-          age: p['age'] != null ? (p['age'] as num).round() : null,
-          location: loc,
-          photoUrl: url,
-        );
-      }
-
-      final previews = await Future.wait(filtered.map(buildPreview));
-
-      final today = DateTime.now().toIso8601String().split('T').first;
-      var seed = 0;
-      for (final code in '$today$userId'.codeUnits) {
-        seed += code;
-      }
-      final rng = math.Random(seed);
-      final shuffled = List<_MatchPreview>.from(previews)..shuffle(rng);
-
-      final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
-      final fresh = previews.where((pr) {
-        final row = filtered.firstWhere(
-          (x) => x['user_id'].toString() == pr.userId,
-          orElse: () => <String, dynamic>{},
-        );
-        if (row.isEmpty) return false;
-        final ca = row['created_at']?.toString();
-        if (ca == null) return false;
-        return DateTime.tryParse(ca)?.isAfter(thirtyDaysAgo) ?? false;
-      }).toList();
-
+      final sets = await loadUserMatchSections(client, userId);
       if (!mounted) return;
       setState(() {
-        _daily = shuffled.take(10).toList();
-        _allMatches = previews;
-        _newMatches = fresh;
+        _daily = List<MatchPreview>.from(sets.daily);
+        _allMatches = List<MatchPreview>.from(sets.allMatches);
+        _newMatches = List<MatchPreview>.from(sets.newMatches);
         _sectionsLoading = false;
       });
     } catch (e, st) {
@@ -214,12 +107,20 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
       if (mounted) {
         setState(() {
           _sectionsLoading = false;
-          _daily = [];
-          _allMatches = [];
-          _newMatches = [];
+          _daily = <MatchPreview>[];
+          _allMatches = <MatchPreview>[];
+          _newMatches = <MatchPreview>[];
         });
       }
     }
+  }
+
+  void _openDailyRecommendations({String? initialUserId}) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (context) => DailyRecommendationsScreen(initialUserId: initialUserId),
+      ),
+    );
   }
 
   void _openEditor() {
@@ -335,9 +236,11 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
             sliver: SliverToBoxAdapter(
               child: _CarouselSection(
                 title: 'Daily recommendations',
-                subtitle: 'Picks for today',
+                subtitle: 'Recommended matches for today',
                 items: _daily,
                 loading: _sectionsLoading,
+                onViewAll: () => _openDailyRecommendations(),
+                onProfileTap: (m) => _openDailyRecommendations(initialUserId: m.userId),
               ),
             ),
           ),
@@ -446,21 +349,42 @@ class _CarouselSection extends StatelessWidget {
     required this.subtitle,
     required this.items,
     required this.loading,
+    this.onViewAll,
+    this.onProfileTap,
   });
 
   final String title;
   final String subtitle;
-  final List<_MatchPreview> items;
+  final List<MatchPreview> items;
   final bool loading;
+  final VoidCallback? onViewAll;
+  final void Function(MatchPreview m)? onProfileTap;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-        const SizedBox(height: 4),
-        Text(subtitle, style: TextStyle(fontSize: 13, color: Colors.black.withValues(alpha: 0.45))),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 4),
+                  Text(subtitle, style: TextStyle(fontSize: 13, color: Colors.black.withValues(alpha: 0.45))),
+                ],
+              ),
+            ),
+            if (onViewAll != null && !loading && items.isNotEmpty)
+              TextButton(
+                onPressed: onViewAll,
+                child: const Text('View all', style: TextStyle(fontWeight: FontWeight.w800)),
+              ),
+          ],
+        ),
         const SizedBox(height: 12),
         SizedBox(
           height: 200,
@@ -479,7 +403,10 @@ class _CarouselSection extends StatelessWidget {
                       separatorBuilder: (_, _) => const SizedBox(width: 12),
                       itemBuilder: (context, i) {
                         final m = items[i];
-                        return _MatchTile(m: m);
+                        return _MatchTile(
+                          m: m,
+                          onTap: onProfileTap != null ? () => onProfileTap!(m) : null,
+                        );
                       },
                     ),
         ),
@@ -489,9 +416,10 @@ class _CarouselSection extends StatelessWidget {
 }
 
 class _MatchTile extends StatelessWidget {
-  const _MatchTile({required this.m});
+  const _MatchTile({required this.m, this.onTap});
 
-  final _MatchPreview m;
+  final MatchPreview m;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -500,41 +428,56 @@ class _MatchTile extends StatelessWidget {
       child: Material(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-                child: m.photoUrl != null && m.photoUrl!.isNotEmpty
-                    ? Image.network(m.photoUrl!, fit: BoxFit.cover)
-                    : Container(
-                        color: _UserDashboardPageState._brand.withValues(alpha: 0.1),
-                        child: Icon(Icons.person_rounded, size: 48, color: _UserDashboardPageState._brand.withValues(alpha: 0.5)),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ClipRRect(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                      child: m.photoUrl != null && m.photoUrl!.isNotEmpty
+                          ? Image.network(m.photoUrl!, fit: BoxFit.cover)
+                          : Container(
+                              color: _UserDashboardPageState._brand.withValues(alpha: 0.1),
+                              child: Icon(Icons.person_rounded, size: 48, color: _UserDashboardPageState._brand.withValues(alpha: 0.5)),
+                            ),
+                    ),
+                    if (m.isPremium)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Icon(Icons.workspace_premium_rounded, size: 18, color: Colors.amber.shade700),
                       ),
+                  ],
+                ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    m.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
-                  ),
-                  Text(
-                    m.age != null ? '${m.age} yrs • ${m.location}' : m.location,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 11, color: Colors.black.withValues(alpha: 0.45)),
-                  ),
-                ],
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      m.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                    ),
+                    Text(
+                      m.age != null ? '${m.age} yrs • ${m.location}' : m.location,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11, color: Colors.black.withValues(alpha: 0.45)),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
