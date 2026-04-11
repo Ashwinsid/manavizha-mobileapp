@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'profile_extended_details.dart';
+
 class UserDetailsPage extends StatefulWidget {
   const UserDetailsPage({super.key});
 
@@ -67,6 +69,14 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
   List<String> _hobbyMasterOptions = [];
   List<String> _interestMasterOptions = [];
 
+  List<Map<String, dynamic>> _educationRows = [];
+  String _professionType = 'none';
+  Map<String, dynamic> _empProf = {};
+  Map<String, dynamic> _busProf = {};
+  Map<String, dynamic> _stuProf = {};
+  Map<String, dynamic> _familyMap = {};
+  Map<String, dynamic> _horoscopeMap = {};
+
   @override
   void initState() {
     super.initState();
@@ -80,8 +90,130 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       _fetchPersonalDetails(),
       _fetchSocialHabits(),
       _fetchInterestsDetails(),
+      _fetchEducationDetails(),
+      _fetchProfessionDetails(),
+      _fetchFamilyDetails(),
+      _fetchHoroscopeDetails(),
     ]);
     if (mounted) setState(() => _isLoadingData = false);
+  }
+
+  Future<void> _fetchEducationDetails() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+      final rows = await ProfileExtendedRepository.fetchEducation(userId);
+      if (mounted) setState(() => _educationRows = rows);
+    } catch (e) {
+      debugPrint('Error fetching education: $e');
+    }
+  }
+
+  Future<void> _fetchProfessionDetails() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+      final t = await ProfileExtendedRepository.fetchProfession(userId);
+      if (!mounted) return;
+      setState(() {
+        _empProf = t.emp ?? {};
+        _busProf = t.bus ?? {};
+        _stuProf = t.stu ?? {};
+        _professionType = ProfileExtendedRepository.detectProfessionType(_empProf, _busProf, _stuProf);
+      });
+    } catch (e) {
+      debugPrint('Error fetching profession: $e');
+    }
+  }
+
+  Future<void> _fetchFamilyDetails() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+      final m = await ProfileExtendedRepository.fetchFamily(userId);
+      if (mounted) setState(() => _familyMap = m);
+    } catch (e) {
+      debugPrint('Error fetching family: $e');
+    }
+  }
+
+  Future<void> _fetchHoroscopeDetails() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+      final m = await ProfileExtendedRepository.fetchHoroscope(userId);
+      if (mounted) setState(() => _horoscopeMap = m);
+    } catch (e) {
+      debugPrint('Error fetching horoscope: $e');
+    }
+  }
+
+  void _openEducationEditor() {
+    showEducationDetailsSheet(
+      context,
+      initialRows: List<Map<String, dynamic>>.from(_educationRows.map((e) => Map<String, dynamic>.from(e))),
+      onSaved: () {
+        _fetchEducationDetails();
+        setState(() {});
+      },
+    );
+  }
+
+  void _openProfessionEditor() {
+    showProfessionDetailsSheet(
+      context,
+      initialType: _professionType,
+      emp: Map<String, dynamic>.from(_empProf),
+      bus: Map<String, dynamic>.from(_busProf),
+      stu: Map<String, dynamic>.from(_stuProf),
+      onSaved: () {
+        _fetchProfessionDetails();
+        setState(() {});
+      },
+    );
+  }
+
+  void _openFamilyEditor() {
+    showFamilyDetailsSheet(
+      context,
+      initial: Map<String, dynamic>.from(_familyMap),
+      onSaved: () {
+        _fetchFamilyDetails();
+        setState(() {});
+      },
+    );
+  }
+
+  void _openHoroscopeEditor() {
+    showHoroscopeDetailsSheet(
+      context,
+      initial: Map<String, dynamic>.from(_horoscopeMap),
+      onSaved: () {
+        _fetchHoroscopeDetails();
+        setState(() {});
+      },
+    );
+  }
+
+  String _professionSummaryLine() {
+    if (_professionType == 'employee' && _empProf.isNotEmpty) {
+      final d = _empProf['designation']?.toString() ?? '';
+      final c = _empProf['company']?.toString() ?? '';
+      if (d.isNotEmpty || c.isNotEmpty) {
+        return [d, c].where((s) => s.isNotEmpty).join(' at ');
+      }
+    }
+    if (_professionType == 'business' && _busProf.isNotEmpty) {
+      final n = _busProf['business_name']?.toString() ?? '';
+      final d = _busProf['designation']?.toString() ?? '';
+      if (n.isNotEmpty) return d.isNotEmpty ? '$d — $n' : n;
+    }
+    if (_professionType == 'student' && _stuProf.isNotEmpty) {
+      final co = _stuProf['course']?.toString() ?? '';
+      final ins = _stuProf['institution']?.toString() ?? '';
+      if (co.isNotEmpty || ins.isNotEmpty) return [co, ins].where((s) => s.isNotEmpty).join(' — ');
+    }
+    return '';
   }
 
   Future<void> _fetchMasterData() async {
@@ -1075,6 +1207,109 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       onPressed: _showSocialHabitsEditor,
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit Social Habits'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF6A11CB),
+                        side: const BorderSide(color: Color(0xFF6A11CB)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ] else if (title == 'Educational Details') ...[
+                  if (_educationRows.isEmpty)
+                    const Text('No education entries yet', style: TextStyle(color: Colors.black54, fontSize: 13))
+                  else
+                    ..._educationRows.asMap().entries.map((e) {
+                      final r = e.value;
+                      final idx = e.key + 1;
+                      final inst = r['institution']?.toString() ?? '';
+                      final deg = r['degree']?.toString() ?? r['education']?.toString() ?? '';
+                      final line = [deg, inst].where((s) => s.trim().isNotEmpty).join(' — ');
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('$idx.', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                line.isEmpty ? 'Entry $idx' : line,
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _openEducationEditor,
+                      icon: const Icon(Icons.edit, size: 16),
+                      label: Text(_educationRows.isEmpty ? 'Add education' : 'Edit education'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF6A11CB),
+                        side: const BorderSide(color: Color(0xFF6A11CB)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ] else if (title == 'Professional Details') ...[
+                  _buildDataRow(
+                    'Type',
+                    _professionType == 'none'
+                        ? null
+                        : _professionType[0].toUpperCase() + _professionType.substring(1),
+                  ),
+                  if (_professionSummaryLine().isNotEmpty) _buildDataRow('Summary', _professionSummaryLine()),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _openProfessionEditor,
+                      icon: const Icon(Icons.edit, size: 16),
+                      label: const Text('Edit professional details'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF6A11CB),
+                        side: const BorderSide(color: Color(0xFF6A11CB)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ] else if (title == 'Family Details') ...[
+                  _buildDataRow('Father', _familyMap['father_name']?.toString()),
+                  _buildDataRow('Mother', _familyMap['mother_name']?.toString()),
+                  _buildDataRow('Caste', _familyMap['caste']?.toString()),
+                  _buildDataRow('Family type', _familyMap['family_type']?.toString()),
+                  _buildDataRow('District', _familyMap['parents_district']?.toString()),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _openFamilyEditor,
+                      icon: const Icon(Icons.edit, size: 16),
+                      label: const Text('Edit family details'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF6A11CB),
+                        side: const BorderSide(color: Color(0xFF6A11CB)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ] else if (title == 'Horoscope Details') ...[
+                  _buildDataRow('Star', _horoscopeMap['star']?.toString()),
+                  _buildDataRow('Zodiac', _horoscopeMap['zodiac_sign']?.toString()),
+                  _buildDataRow('Lagnam', _horoscopeMap['lagnam']?.toString()),
+                  _buildDataRow('Time of birth', _horoscopeMap['time_of_birth']?.toString()),
+                  _buildDataRow('Place of birth', _horoscopeMap['place_of_birth']?.toString()),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _openHoroscopeEditor,
+                      icon: const Icon(Icons.edit, size: 16),
+                      label: const Text('Edit horoscope details'),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFF6A11CB),
                         side: const BorderSide(color: Color(0xFF6A11CB)),
