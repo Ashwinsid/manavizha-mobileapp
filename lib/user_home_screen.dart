@@ -1,11 +1,10 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'profile_screen.dart';
 import 'user_pages.dart';
 import 'user_profile_completion.dart';
+import 'widgets/radial_menu.dart';
 
 class UserHomeScreen extends StatefulWidget {
   const UserHomeScreen({super.key});
@@ -16,17 +15,12 @@ class UserHomeScreen extends StatefulWidget {
 
 class _UserHomeScreenState extends State<UserHomeScreen> {
   static const Color _brand = Color(0xFF6A11CB);
-  /// Squircle / label text (deep purple, reference-style).
-  static const Color _dialInk = Color(0xFF3D1466);
-  static const Color _dialSquircleBg = Color(0xFFF3E5FF);
   /// Semicircle speed-dial panel (behind arc buttons) — darker, transparent purple-tinted glass.
   static const Color _dialMenuPanelFill = Color(0xC0281E3D);
   static const Color _dialMenuPanelStroke = Color(0x4D9B7FD4);
 
   int _currentIndex = 0;
   bool _speedDialOpen = false;
-  /// Radians offset along the semicircle (rotary-dial scroll).
-  double _dialArcScroll = 0;
 
   String? _appBarPhotoUrl;
   String? _appBarNameHint;
@@ -118,12 +112,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   }
 
   void _closeSpeedDial() {
-    if (_speedDialOpen) {
-      setState(() {
-        _speedDialOpen = false;
-        _dialArcScroll = 0;
-      });
-    }
+    if (_speedDialOpen) setState(() => _speedDialOpen = false);
   }
 
   void _speedDialGoToTab(int index) {
@@ -222,25 +211,10 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
 
   static const double _speedDialCircleSize = 52;
   static const double _mainFabSize = 56;
+  /// Bleed past [SizedBox] right edge: FAB margin + safe inset so paint reaches the physical bezel.
+  static const double _fabEdgeBleed = 28.0;
   /// Arc radius — vertical-diameter semicircle (ends on the right column, bulge left).
   static const double _arcRadius = 100;
-  /// Minimum angle between item centers; when (n-1)*step > π, the dial becomes scrollable.
-  static const double _dialAngleStep = math.pi / 5;
-
-  ({double min, double max, double initial}) _dialScrollLimits(int n) {
-    if (n <= 1) {
-      return (min: 0.0, max: 0.0, initial: 0.0);
-    }
-    final totalSpan = (n - 1) * _dialAngleStep;
-    if (totalSpan <= math.pi) {
-      final maxS = (math.pi - totalSpan).clamp(0.0, double.infinity);
-      return (min: 0.0, max: maxS, initial: 0.0);
-    }
-    final minS = math.pi - totalSpan;
-    const maxS = 0.0;
-    return (min: minS, max: maxS, initial: (minS + maxS) / 2);
-  }
-
   /// True circles — [BoxDecoration.shape] avoids M3 FAB / Material squircle look.
   Widget _circleShadowButton({
     required double diameter,
@@ -267,25 +241,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _speedDialArcButton({
-    required IconData icon,
-    required VoidCallback onPressed,
-  }) {
-    return _circleShadowButton(
-      diameter: _speedDialCircleSize,
-      backgroundColor: _dialSquircleBg,
-      boxShadow: [
-        BoxShadow(
-          color: _brand.withValues(alpha: 0.32),
-          blurRadius: 10,
-          offset: const Offset(0, 4),
-        ),
-      ],
-      onTap: onPressed,
-      child: Icon(icon, color: _dialInk, size: 24),
     );
   }
 
@@ -319,86 +274,46 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     ];
   }
 
-  /// **180°** semicircle whose **ends lie on the right** (same vertical line as the FAB): **down → left → up**.
-  /// Pivot is the FAB center; θ runs **π/2 → 3π/2** (left bulge). Stack height places the FAB at the diameter midpoint so the arc fits.
-  Widget _buildSpeedDialArc({
+  /// Rotary [RadialMenu]: 6 fixed slots on 180°, full 360° item cycle, clipped semicircle.
+  Widget _buildRadialMenuLayer({
     required double stackW,
     required double stackH,
     required double fabCx,
     required double fabCy,
   }) {
     final actions = _speedDialActions();
-    final n = actions.length;
+    final items = <RadialMenuItem>[
+      for (final a in actions)
+        RadialMenuItem(
+          icon: a.icon,
+          tooltip: a.tip,
+          onTap: a.onTap,
+        ),
+    ];
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 260),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      transitionBuilder: (child, anim) {
-        return FadeTransition(
-          opacity: anim,
-          child: ScaleTransition(scale: Tween<double>(begin: 0.92, end: 1).animate(anim), child: child),
-        );
-      },
-      child: !_speedDialOpen
-          ? const SizedBox.shrink(key: ValueKey<String>('arcOff'))
-          : SizedBox(
-              key: const ValueKey<String>('arcOn'),
-              width: stackW,
-              height: stackH,
-              child: GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onPanUpdate: (details) {
-                  final lim = _dialScrollLimits(n);
-                  if (lim.max <= lim.min) return;
-                  setState(() {
-                    _dialArcScroll -= details.delta.dx * 0.018 + details.delta.dy * 0.018;
-                    _dialArcScroll = _dialArcScroll.clamp(lim.min, lim.max);
-                  });
-                },
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    CustomPaint(
-                      size: Size(stackW, stackH),
-                      painter: _SpeedDialSemicircleBackgroundPainter(
-                        center: Offset(fabCx, fabCy),
-                        outerRadius: _arcRadius + _speedDialCircleSize / 2 + 14,
-                        innerRadius: (_arcRadius - _speedDialCircleSize / 2 - 10)
-                            .clamp(12.0, double.infinity),
-                        fillColor: _dialMenuPanelFill,
-                        strokeColor: _dialMenuPanelStroke,
-                        strokeWidth: 1.25,
-                      ),
-                    ),
-                    ...List<Widget>.generate(n, (i) {
-                    // θ = π/2 + i*step + scroll; full semicircle window [π/2, 3π/2] when scroll is clamped.
-                    final theta = n <= 1
-                        ? math.pi
-                        : math.pi / 2 + i * _dialAngleStep + _dialArcScroll;
-                    final cx = fabCx +
-                        _arcRadius * math.cos(theta) -
-                        _speedDialCircleSize / 2;
-                    final cy = fabCy +
-                        _arcRadius * math.sin(theta) -
-                        _speedDialCircleSize / 2;
-                    final a = actions[i];
-                    return Positioned(
-                      left: cx.clamp(0.0, stackW - _speedDialCircleSize),
-                      top: cy.clamp(0.0, stackH - _speedDialCircleSize),
-                      child: Tooltip(
-                        message: a.tip,
-                        child: _speedDialArcButton(
-                          icon: a.icon,
-                          onPressed: a.onTap,
-                        ),
-                      ),
-                    );
-                  }),
-                  ],
-                ),
-              ),
-            ),
+    final menuW = stackW + _fabEdgeBleed;
+    final ringOuter = _arcRadius + _speedDialCircleSize / 2 + 14;
+    final ringInner =
+        (_arcRadius - _speedDialCircleSize / 2 - 10).clamp(12.0, double.infinity).toDouble();
+
+    return RadialMenu(
+      key: const ValueKey<String>('arcOn'),
+      items: items,
+      radius: _arcRadius,
+      center: Offset(fabCx, fabCy),
+      size: Size(menuW, stackH),
+      visibleSlots: 6,
+      itemDiameter: _speedDialCircleSize,
+      clipOuterRadius: ringOuter,
+      clipInnerRadius: ringInner,
+      backgroundPainter: RadialMenuRingBackgroundPainter(
+        center: Offset(fabCx, fabCy),
+        outerRadius: ringOuter,
+        innerRadius: ringInner,
+        fillColor: _dialMenuPanelFill,
+        strokeColor: _dialMenuPanelStroke,
+        strokeWidth: 1.25,
+      ),
     );
   }
 
@@ -416,11 +331,33 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          _buildSpeedDialArc(
-            stackW: stackW,
-            stackH: stackH,
-            fabCx: fabCx,
-            fabCy: fabCy,
+          Positioned(
+            left: 0,
+            right: -_fabEdgeBleed,
+            top: 0,
+            height: stackH,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 260),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, anim) {
+                return FadeTransition(
+                  opacity: anim,
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.92, end: 1).animate(anim),
+                    child: child,
+                  ),
+                );
+              },
+              child: !_speedDialOpen
+                  ? const SizedBox.shrink(key: ValueKey<String>('arcOff'))
+                  : _buildRadialMenuLayer(
+                      stackW: stackW,
+                      stackH: stackH,
+                      fabCx: fabCx,
+                      fabCy: fabCy,
+                    ),
+            ),
           ),
           Positioned(
             top: fabCy - _mainFabSize / 2,
@@ -437,17 +374,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                     offset: const Offset(0, 6),
                   ),
                 ],
-                onTap: () {
-                  setState(() {
-                    final opening = !_speedDialOpen;
-                    _speedDialOpen = opening;
-                    if (opening) {
-                      _dialArcScroll = _dialScrollLimits(_speedDialActions().length).initial;
-                    } else {
-                      _dialArcScroll = 0;
-                    }
-                  });
-                },
+                onTap: () => setState(() => _speedDialOpen = !_speedDialOpen),
                 child: Icon(
                   _speedDialOpen ? Icons.close_rounded : Icons.menu_rounded,
                   color: Colors.white,
@@ -682,74 +609,5 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         ),
       ),
     );
-  }
-}
-
-/// Full annulus around the FAB center so the panel reads flush to the screen edge when the stack is full-width.
-class _SpeedDialSemicircleBackgroundPainter extends CustomPainter {
-  _SpeedDialSemicircleBackgroundPainter({
-    required this.center,
-    required this.outerRadius,
-    required this.innerRadius,
-    required this.fillColor,
-    required this.strokeColor,
-    required this.strokeWidth,
-  });
-
-  final Offset center;
-  final double outerRadius;
-  final double innerRadius;
-  final Color fillColor;
-  final Color strokeColor;
-  final double strokeWidth;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final outer = Rect.fromCircle(center: center, radius: outerRadius);
-    final inner = Rect.fromCircle(center: center, radius: innerRadius);
-
-    final outerDisk = Path()..addOval(outer);
-
-    if (innerRadius <= 0 || innerRadius >= outerRadius) {
-      final fill = Paint()
-        ..color = fillColor
-        ..isAntiAlias = true;
-      canvas.drawShadow(outerDisk, Colors.black26, 6, false);
-      canvas.drawPath(outerDisk, fill);
-
-      final stroke = Paint()
-        ..color = strokeColor
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth
-        ..isAntiAlias = true;
-      canvas.drawOval(outer, stroke);
-      return;
-    }
-
-    final innerDisk = Path()..addOval(inner);
-    final ring = Path.combine(PathOperation.difference, outerDisk, innerDisk);
-    final fill = Paint()
-      ..color = fillColor
-      ..isAntiAlias = true;
-    canvas.drawShadow(ring, Colors.black26, 6, false);
-    canvas.drawPath(ring, fill);
-
-    final stroke = Paint()
-      ..color = strokeColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..isAntiAlias = true;
-    canvas.drawOval(outer, stroke);
-    canvas.drawOval(inner, stroke);
-  }
-
-  @override
-  bool shouldRepaint(covariant _SpeedDialSemicircleBackgroundPainter oldDelegate) {
-    return oldDelegate.center != center ||
-        oldDelegate.outerRadius != outerRadius ||
-        oldDelegate.innerRadius != innerRadius ||
-        oldDelegate.fillColor != fillColor ||
-        oldDelegate.strokeColor != strokeColor ||
-        oldDelegate.strokeWidth != strokeWidth;
   }
 }
