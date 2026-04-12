@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -209,124 +211,179 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   }
 
   static const double _speedDialCircleSize = 52;
+  static const double _mainFabSize = 56;
+  /// Arc radius — vertical-diameter semicircle (ends on the right column, bulge left).
+  static const double _arcRadius = 100;
 
-  Widget _speedDialSquircle({
-    required IconData icon,
-    required String label,
-    required VoidCallback onPressed,
+  /// True circles — [BoxDecoration.shape] avoids M3 FAB / Material squircle look.
+  Widget _circleShadowButton({
+    required double diameter,
+    required Color backgroundColor,
+    required Widget child,
+    required VoidCallback onTap,
+    List<BoxShadow>? boxShadow,
   }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Material(
-            elevation: 2,
-            shadowColor: Colors.black26,
-            shape: const StadiumBorder(),
-            color: Colors.white,
-            clipBehavior: Clip.antiAlias,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: _dialInk,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                ),
-              ),
-            ),
+    return SizedBox(
+      width: diameter,
+      height: diameter,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: backgroundColor,
+          boxShadow: boxShadow,
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: Center(child: child),
           ),
-          const SizedBox(width: 12),
-          Material(
-            elevation: 5,
-            shadowColor: _brand.withValues(alpha: 0.35),
-            shape: const CircleBorder(),
-            color: _dialSquircleBg,
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: onPressed,
-              customBorder: const CircleBorder(),
-              child: SizedBox(
-                width: _speedDialCircleSize,
-                height: _speedDialCircleSize,
-                child: Icon(icon, color: _dialInk, size: 24),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildSpeedDialActions() {
+  Widget _speedDialArcButton({
+    required IconData icon,
+    required VoidCallback onPressed,
+  }) {
+    return _circleShadowButton(
+      diameter: _speedDialCircleSize,
+      backgroundColor: _dialSquircleBg,
+      boxShadow: [
+        BoxShadow(
+          color: _brand.withValues(alpha: 0.32),
+          blurRadius: 10,
+          offset: const Offset(0, 4),
+        ),
+      ],
+      onTap: onPressed,
+      child: Icon(icon, color: _dialInk, size: 24),
+    );
+  }
+
+  /// **180°** semicircle whose **ends lie on the right** (same vertical line as the FAB): **down → left → up**.
+  /// Pivot is the FAB center; θ runs **π/2 → 3π/2** (left bulge). Stack height places the FAB at the diameter midpoint so the arc fits.
+  Widget _buildSpeedDialArc() {
+    final actions = <({IconData icon, String tip, VoidCallback onTap})>[
+      (icon: Icons.favorite_border_rounded, tip: 'I Liked', onTap: () => _speedDialGoToTab(2)),
+      (icon: Icons.favorite_rounded, tip: 'Liked Me', onTap: () => _speedDialGoToTab(2)),
+      (
+        icon: Icons.tune_rounded,
+        tip: 'Preferences',
+        onTap: () => _speedDialSnack(
+          'Partner preferences: use Profile Setup in the app or the website dashboard.',
+        ),
+      ),
+      (
+        icon: Icons.auto_awesome_rounded,
+        tip: 'Generate Horoscope',
+        onTap: () => _speedDialSnack('Horoscope tools are on the website dashboard for now.'),
+      ),
+      (
+        icon: Icons.check_circle_outline_rounded,
+        tip: 'Selections',
+        onTap: () => _speedDialSnack('Parent selections: use the website dashboard.'),
+      ),
+      (
+        icon: Icons.supervisor_account_rounded,
+        tip: 'Parents',
+        onTap: () => _speedDialSnack('Manage parents on the website dashboard.'),
+      ),
+      (icon: Icons.celebration_rounded, tip: 'Mark as Married', onTap: _speedDialMarriedHint),
+    ];
+
+    final n = actions.length;
+    const pad = 16.0;
+    // Left: θ=π → fabCx - r; right: keep margin for FAB.
+    final stackW = _arcRadius + _mainFabSize / 2 + _speedDialCircleSize / 2 + pad + 24;
+    // FAB center vertically at diameter midpoint: room for rim r above and r below center.
+    final stackH = 2 * _arcRadius + _mainFabSize + 24;
+    final fabCx = stackW - _mainFabSize / 2;
+    final fabCy = _arcRadius + _mainFabSize / 2;
+
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 240),
+      duration: const Duration(milliseconds: 260),
       switchInCurve: Curves.easeOutCubic,
       switchOutCurve: Curves.easeInCubic,
       transitionBuilder: (child, anim) {
         return FadeTransition(
           opacity: anim,
-          child: SlideTransition(
-            position: Tween<Offset>(begin: const Offset(0, 0.12), end: Offset.zero).animate(anim),
-            child: child,
-          ),
+          child: ScaleTransition(scale: Tween<double>(begin: 0.92, end: 1).animate(anim), child: child),
         );
       },
       child: !_speedDialOpen
-          ? const SizedBox.shrink(key: ValueKey<String>('closed'))
-          : ConstrainedBox(
-              key: const ValueKey<String>('open'),
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.sizeOf(context).height * 0.48,
+          ? const SizedBox.shrink(key: ValueKey<String>('arcOff'))
+          : SizedBox(
+              key: const ValueKey<String>('arcOn'),
+              width: stackW,
+              height: stackH,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: List<Widget>.generate(n, (i) {
+                  // θ ∈ (π/2, 3π/2): bottom of arc → left → top; endpoints share x = fabCx (right column).
+                  final theta = n <= 1
+                      ? math.pi
+                      : math.pi / 2 + math.pi * (i + 0.5) / n;
+                  final cx =
+                      fabCx + _arcRadius * math.cos(theta) - _speedDialCircleSize / 2;
+                  final cy =
+                      fabCy + _arcRadius * math.sin(theta) - _speedDialCircleSize / 2;
+                  final a = actions[i];
+                  return Positioned(
+                    left: cx.clamp(0.0, stackW - _speedDialCircleSize),
+                    top: cy.clamp(0.0, stackH - _speedDialCircleSize),
+                    child: Tooltip(
+                      message: a.tip,
+                      child: _speedDialArcButton(icon: a.icon, onPressed: a.onTap),
+                    ),
+                  );
+                }),
               ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    _speedDialSquircle(
-                      icon: Icons.favorite_border_rounded,
-                      label: 'I Liked',
-                      onPressed: () => _speedDialGoToTab(2),
-                    ),
-                    _speedDialSquircle(
-                      icon: Icons.favorite_rounded,
-                      label: 'Liked Me',
-                      onPressed: () => _speedDialGoToTab(2),
-                    ),
-                    _speedDialSquircle(
-                      icon: Icons.tune_rounded,
-                      label: 'Preferences',
-                      onPressed: () => _speedDialSnack(
-                        'Partner preferences: use Profile Setup in the app or the website dashboard.',
-                      ),
-                    ),
-                    _speedDialSquircle(
-                      icon: Icons.auto_awesome_rounded,
-                      label: 'Horoscope',
-                      onPressed: () => _speedDialSnack('Horoscope tools are on the website dashboard for now.'),
-                    ),
-                    _speedDialSquircle(
-                      icon: Icons.check_circle_outline_rounded,
-                      label: 'Selections',
-                      onPressed: () => _speedDialSnack('Parent selections: use the website dashboard.'),
-                    ),
-                    _speedDialSquircle(
-                      icon: Icons.supervisor_account_rounded,
-                      label: 'Parents',
-                      onPressed: () => _speedDialSnack('Manage parents on the website dashboard.'),
-                    ),
-                    _speedDialSquircle(
-                      icon: Icons.celebration_rounded,
-                      label: 'Married',
-                      onPressed: _speedDialMarriedHint,
-                    ),
-                  ],
+            ),
+    );
+  }
+
+  Widget _buildFabAndArcStack() {
+    const pad = 16.0;
+    final stackW = _arcRadius + _mainFabSize / 2 + _speedDialCircleSize / 2 + pad + 24;
+    final stackH = 2 * _arcRadius + _mainFabSize + 24;
+    final fabCy = _arcRadius + _mainFabSize / 2;
+
+    return SizedBox(
+      width: stackW,
+      height: stackH,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          _buildSpeedDialArc(),
+          Positioned(
+            top: fabCy - _mainFabSize / 2,
+            right: 0,
+            child: Tooltip(
+              message: _speedDialOpen ? 'Close menu' : 'Menu',
+              child: _circleShadowButton(
+                diameter: _mainFabSize,
+                backgroundColor: _brand,
+                boxShadow: [
+                  BoxShadow(
+                    color: _brand.withValues(alpha: 0.45),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+                onTap: () => setState(() => _speedDialOpen = !_speedDialOpen),
+                child: Icon(
+                  _speedDialOpen ? Icons.close_rounded : Icons.menu_rounded,
+                  color: Colors.white,
+                  size: 26,
                 ),
               ),
             ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -452,25 +509,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       ),
       floatingActionButton: Padding(
         padding: EdgeInsets.only(bottom: bottomFabInset),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            _buildSpeedDialActions(),
-            const SizedBox(height: 8),
-            FloatingActionButton(
-              onPressed: () => setState(() => _speedDialOpen = !_speedDialOpen),
-              shape: const CircleBorder(),
-              clipBehavior: Clip.antiAlias,
-              backgroundColor: _brand,
-              foregroundColor: Colors.white,
-              elevation: 6,
-              tooltip: _speedDialOpen ? 'Close menu' : 'Menu',
-              heroTag: 'user_speed_dial_main',
-              child: Icon(_speedDialOpen ? Icons.close_rounded : Icons.menu_rounded),
-            ),
-          ],
-        ),
+        child: _buildFabAndArcStack(),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: Stack(
