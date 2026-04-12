@@ -19,6 +19,9 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   /// Squircle / label text (deep purple, reference-style).
   static const Color _dialInk = Color(0xFF3D1466);
   static const Color _dialSquircleBg = Color(0xFFF3E5FF);
+  /// Semicircle speed-dial panel (behind arc buttons).
+  static const Color _dialMenuPanelFill = Color(0xF8FFFFFF);
+  static const Color _dialMenuPanelStroke = Color(0x336A11CB);
 
   int _currentIndex = 0;
   bool _speedDialOpen = false;
@@ -318,16 +321,14 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
 
   /// **180°** semicircle whose **ends lie on the right** (same vertical line as the FAB): **down → left → up**.
   /// Pivot is the FAB center; θ runs **π/2 → 3π/2** (left bulge). Stack height places the FAB at the diameter midpoint so the arc fits.
-  Widget _buildSpeedDialArc() {
+  Widget _buildSpeedDialArc({
+    required double stackW,
+    required double stackH,
+    required double fabCx,
+    required double fabCy,
+  }) {
     final actions = _speedDialActions();
     final n = actions.length;
-    const pad = 16.0;
-    // Left: θ=π → fabCx - r; right: keep margin for FAB.
-    final stackW = _arcRadius + _mainFabSize / 2 + _speedDialCircleSize / 2 + pad + 24;
-    // FAB center vertically at diameter midpoint: room for rim r above and r below center.
-    final stackH = 2 * _arcRadius + _mainFabSize + 24;
-    final fabCx = stackW - _mainFabSize / 2;
-    final fabCy = _arcRadius + _mainFabSize / 2;
 
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 260),
@@ -357,7 +358,20 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 },
                 child: Stack(
                   clipBehavior: Clip.none,
-                  children: List<Widget>.generate(n, (i) {
+                  children: [
+                    CustomPaint(
+                      size: Size(stackW, stackH),
+                      painter: _SpeedDialSemicircleBackgroundPainter(
+                        center: Offset(fabCx, fabCy),
+                        outerRadius: _arcRadius + _speedDialCircleSize / 2 + 14,
+                        innerRadius: (_arcRadius - _speedDialCircleSize / 2 - 10)
+                            .clamp(12.0, double.infinity),
+                        fillColor: _dialMenuPanelFill,
+                        strokeColor: _dialMenuPanelStroke,
+                        strokeWidth: 1.25,
+                      ),
+                    ),
+                    ...List<Widget>.generate(n, (i) {
                     // θ = π/2 + i*step + scroll; full semicircle window [π/2, 3π/2] when scroll is clamped.
                     final theta = n <= 1
                         ? math.pi
@@ -381,6 +395,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                       ),
                     );
                   }),
+                  ],
                 ),
               ),
             ),
@@ -389,8 +404,10 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
 
   Widget _buildFabAndArcStack() {
     const pad = 16.0;
-    final stackW = _arcRadius + _mainFabSize / 2 + _speedDialCircleSize / 2 + pad + 24;
+    final baseW = _arcRadius + _mainFabSize / 2 + _speedDialCircleSize / 2 + pad + 24;
     final stackH = 2 * _arcRadius + _mainFabSize + 24;
+    final stackW = _speedDialOpen ? MediaQuery.sizeOf(context).width : baseW;
+    final fabCx = stackW - _mainFabSize / 2;
     final fabCy = _arcRadius + _mainFabSize / 2;
 
     return SizedBox(
@@ -399,7 +416,12 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          _buildSpeedDialArc(),
+          _buildSpeedDialArc(
+            stackW: stackW,
+            stackH: stackH,
+            fabCx: fabCx,
+            fabCy: fabCy,
+          ),
           Positioned(
             top: fabCy - _mainFabSize / 2,
             right: 0,
@@ -660,5 +682,74 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         ),
       ),
     );
+  }
+}
+
+/// Full annulus around the FAB center so the panel reads flush to the screen edge when the stack is full-width.
+class _SpeedDialSemicircleBackgroundPainter extends CustomPainter {
+  _SpeedDialSemicircleBackgroundPainter({
+    required this.center,
+    required this.outerRadius,
+    required this.innerRadius,
+    required this.fillColor,
+    required this.strokeColor,
+    required this.strokeWidth,
+  });
+
+  final Offset center;
+  final double outerRadius;
+  final double innerRadius;
+  final Color fillColor;
+  final Color strokeColor;
+  final double strokeWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final outer = Rect.fromCircle(center: center, radius: outerRadius);
+    final inner = Rect.fromCircle(center: center, radius: innerRadius);
+
+    final outerDisk = Path()..addOval(outer);
+
+    if (innerRadius <= 0 || innerRadius >= outerRadius) {
+      final fill = Paint()
+        ..color = fillColor
+        ..isAntiAlias = true;
+      canvas.drawShadow(outerDisk, Colors.black26, 6, false);
+      canvas.drawPath(outerDisk, fill);
+
+      final stroke = Paint()
+        ..color = strokeColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..isAntiAlias = true;
+      canvas.drawOval(outer, stroke);
+      return;
+    }
+
+    final innerDisk = Path()..addOval(inner);
+    final ring = Path.combine(PathOperation.difference, outerDisk, innerDisk);
+    final fill = Paint()
+      ..color = fillColor
+      ..isAntiAlias = true;
+    canvas.drawShadow(ring, Colors.black26, 6, false);
+    canvas.drawPath(ring, fill);
+
+    final stroke = Paint()
+      ..color = strokeColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..isAntiAlias = true;
+    canvas.drawOval(outer, stroke);
+    canvas.drawOval(inner, stroke);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SpeedDialSemicircleBackgroundPainter oldDelegate) {
+    return oldDelegate.center != center ||
+        oldDelegate.outerRadius != outerRadius ||
+        oldDelegate.innerRadius != innerRadius ||
+        oldDelegate.fillColor != fillColor ||
+        oldDelegate.strokeColor != strokeColor ||
+        oldDelegate.strokeWidth != strokeWidth;
   }
 }
