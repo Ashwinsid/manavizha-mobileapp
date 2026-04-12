@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -514,8 +516,15 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: _closeSpeedDial,
-                child: ColoredBox(
-                  color: Colors.black.withValues(alpha: 0.14),
+                child: ClipRect(
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.38),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
