@@ -244,13 +244,14 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     );
   }
 
-  List<({IconData icon, String tip, VoidCallback onTap})> _speedDialActions() {
+  List<({IconData icon, String tip, String pageName, VoidCallback onTap})> _speedDialActions() {
     return [
-      (icon: Icons.favorite_border_rounded, tip: 'I Liked', onTap: () => _speedDialGoToTab(2)),
-      (icon: Icons.favorite_rounded, tip: 'Liked Me', onTap: () => _speedDialGoToTab(2)),
+      (icon: Icons.favorite_border_rounded, tip: 'I Liked', pageName: 'I Liked', onTap: () => _speedDialGoToTab(2)),
+      (icon: Icons.favorite_rounded, tip: 'Liked Me', pageName: 'Liked Me', onTap: () => _speedDialGoToTab(2)),
       (
         icon: Icons.tune_rounded,
         tip: 'Preferences',
+        pageName: 'Preferences',
         onTap: () => _speedDialSnack(
           'Partner preferences: use Profile Setup in the app or the website dashboard.',
         ),
@@ -258,19 +259,27 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       (
         icon: Icons.auto_awesome_rounded,
         tip: 'Generate Horoscope',
+        pageName: 'Horoscope',
         onTap: () => _speedDialSnack('Horoscope tools are on the website dashboard for now.'),
       ),
       (
         icon: Icons.check_circle_outline_rounded,
         tip: 'Selections',
+        pageName: 'Selections',
         onTap: () => _speedDialSnack('Parent selections: use the website dashboard.'),
       ),
       (
         icon: Icons.supervisor_account_rounded,
         tip: 'Parents',
+        pageName: 'Parents',
         onTap: () => _speedDialSnack('Manage parents on the website dashboard.'),
       ),
-      (icon: Icons.celebration_rounded, tip: 'Mark as Married', onTap: _speedDialMarriedHint),
+      (
+        icon: Icons.celebration_rounded,
+        tip: 'Mark as Married',
+        pageName: 'Married',
+        onTap: _speedDialMarriedHint,
+      ),
     ];
   }
 
@@ -287,6 +296,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         RadialMenuItem(
           icon: a.icon,
           tooltip: a.tip,
+          pageName: a.pageName,
           onTap: a.onTap,
         ),
     ];

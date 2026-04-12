@@ -9,11 +9,15 @@ class RadialMenuItem {
     required this.icon,
     required this.onTap,
     this.tooltip,
+    this.pageName,
   });
 
   final IconData icon;
   final VoidCallback onTap;
   final String? tooltip;
+
+  /// Shown to the **left** of the icon only on the two innermost rim slots (highest opacity).
+  final String? pageName;
 }
 
 /// Full-donut background (outer disk − inner disk) for the dial panel.
@@ -235,6 +239,14 @@ class _RadialMenuState extends State<RadialMenu> with SingleTickerProviderStateM
     return 1.0 - t * 0.5;
   }
 
+  /// The two innermost rim positions (smallest [|angle|]) match full-opacity tier — labels only there.
+  bool _showsPageLabel(double slotDegAbs) {
+    return slotDegAbs <= _stepDeg * 0.5 + 1e-6;
+  }
+
+  static const double _pageLabelGap = 16;
+  static const double _pageLabelMaxWidth = 120;
+
   @override
   Widget build(BuildContext context) {
     if (widget.items.isEmpty) {
@@ -255,44 +267,52 @@ class _RadialMenuState extends State<RadialMenu> with SingleTickerProviderStateM
     return SizedBox(
       width: widget.size.width,
       height: widget.size.height,
-      child: ClipPath(
-        clipper: _DialRingClipper(
-          center: widget.center,
-          outerRadius: clipOuter,
-          innerRadius: clipInner,
-          panelRight: widget.size.width,
-        ),
-        child: GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onPanUpdate: (details) {
-            _snapController.stop();
-            _snapAnimation?.removeListener(_snapTick);
-            _snapAnimation?.removeStatusListener(_snapDone);
-            setState(() {
-              _rotationDeg += details.delta.dy * widget.rotationSensitivity * 0.65 +
-                  details.delta.dx * widget.rotationSensitivity * 0.4;
-            });
-          },
-          onPanEnd: (_) => _onPanEnd(),
-          onPanCancel: _onPanEnd,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              if (widget.backgroundPainter != null)
-                CustomPaint(
-                  size: widget.size,
-                  painter: widget.backgroundPainter,
-                ),
-              for (var j = 0; j < widget.visibleSlots; j++)
-                _buildSlot(j, slots[j], j == centerSlotJ),
-            ],
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          ClipPath(
+            clipper: _DialRingClipper(
+              center: widget.center,
+              outerRadius: clipOuter,
+              innerRadius: clipInner,
+              panelRight: widget.size.width,
+            ),
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onPanUpdate: (details) {
+                _snapController.stop();
+                _snapAnimation?.removeListener(_snapTick);
+                _snapAnimation?.removeStatusListener(_snapDone);
+                setState(() {
+                  _rotationDeg += details.delta.dy * widget.rotationSensitivity * 0.65 +
+                      details.delta.dx * widget.rotationSensitivity * 0.4;
+                });
+              },
+              onPanEnd: (_) => _onPanEnd(),
+              onPanCancel: _onPanEnd,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  if (widget.backgroundPainter != null)
+                    CustomPaint(
+                      size: widget.size,
+                      painter: widget.backgroundPainter,
+                    ),
+                  for (var j = 0; j < widget.visibleSlots; j++)
+                    _buildSlotIcon(j, slots[j], j == centerSlotJ),
+                ],
+              ),
+            ),
           ),
-        ),
+          // Page titles sit outside the ring clip; otherwise [ClipPath] removes them entirely.
+          for (var j = 0; j < widget.visibleSlots; j++)
+            _buildSlotPageLabel(context, j, slots[j]),
+        ],
       ),
     );
   }
 
-  Widget _buildSlot(int j, double slotDeg, bool isCenterSlot) {
+  Widget _buildSlotIcon(int j, double slotDeg, bool isCenterSlot) {
     final item = widget.items[_itemIndexAtSlot(j)];
     final abs = slotDeg.abs();
     final o = _offsetForUserAngleDeg(slotDeg);
@@ -331,6 +351,65 @@ class _RadialMenuState extends State<RadialMenu> with SingleTickerProviderStateM
                   alignment: Alignment.center,
                   child: Icon(item.icon, color: widget.iconColor, size: 24),
                 ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSlotPageLabel(BuildContext context, int j, double slotDeg) {
+    final item = widget.items[_itemIndexAtSlot(j)];
+    final abs = slotDeg.abs();
+    final o = _offsetForUserAngleDeg(slotDeg);
+    final d = widget.itemDiameter;
+    final name = item.pageName;
+
+    if (name == null || name.isEmpty || !_showsPageLabel(abs)) {
+      return const SizedBox.shrink();
+    }
+
+    final labelLeft = o.dx - d / 2 - _pageLabelMaxWidth - _pageLabelGap;
+
+    return Positioned(
+      left: labelLeft.clamp(8.0, widget.size.width - _pageLabelMaxWidth - 8),
+      top: (o.dy - d / 2).clamp(0.0, widget.size.height - d),
+      width: _pageLabelMaxWidth,
+      height: d,
+      child: IgnorePointer(
+        child: Opacity(
+          opacity: _opacityForSlotAngleAbs(abs),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Container(
+              constraints: BoxConstraints(maxWidth: _pageLabelMaxWidth),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: widget.itemBackgroundColor,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(
+                  color: widget.brandColor.withValues(alpha: 0.28),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: widget.brandColor.withValues(alpha: 0.18),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Text(
+                name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: widget.iconColor,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                      height: 1.15,
+                    ),
               ),
             ),
           ),
