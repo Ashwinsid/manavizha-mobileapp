@@ -22,6 +22,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
 
   int _currentIndex = 0;
   bool _speedDialOpen = false;
+  /// Radians offset along the semicircle (rotary-dial scroll).
+  double _dialArcScroll = 0;
 
   String? _appBarPhotoUrl;
   String? _appBarNameHint;
@@ -113,7 +115,12 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   }
 
   void _closeSpeedDial() {
-    if (_speedDialOpen) setState(() => _speedDialOpen = false);
+    if (_speedDialOpen) {
+      setState(() {
+        _speedDialOpen = false;
+        _dialArcScroll = 0;
+      });
+    }
   }
 
   void _speedDialGoToTab(int index) {
@@ -214,6 +221,22 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   static const double _mainFabSize = 56;
   /// Arc radius — vertical-diameter semicircle (ends on the right column, bulge left).
   static const double _arcRadius = 100;
+  /// Minimum angle between item centers; when (n-1)*step > π, the dial becomes scrollable.
+  static const double _dialAngleStep = math.pi / 5;
+
+  ({double min, double max, double initial}) _dialScrollLimits(int n) {
+    if (n <= 1) {
+      return (min: 0.0, max: 0.0, initial: 0.0);
+    }
+    final totalSpan = (n - 1) * _dialAngleStep;
+    if (totalSpan <= math.pi) {
+      final maxS = (math.pi - totalSpan).clamp(0.0, double.infinity);
+      return (min: 0.0, max: maxS, initial: 0.0);
+    }
+    final minS = math.pi - totalSpan;
+    const maxS = 0.0;
+    return (min: minS, max: maxS, initial: (minS + maxS) / 2);
+  }
 
   /// True circles — [BoxDecoration.shape] avoids M3 FAB / Material squircle look.
   Widget _circleShadowButton({
@@ -263,10 +286,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     );
   }
 
-  /// **180°** semicircle whose **ends lie on the right** (same vertical line as the FAB): **down → left → up**.
-  /// Pivot is the FAB center; θ runs **π/2 → 3π/2** (left bulge). Stack height places the FAB at the diameter midpoint so the arc fits.
-  Widget _buildSpeedDialArc() {
-    final actions = <({IconData icon, String tip, VoidCallback onTap})>[
+  List<({IconData icon, String tip, VoidCallback onTap})> _speedDialActions() {
+    return [
       (icon: Icons.favorite_border_rounded, tip: 'I Liked', onTap: () => _speedDialGoToTab(2)),
       (icon: Icons.favorite_rounded, tip: 'Liked Me', onTap: () => _speedDialGoToTab(2)),
       (
@@ -293,7 +314,12 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       ),
       (icon: Icons.celebration_rounded, tip: 'Mark as Married', onTap: _speedDialMarriedHint),
     ];
+  }
 
+  /// **180°** semicircle whose **ends lie on the right** (same vertical line as the FAB): **down → left → up**.
+  /// Pivot is the FAB center; θ runs **π/2 → 3π/2** (left bulge). Stack height places the FAB at the diameter midpoint so the arc fits.
+  Widget _buildSpeedDialArc() {
+    final actions = _speedDialActions();
     final n = actions.length;
     const pad = 16.0;
     // Left: θ=π → fabCx - r; right: keep margin for FAB.
@@ -319,27 +345,43 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
               key: const ValueKey<String>('arcOn'),
               width: stackW,
               height: stackH,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: List<Widget>.generate(n, (i) {
-                  // θ ∈ (π/2, 3π/2): bottom of arc → left → top; endpoints share x = fabCx (right column).
-                  final theta = n <= 1
-                      ? math.pi
-                      : math.pi / 2 + math.pi * (i + 0.5) / n;
-                  final cx =
-                      fabCx + _arcRadius * math.cos(theta) - _speedDialCircleSize / 2;
-                  final cy =
-                      fabCy + _arcRadius * math.sin(theta) - _speedDialCircleSize / 2;
-                  final a = actions[i];
-                  return Positioned(
-                    left: cx.clamp(0.0, stackW - _speedDialCircleSize),
-                    top: cy.clamp(0.0, stackH - _speedDialCircleSize),
-                    child: Tooltip(
-                      message: a.tip,
-                      child: _speedDialArcButton(icon: a.icon, onPressed: a.onTap),
-                    ),
-                  );
-                }),
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onPanUpdate: (details) {
+                  final lim = _dialScrollLimits(n);
+                  if (lim.max <= lim.min) return;
+                  setState(() {
+                    _dialArcScroll -= details.delta.dx * 0.018 + details.delta.dy * 0.018;
+                    _dialArcScroll = _dialArcScroll.clamp(lim.min, lim.max);
+                  });
+                },
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: List<Widget>.generate(n, (i) {
+                    // θ = π/2 + i*step + scroll; full semicircle window [π/2, 3π/2] when scroll is clamped.
+                    final theta = n <= 1
+                        ? math.pi
+                        : math.pi / 2 + i * _dialAngleStep + _dialArcScroll;
+                    final cx = fabCx +
+                        _arcRadius * math.cos(theta) -
+                        _speedDialCircleSize / 2;
+                    final cy = fabCy +
+                        _arcRadius * math.sin(theta) -
+                        _speedDialCircleSize / 2;
+                    final a = actions[i];
+                    return Positioned(
+                      left: cx.clamp(0.0, stackW - _speedDialCircleSize),
+                      top: cy.clamp(0.0, stackH - _speedDialCircleSize),
+                      child: Tooltip(
+                        message: a.tip,
+                        child: _speedDialArcButton(
+                          icon: a.icon,
+                          onPressed: a.onTap,
+                        ),
+                      ),
+                    );
+                  }),
+                ),
               ),
             ),
     );
@@ -373,7 +415,17 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                     offset: const Offset(0, 6),
                   ),
                 ],
-                onTap: () => setState(() => _speedDialOpen = !_speedDialOpen),
+                onTap: () {
+                  setState(() {
+                    final opening = !_speedDialOpen;
+                    _speedDialOpen = opening;
+                    if (opening) {
+                      _dialArcScroll = _dialScrollLimits(_speedDialActions().length).initial;
+                    } else {
+                      _dialArcScroll = 0;
+                    }
+                  });
+                },
                 child: Icon(
                   _speedDialOpen ? Icons.close_rounded : Icons.menu_rounded,
                   color: Colors.white,
