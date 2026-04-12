@@ -14,8 +14,12 @@ class UserHomeScreen extends StatefulWidget {
 
 class _UserHomeScreenState extends State<UserHomeScreen> {
   static const Color _brand = Color(0xFF6A11CB);
+  /// Squircle / label text (deep purple, reference-style).
+  static const Color _dialInk = Color(0xFF3D1466);
+  static const Color _dialSquircleBg = Color(0xFFF3E5FF);
 
   int _currentIndex = 0;
+  bool _speedDialOpen = false;
 
   String? _appBarPhotoUrl;
   String? _appBarNameHint;
@@ -88,18 +92,248 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     ];
   }
 
-  void _closeDrawerGoTo(int index) {
-    Navigator.of(context).pop();
+  void _dismissMenuAndGoTo(BuildContext menuContext, int index) {
+    Navigator.of(menuContext).pop();
     setState(() => _currentIndex = index);
   }
 
-  void _snack(String msg) {
-    Navigator.of(context).pop();
+  void _dismissMenuAndSnack(BuildContext menuContext, String msg) {
+    Navigator.of(menuContext).pop();
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  void _dismissMenuAndMarriedHint(BuildContext menuContext) {
+    Navigator.of(menuContext).pop();
+    setState(() => _currentIndex = 0);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Open the Home tab and use “Mark” under Found your partner?')),
+    );
+  }
+
+  void _closeSpeedDial() {
+    if (_speedDialOpen) setState(() => _speedDialOpen = false);
+  }
+
+  void _speedDialGoToTab(int index) {
+    setState(() {
+      _speedDialOpen = false;
+      _currentIndex = index;
+    });
+  }
+
+  void _speedDialSnack(String msg) {
+    setState(() => _speedDialOpen = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  void _speedDialMarriedHint() {
+    setState(() {
+      _speedDialOpen = false;
+      _currentIndex = 0;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Open the Home tab and use “Mark” under Found your partner?')),
+    );
+  }
+
+  /// Same entries as the navigation drawer; [menuContext] is the drawer or sheet route to pop.
+  List<Widget> _buildSharedMenuTiles(BuildContext menuContext) {
+    return [
+      const SizedBox(height: 8),
+      ListTile(
+        leading: const Icon(Icons.favorite_border, color: Color(0xFF6A11CB)),
+        title: const Text('I Liked', style: TextStyle(fontWeight: FontWeight.w600)),
+        onTap: () => _dismissMenuAndGoTo(menuContext, 2),
+      ),
+      ListTile(
+        leading: const Icon(Icons.favorite, color: Color(0xFF6A11CB)),
+        title: const Text('Liked Me', style: TextStyle(fontWeight: FontWeight.w600)),
+        onTap: () => _dismissMenuAndGoTo(menuContext, 2),
+      ),
+      ListTile(
+        leading: const Icon(Icons.tune_rounded, color: Color(0xFF6A11CB)),
+        title: const Text('Preferences', style: TextStyle(fontWeight: FontWeight.w600)),
+        onTap: () => _dismissMenuAndSnack(
+          menuContext,
+          'Partner preferences: use Profile Setup in the app or the website dashboard.',
+        ),
+      ),
+      ListTile(
+        leading: const Icon(Icons.auto_awesome, color: Color(0xFF6A11CB)),
+        title: const Text('Generate Horoscope', style: TextStyle(fontWeight: FontWeight.w600)),
+        onTap: () => _dismissMenuAndSnack(menuContext, 'Horoscope tools are on the website dashboard for now.'),
+      ),
+      const Divider(height: 32),
+      const Padding(
+        padding: EdgeInsets.only(left: 16.0, bottom: 8.0),
+        child: Text(
+          'PARENTAL ACCESS',
+          style: TextStyle(
+            color: Colors.black45,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.2,
+          ),
+        ),
+      ),
+      ListTile(
+        leading: const Icon(Icons.check_circle_outline, color: Colors.blueGrey),
+        title: const Text('Selections', style: TextStyle(fontWeight: FontWeight.w600)),
+        onTap: () => _dismissMenuAndSnack(menuContext, 'Parent selections: use the website dashboard.'),
+      ),
+      ListTile(
+        leading: const Icon(Icons.supervisor_account, color: Colors.blueGrey),
+        title: const Text('Parents', style: TextStyle(fontWeight: FontWeight.w600)),
+        onTap: () => _dismissMenuAndSnack(menuContext, 'Manage parents on the website dashboard.'),
+      ),
+      const Divider(height: 32),
+      const Padding(
+        padding: EdgeInsets.only(left: 16.0, bottom: 8.0),
+        child: Text(
+          'PROFILE STATUS',
+          style: TextStyle(
+            color: Colors.black45,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.2,
+          ),
+        ),
+      ),
+      ListTile(
+        leading: const Icon(Icons.celebration, color: Colors.green),
+        title: const Text('Mark as Married', style: TextStyle(fontWeight: FontWeight.w600)),
+        onTap: () => _dismissMenuAndMarriedHint(menuContext),
+      ),
+      const SizedBox(height: 8),
+    ];
+  }
+
+  static const double _speedDialCircleSize = 52;
+
+  Widget _speedDialSquircle({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Material(
+            elevation: 2,
+            shadowColor: Colors.black26,
+            shape: const StadiumBorder(),
+            color: Colors.white,
+            clipBehavior: Clip.antiAlias,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: _dialInk,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Material(
+            elevation: 5,
+            shadowColor: _brand.withValues(alpha: 0.35),
+            shape: const CircleBorder(),
+            color: _dialSquircleBg,
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onPressed,
+              customBorder: const CircleBorder(),
+              child: SizedBox(
+                width: _speedDialCircleSize,
+                height: _speedDialCircleSize,
+                child: Icon(icon, color: _dialInk, size: 24),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSpeedDialActions() {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 240),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, anim) {
+        return FadeTransition(
+          opacity: anim,
+          child: SlideTransition(
+            position: Tween<Offset>(begin: const Offset(0, 0.12), end: Offset.zero).animate(anim),
+            child: child,
+          ),
+        );
+      },
+      child: !_speedDialOpen
+          ? const SizedBox.shrink(key: ValueKey<String>('closed'))
+          : ConstrainedBox(
+              key: const ValueKey<String>('open'),
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.48,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    _speedDialSquircle(
+                      icon: Icons.favorite_border_rounded,
+                      label: 'I Liked',
+                      onPressed: () => _speedDialGoToTab(2),
+                    ),
+                    _speedDialSquircle(
+                      icon: Icons.favorite_rounded,
+                      label: 'Liked Me',
+                      onPressed: () => _speedDialGoToTab(2),
+                    ),
+                    _speedDialSquircle(
+                      icon: Icons.tune_rounded,
+                      label: 'Preferences',
+                      onPressed: () => _speedDialSnack(
+                        'Partner preferences: use Profile Setup in the app or the website dashboard.',
+                      ),
+                    ),
+                    _speedDialSquircle(
+                      icon: Icons.auto_awesome_rounded,
+                      label: 'Horoscope',
+                      onPressed: () => _speedDialSnack('Horoscope tools are on the website dashboard for now.'),
+                    ),
+                    _speedDialSquircle(
+                      icon: Icons.check_circle_outline_rounded,
+                      label: 'Selections',
+                      onPressed: () => _speedDialSnack('Parent selections: use the website dashboard.'),
+                    ),
+                    _speedDialSquircle(
+                      icon: Icons.supervisor_account_rounded,
+                      label: 'Parents',
+                      onPressed: () => _speedDialSnack('Manage parents on the website dashboard.'),
+                    ),
+                    _speedDialSquircle(
+                      icon: Icons.celebration_rounded,
+                      label: 'Married',
+                      onPressed: _speedDialMarriedHint,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final bottomFabInset = MediaQuery.paddingOf(context).bottom + 100;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FE), // Soft luxury web background
       extendBody: true, // The body content will scroll under the floating bottom nav dock
@@ -147,79 +381,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 8),
-            // Group 1: General
-            ListTile(
-              leading: const Icon(Icons.favorite_border, color: Color(0xFF6A11CB)),
-              title: const Text('I Liked', style: TextStyle(fontWeight: FontWeight.w600)),
-              onTap: () => _closeDrawerGoTo(2),
-            ),
-            ListTile(
-              leading: const Icon(Icons.favorite, color: Color(0xFF6A11CB)),
-              title: const Text('Liked Me', style: TextStyle(fontWeight: FontWeight.w600)),
-              onTap: () => _closeDrawerGoTo(2),
-            ),
-            ListTile(
-              leading: const Icon(Icons.tune_rounded, color: Color(0xFF6A11CB)),
-              title: const Text('Preferences', style: TextStyle(fontWeight: FontWeight.w600)),
-              onTap: () => _snack('Partner preferences: use Profile Setup in the app or the website dashboard.'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.auto_awesome, color: Color(0xFF6A11CB)),
-              title: const Text('Generate Horoscope', style: TextStyle(fontWeight: FontWeight.w600)),
-              onTap: () => _snack('Horoscope tools are on the website dashboard for now.'),
-            ),
-            const Divider(height: 32),
-            
-            // Group 2: Parental Access
-            const Padding(
-              padding: EdgeInsets.only(left: 16.0, bottom: 8.0),
-              child: Text(
-                'PARENTAL ACCESS',
-                style: TextStyle(
-                  color: Colors.black45,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
-                ),
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.check_circle_outline, color: Colors.blueGrey),
-              title: const Text('Selections', style: TextStyle(fontWeight: FontWeight.w600)),
-              onTap: () => _snack('Parent selections: use the website dashboard.'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.supervisor_account, color: Colors.blueGrey),
-              title: const Text('Parents', style: TextStyle(fontWeight: FontWeight.w600)),
-              onTap: () => _snack('Manage parents on the website dashboard.'),
-            ),
-            const Divider(height: 32),
-
-            // Group 3: Profile Status
-            const Padding(
-              padding: EdgeInsets.only(left: 16.0, bottom: 8.0),
-              child: Text(
-                'PROFILE STATUS',
-                style: TextStyle(
-                  color: Colors.black45,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
-                ),
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.celebration, color: Colors.green),
-              title: const Text('Mark as Married', style: TextStyle(fontWeight: FontWeight.w600)),
-              onTap: () {
-                Navigator.of(context).pop();
-                setState(() => _currentIndex = 0);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Open the Home tab and use “Mark” under Found your partner?')),
-                );
-              },
-            ),
+            ..._buildSharedMenuTiles(context),
             const SizedBox(height: 24),
           ],
         ),
@@ -288,9 +450,46 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
           )
         ],
       ),
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _pages,
+      floatingActionButton: Padding(
+        padding: EdgeInsets.only(bottom: bottomFabInset),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            _buildSpeedDialActions(),
+            const SizedBox(height: 8),
+            FloatingActionButton(
+              onPressed: () => setState(() => _speedDialOpen = !_speedDialOpen),
+              shape: const CircleBorder(),
+              clipBehavior: Clip.antiAlias,
+              backgroundColor: _brand,
+              foregroundColor: Colors.white,
+              elevation: 6,
+              tooltip: _speedDialOpen ? 'Close menu' : 'Menu',
+              heroTag: 'user_speed_dial_main',
+              child: Icon(_speedDialOpen ? Icons.close_rounded : Icons.menu_rounded),
+            ),
+          ],
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      body: Stack(
+        children: [
+          IndexedStack(
+            index: _currentIndex,
+            children: _pages,
+          ),
+          if (_speedDialOpen)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _closeSpeedDial,
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.14),
+                ),
+              ),
+            ),
+        ],
       ),
       bottomNavigationBar: SafeArea(
         child: Container(
@@ -301,7 +500,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
             borderRadius: BorderRadius.circular(32),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF6A11CB).withOpacity(0.15),
+                color: const Color(0xFF6A11CB).withValues(alpha: 0.15),
                 blurRadius: 24,
                 offset: const Offset(0, 10),
               )
@@ -335,7 +534,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         curve: Curves.fastOutSlowIn,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF6A11CB).withOpacity(0.12) : Colors.transparent,
+          color: isSelected ? const Color(0xFF6A11CB).withValues(alpha: 0.12) : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
