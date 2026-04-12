@@ -19,9 +19,9 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   /// Squircle / label text (deep purple, reference-style).
   static const Color _dialInk = Color(0xFF3D1466);
   static const Color _dialSquircleBg = Color(0xFFF3E5FF);
-  /// Semicircle speed-dial panel (behind arc buttons).
-  static const Color _dialMenuPanelFill = Color(0xF8FFFFFF);
-  static const Color _dialMenuPanelStroke = Color(0x336A11CB);
+  /// Semicircle speed-dial panel (behind arc buttons) — darker, transparent purple-tinted glass.
+  static const Color _dialMenuPanelFill = Color(0xC0281E3D);
+  static const Color _dialMenuPanelStroke = Color(0x4D9B7FD4);
 
   int _currentIndex = 0;
   bool _speedDialOpen = false;
