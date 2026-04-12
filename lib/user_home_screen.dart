@@ -15,9 +15,6 @@ class UserHomeScreen extends StatefulWidget {
 
 class _UserHomeScreenState extends State<UserHomeScreen> {
   static const Color _brand = Color(0xFF6A11CB);
-  /// Semicircle speed-dial panel (behind arc buttons) — darker, transparent purple-tinted glass.
-  static const Color _dialMenuPanelFill = Color(0xC0281E3D);
-  static const Color _dialMenuPanelStroke = Color(0x4D9B7FD4);
 
   int _currentIndex = 0;
   bool _speedDialOpen = false;
@@ -307,14 +304,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       itemDiameter: _speedDialCircleSize,
       clipOuterRadius: ringOuter,
       clipInnerRadius: ringInner,
-      backgroundPainter: RadialMenuRingBackgroundPainter(
-        center: Offset(fabCx, fabCy),
-        outerRadius: ringOuter,
-        innerRadius: ringInner,
-        fillColor: _dialMenuPanelFill,
-        strokeColor: _dialMenuPanelStroke,
-        strokeWidth: 1.25,
-      ),
     );
   }
 
