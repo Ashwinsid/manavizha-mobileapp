@@ -214,7 +214,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   /// Bleed past [SizedBox] right edge: FAB margin + safe inset so paint reaches the physical bezel.
   static const double _fabEdgeBleed = 28.0;
   /// Arc radius — vertical-diameter semicircle (ends on the right column, bulge left).
-  static const double _arcRadius = 100;
+  /// Chord between 30° slot centers ≈ 0.518×r; keep above [itemDiameter] (~52) to avoid overlap.
+  static const double _arcRadius = 122;
   /// True circles — [BoxDecoration.shape] avoids M3 FAB / Material squircle look.
   Widget _circleShadowButton({
     required double diameter,
