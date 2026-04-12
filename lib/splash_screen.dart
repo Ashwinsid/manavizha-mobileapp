@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'auth_navigation.dart';
 import 'welcome_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -41,23 +44,39 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     // Start the animation
     _controller.forward();
 
-    // After a 3 second delay, smoothly transition to the next screen
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) => const WelcomeScreen(),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return FadeTransition(
-                opacity: animation,
-                child: child,
-              );
-            },
-            transitionDuration: const Duration(milliseconds: 800),
-          ),
-        );
+    // After splash, route to role home if a session was restored, else welcome.
+    Future<void> goNext() async {
+      await Future<void>.delayed(const Duration(seconds: 3));
+      if (!mounted) return;
+
+      Session? session = Supabase.instance.client.auth.currentSession;
+      if (session == null) {
+        for (var i = 0; i < 40; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          session = Supabase.instance.client.auth.currentSession;
+          if (session != null) break;
+        }
       }
-    });
+
+      if (!mounted) return;
+
+      if (session != null) {
+        await navigateToRoleHome(context, session.user.id);
+        return;
+      }
+
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder<void>(
+          pageBuilder: (context, animation, secondaryAnimation) => const WelcomeScreen(),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return FadeTransition(opacity: animation, child: child);
+          },
+          transitionDuration: const Duration(milliseconds: 800),
+        ),
+      );
+    }
+
+    goNext();
   }
 
   @override
