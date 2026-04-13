@@ -219,6 +219,66 @@ class _RadialMenuState extends State<RadialMenu> with SingleTickerProviderStateM
     return _positiveMod(shift + slotIndex, m);
   }
 
+  int _currentShift() {
+    return -(_rotationDeg / _stepDeg).round();
+  }
+
+  /// Physical slot indices whose rim angle is in the opaque / page-name tier.
+  List<int> _opaqueSlotIndices() {
+    final slots = _slotAnglesDeg();
+    final out = <int>[];
+    for (var j = 0; j < slots.length; j++) {
+      if (_showsPageLabel(slots[j].abs())) {
+        out.add(j);
+      }
+    }
+    return out;
+  }
+
+  /// Rotates the dial so [itemIdx] appears on an opaque slot (minimal step change).
+  void _rotateItemIndexIntoOpaqueView(int itemIdx) {
+    final m = widget.items.length;
+    if (m <= 0) return;
+    final opaqueJs = _opaqueSlotIndices();
+    if (opaqueJs.isEmpty) return;
+
+    final shiftCur = _currentShift();
+    var bestShiftNew = shiftCur;
+    var bestDelta = 1 << 30;
+
+    for (final jOp in opaqueJs) {
+      for (var k = -12; k <= 12; k++) {
+        final sn = itemIdx - jOp + k * m;
+        final delta = (sn - shiftCur).abs();
+        if (delta < bestDelta) {
+          bestDelta = delta;
+          bestShiftNew = sn;
+        }
+      }
+    }
+
+    final target = _snapTarget(-bestShiftNew * _stepDeg);
+    if ((target - _rotationDeg).abs() < 1e-4) {
+      return;
+    }
+    _animateRotationTo(target);
+  }
+
+  /// Opens only when the page name is shown; otherwise spins the dial to the opaque tier first.
+  void _onSlotIconTap(int slotIndex, double slotDegAbs, RadialMenuItem item) {
+    final name = item.pageName;
+    if (name == null || name.isEmpty) {
+      item.onTap();
+      return;
+    }
+    if (_showsPageLabel(slotDegAbs)) {
+      item.onTap();
+      return;
+    }
+    final idx = _itemIndexAtSlot(slotIndex);
+    _rotateItemIndexIntoOpaqueView(idx);
+  }
+
   /// User angle 0° = left; θ_math = π + rad.
   Offset _offsetForUserAngleDeg(double userDeg) {
     final rad = userDeg * math.pi / 180.0;
@@ -332,7 +392,7 @@ class _RadialMenuState extends State<RadialMenu> with SingleTickerProviderStateM
               color: Colors.transparent,
               child: InkWell(
                 customBorder: const CircleBorder(),
-                onTap: item.onTap,
+                onTap: () => _onSlotIconTap(j, abs, item),
                 child: Container(
                   width: d,
                   height: d,

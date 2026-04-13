@@ -365,7 +365,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
             top: fabCy - _mainFabSize / 2,
             right: 0,
             child: Tooltip(
-              message: _speedDialOpen ? 'Close menu' : 'Menu',
+              message: _speedDialOpen ? 'Close menu' : 'Quick menu',
               child: _circleShadowButton(
                 diameter: _mainFabSize,
                 backgroundColor: _brand,
@@ -378,7 +378,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 ],
                 onTap: () => setState(() => _speedDialOpen = !_speedDialOpen),
                 child: Icon(
-                  _speedDialOpen ? Icons.close_rounded : Icons.menu_rounded,
+                  _speedDialOpen ? Icons.close_rounded : Icons.dialpad_rounded,
                   color: Colors.white,
                   size: 26,
                 ),
