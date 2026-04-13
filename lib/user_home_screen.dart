@@ -1,4 +1,4 @@
-import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'profile_screen.dart';
 import 'user_pages.dart';
 import 'user_profile_completion.dart';
+import 'widgets/radial_menu.dart';
 
 class UserHomeScreen extends StatefulWidget {
   const UserHomeScreen({super.key});
@@ -16,9 +17,6 @@ class UserHomeScreen extends StatefulWidget {
 
 class _UserHomeScreenState extends State<UserHomeScreen> {
   static const Color _brand = Color(0xFF6A11CB);
-  /// Squircle / label text (deep purple, reference-style).
-  static const Color _dialInk = Color(0xFF3D1466);
-  static const Color _dialSquircleBg = Color(0xFFF3E5FF);
 
   int _currentIndex = 0;
   bool _speedDialOpen = false;
@@ -212,9 +210,11 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
 
   static const double _speedDialCircleSize = 52;
   static const double _mainFabSize = 56;
+  /// Bleed past [SizedBox] right edge: FAB margin + safe inset so paint reaches the physical bezel.
+  static const double _fabEdgeBleed = 28.0;
   /// Arc radius — vertical-diameter semicircle (ends on the right column, bulge left).
-  static const double _arcRadius = 100;
-
+  /// Chord between 30° slot centers ≈ 0.518×r; keep above [itemDiameter] (~52) to avoid overlap.
+  static const double _arcRadius = 122;
   /// True circles — [BoxDecoration.shape] avoids M3 FAB / Material squircle look.
   Widget _circleShadowButton({
     required double diameter,
@@ -244,34 +244,14 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     );
   }
 
-  Widget _speedDialArcButton({
-    required IconData icon,
-    required VoidCallback onPressed,
-  }) {
-    return _circleShadowButton(
-      diameter: _speedDialCircleSize,
-      backgroundColor: _dialSquircleBg,
-      boxShadow: [
-        BoxShadow(
-          color: _brand.withValues(alpha: 0.32),
-          blurRadius: 10,
-          offset: const Offset(0, 4),
-        ),
-      ],
-      onTap: onPressed,
-      child: Icon(icon, color: _dialInk, size: 24),
-    );
-  }
-
-  /// **180°** semicircle whose **ends lie on the right** (same vertical line as the FAB): **down → left → up**.
-  /// Pivot is the FAB center; θ runs **π/2 → 3π/2** (left bulge). Stack height places the FAB at the diameter midpoint so the arc fits.
-  Widget _buildSpeedDialArc() {
-    final actions = <({IconData icon, String tip, VoidCallback onTap})>[
-      (icon: Icons.favorite_border_rounded, tip: 'I Liked', onTap: () => _speedDialGoToTab(2)),
-      (icon: Icons.favorite_rounded, tip: 'Liked Me', onTap: () => _speedDialGoToTab(2)),
+  List<({IconData icon, String tip, String pageName, VoidCallback onTap})> _speedDialActions() {
+    return [
+      (icon: Icons.favorite_border_rounded, tip: 'I Liked', pageName: 'I Liked', onTap: () => _speedDialGoToTab(2)),
+      (icon: Icons.favorite_rounded, tip: 'Liked Me', pageName: 'Liked Me', onTap: () => _speedDialGoToTab(2)),
       (
         icon: Icons.tune_rounded,
         tip: 'Preferences',
+        pageName: 'Preferences',
         onTap: () => _speedDialSnack(
           'Partner preferences: use Profile Setup in the app or the website dashboard.',
         ),
@@ -279,76 +259,72 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       (
         icon: Icons.auto_awesome_rounded,
         tip: 'Generate Horoscope',
+        pageName: 'Horoscope',
         onTap: () => _speedDialSnack('Horoscope tools are on the website dashboard for now.'),
       ),
       (
         icon: Icons.check_circle_outline_rounded,
         tip: 'Selections',
+        pageName: 'Selections',
         onTap: () => _speedDialSnack('Parent selections: use the website dashboard.'),
       ),
       (
         icon: Icons.supervisor_account_rounded,
         tip: 'Parents',
+        pageName: 'Parents',
         onTap: () => _speedDialSnack('Manage parents on the website dashboard.'),
       ),
-      (icon: Icons.celebration_rounded, tip: 'Mark as Married', onTap: _speedDialMarriedHint),
+      (
+        icon: Icons.celebration_rounded,
+        tip: 'Mark as Married',
+        pageName: 'Married',
+        onTap: _speedDialMarriedHint,
+      ),
+    ];
+  }
+
+  /// Rotary [RadialMenu]: 6 fixed slots on 180°, full 360° item cycle, clipped semicircle.
+  Widget _buildRadialMenuLayer({
+    required double stackW,
+    required double stackH,
+    required double fabCx,
+    required double fabCy,
+  }) {
+    final actions = _speedDialActions();
+    final items = <RadialMenuItem>[
+      for (final a in actions)
+        RadialMenuItem(
+          icon: a.icon,
+          tooltip: a.tip,
+          pageName: a.pageName,
+          onTap: a.onTap,
+        ),
     ];
 
-    final n = actions.length;
-    const pad = 16.0;
-    // Left: θ=π → fabCx - r; right: keep margin for FAB.
-    final stackW = _arcRadius + _mainFabSize / 2 + _speedDialCircleSize / 2 + pad + 24;
-    // FAB center vertically at diameter midpoint: room for rim r above and r below center.
-    final stackH = 2 * _arcRadius + _mainFabSize + 24;
-    final fabCx = stackW - _mainFabSize / 2;
-    final fabCy = _arcRadius + _mainFabSize / 2;
+    final menuW = stackW + _fabEdgeBleed;
+    final ringOuter = _arcRadius + _speedDialCircleSize / 2 + 14;
+    final ringInner =
+        (_arcRadius - _speedDialCircleSize / 2 - 10).clamp(12.0, double.infinity).toDouble();
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 260),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      transitionBuilder: (child, anim) {
-        return FadeTransition(
-          opacity: anim,
-          child: ScaleTransition(scale: Tween<double>(begin: 0.92, end: 1).animate(anim), child: child),
-        );
-      },
-      child: !_speedDialOpen
-          ? const SizedBox.shrink(key: ValueKey<String>('arcOff'))
-          : SizedBox(
-              key: const ValueKey<String>('arcOn'),
-              width: stackW,
-              height: stackH,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: List<Widget>.generate(n, (i) {
-                  // θ ∈ (π/2, 3π/2): bottom of arc → left → top; endpoints share x = fabCx (right column).
-                  final theta = n <= 1
-                      ? math.pi
-                      : math.pi / 2 + math.pi * (i + 0.5) / n;
-                  final cx =
-                      fabCx + _arcRadius * math.cos(theta) - _speedDialCircleSize / 2;
-                  final cy =
-                      fabCy + _arcRadius * math.sin(theta) - _speedDialCircleSize / 2;
-                  final a = actions[i];
-                  return Positioned(
-                    left: cx.clamp(0.0, stackW - _speedDialCircleSize),
-                    top: cy.clamp(0.0, stackH - _speedDialCircleSize),
-                    child: Tooltip(
-                      message: a.tip,
-                      child: _speedDialArcButton(icon: a.icon, onPressed: a.onTap),
-                    ),
-                  );
-                }),
-              ),
-            ),
+    return RadialMenu(
+      key: const ValueKey<String>('arcOn'),
+      items: items,
+      radius: _arcRadius,
+      center: Offset(fabCx, fabCy),
+      size: Size(menuW, stackH),
+      visibleSlots: 6,
+      itemDiameter: _speedDialCircleSize,
+      clipOuterRadius: ringOuter,
+      clipInnerRadius: ringInner,
     );
   }
 
   Widget _buildFabAndArcStack() {
     const pad = 16.0;
-    final stackW = _arcRadius + _mainFabSize / 2 + _speedDialCircleSize / 2 + pad + 24;
+    final baseW = _arcRadius + _mainFabSize / 2 + _speedDialCircleSize / 2 + pad + 24;
     final stackH = 2 * _arcRadius + _mainFabSize + 24;
+    final stackW = _speedDialOpen ? MediaQuery.sizeOf(context).width : baseW;
+    final fabCx = stackW - _mainFabSize / 2;
     final fabCy = _arcRadius + _mainFabSize / 2;
 
     return SizedBox(
@@ -357,12 +333,39 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          _buildSpeedDialArc(),
+          Positioned(
+            left: 0,
+            right: -_fabEdgeBleed,
+            top: 0,
+            height: stackH,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 260),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, anim) {
+                return FadeTransition(
+                  opacity: anim,
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.92, end: 1).animate(anim),
+                    child: child,
+                  ),
+                );
+              },
+              child: !_speedDialOpen
+                  ? const SizedBox.shrink(key: ValueKey<String>('arcOff'))
+                  : _buildRadialMenuLayer(
+                      stackW: stackW,
+                      stackH: stackH,
+                      fabCx: fabCx,
+                      fabCy: fabCy,
+                    ),
+            ),
+          ),
           Positioned(
             top: fabCy - _mainFabSize / 2,
             right: 0,
             child: Tooltip(
-              message: _speedDialOpen ? 'Close menu' : 'Menu',
+              message: _speedDialOpen ? 'Close menu' : 'Quick menu',
               child: _circleShadowButton(
                 diameter: _mainFabSize,
                 backgroundColor: _brand,
@@ -375,7 +378,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 ],
                 onTap: () => setState(() => _speedDialOpen = !_speedDialOpen),
                 child: Icon(
-                  _speedDialOpen ? Icons.close_rounded : Icons.menu_rounded,
+                  _speedDialOpen ? Icons.close_rounded : Icons.apps_rounded,
                   color: Colors.white,
                   size: 26,
                 ),
@@ -523,8 +526,15 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: _closeSpeedDial,
-                child: ColoredBox(
-                  color: Colors.black.withValues(alpha: 0.14),
+                child: ClipRect(
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.38),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
