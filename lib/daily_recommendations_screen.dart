@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 import 'member_profile_view_screen.dart';
+import 'profile_social_actions.dart';
 import 'user_match_service.dart';
 
 /// Full-screen daily picks — aligned with [manavizha/app/dashboard/daily-recommendations/page.tsx].
@@ -35,9 +36,13 @@ String _educationJobLine(MatchPreview r) {
 
 class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen> {
   static const Color _brand = AdminHomeScreen.brandPurple;
+  static const Color _interestOrange = Color(0xFFFF4500);
 
   bool _loading = true;
   List<MatchPreview> _recs = [];
+  final Set<String> _shortlistedIds = {};
+  final Set<String> _likedUserIds = {};
+  String? _actionBusyForUserId;
 
   @override
   void initState() {
@@ -56,9 +61,26 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
     try {
       final sets = await loadUserMatchSections(client, uid);
       if (!mounted) return;
-      final list = sets.daily;
+      var list = sets.daily;
+      final ignRes = await client.from('ignored_profiles').select('ignored_user_id').eq('user_id', uid);
+      final ignored = <String>{};
+      for (final row in (ignRes as List<dynamic>? ?? [])) {
+        final m = Map<String, dynamic>.from(row as Map);
+        ignored.add(m['ignored_user_id'].toString());
+      }
+      if (ignored.isNotEmpty) {
+        list = list.where((p) => !ignored.contains(p.userId)).toList();
+      }
+      final social = await _fetchShortlistAndLikeIds(client, uid, list);
+      if (!mounted) return;
       setState(() {
         _recs = list;
+        _shortlistedIds
+          ..clear()
+          ..addAll(social.shorts);
+        _likedUserIds
+          ..clear()
+          ..addAll(social.likes);
         _loading = false;
       });
       final initial = widget.initialUserId;
@@ -72,6 +94,108 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
       debugPrint('DailyRecommendations: $e\n$st');
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<({Set<String> shorts, Set<String> likes})> _fetchShortlistAndLikeIds(
+    SupabaseClient client,
+    String myId,
+    List<MatchPreview> list,
+  ) async {
+    if (list.isEmpty) return (shorts: <String>{}, likes: <String>{});
+    final ids = list.map((e) => e.userId).toList();
+    final shortsRes = await client.from('shortlists').select('shortlisted_user_id').eq('user_id', myId).inFilter('shortlisted_user_id', ids);
+    final likesRes = await client.from('likes').select('liked_user_id').eq('user_id', myId).inFilter('liked_user_id', ids);
+    final shorts = <String>{};
+    for (final row in (shortsRes as List<dynamic>? ?? [])) {
+      shorts.add(Map<String, dynamic>.from(row as Map)['shortlisted_user_id'].toString());
+    }
+    final likes = <String>{};
+    for (final row in (likesRes as List<dynamic>? ?? [])) {
+      likes.add(Map<String, dynamic>.from(row as Map)['liked_user_id'].toString());
+    }
+    return (shorts: shorts, likes: likes);
+  }
+
+  Future<void> _onShortlist(MatchPreview r) async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+    final target = r.userId;
+    final on = _shortlistedIds.contains(target);
+    setState(() => _actionBusyForUserId = target);
+    final err = await ProfileSocialActions.toggleShortlist(
+      client: Supabase.instance.client,
+      currentUserId: uid,
+      targetUserId: target,
+      remove: on,
+    );
+    if (!mounted) return;
+    setState(() => _actionBusyForUserId = null);
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      return;
+    }
+    setState(() {
+      if (on) {
+        _shortlistedIds.remove(target);
+      } else {
+        _shortlistedIds.add(target);
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(on ? 'Removed from shortlist' : 'Shortlisted!')),
+    );
+  }
+
+  Future<void> _onSendInterest(MatchPreview r) async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+    final target = r.userId;
+    if (_likedUserIds.contains(target)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You already sent interest to this profile')),
+      );
+      return;
+    }
+    setState(() => _actionBusyForUserId = target);
+    final err = await ProfileSocialActions.sendInterest(
+      client: Supabase.instance.client,
+      currentUserId: uid,
+      targetUserId: target,
+    );
+    if (!mounted) return;
+    setState(() => _actionBusyForUserId = null);
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      return;
+    }
+    setState(() => _likedUserIds.add(target));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Interest sent!')));
+  }
+
+  Future<void> _onSkip(MatchPreview r) async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+    final target = r.userId;
+    setState(() => _actionBusyForUserId = target);
+    final err = await ProfileSocialActions.ignoreProfile(
+      client: Supabase.instance.client,
+      currentUserId: uid,
+      targetUserId: target,
+    );
+    if (!mounted) return;
+    setState(() => _actionBusyForUserId = null);
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      return;
+    }
+    setState(() {
+      _recs = _recs.where((p) => p.userId != target).toList();
+      _shortlistedIds.remove(target);
+      _likedUserIds.remove(target);
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Profile skipped — we will hide them from your feed.')),
+    );
   }
 
   @override
@@ -115,7 +239,7 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
         crossAxisCount: 1,
         mainAxisSpacing: 12,
         crossAxisSpacing: 0,
-        childAspectRatio: 0.72,
+        childAspectRatio: 0.62,
       ),
       itemCount: _recs.length,
       itemBuilder: (context, i) => _dailyCard(_recs[i]),
@@ -125,100 +249,210 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
   Widget _dailyCard(MatchPreview r) {
     final image = r.photoUrl;
     final eduJob = _educationJobLine(r);
+    final busy = _actionBusyForUserId == r.userId;
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(22),
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => _openProfilePopup(r.userId),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (image != null && image.isNotEmpty)
-              Positioned.fill(
-                child: Image.network(
-                  image,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Container(
-                    color: _brand.withValues(alpha: 0.08),
-                    child: Icon(Icons.person_rounded, size: 54, color: _brand.withValues(alpha: 0.35)),
-                  ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (image != null && image.isNotEmpty)
+            Positioned.fill(
+              child: Image.network(
+                image,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: _brand.withValues(alpha: 0.08),
+                  child: Icon(Icons.person_rounded, size: 54, color: _brand.withValues(alpha: 0.35)),
                 ),
-              )
-            else
-              Container(
-                color: _brand.withValues(alpha: 0.08),
-                child: Icon(Icons.person_rounded, size: 54, color: _brand.withValues(alpha: 0.35)),
               ),
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.black.withValues(alpha: 0.03), Colors.black.withValues(alpha: 0.72)],
-                  stops: const [0.35, 1],
-                ),
+            )
+          else
+            Container(
+              color: _brand.withValues(alpha: 0.08),
+              child: Icon(Icons.person_rounded, size: 54, color: _brand.withValues(alpha: 0.35)),
+            ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.black.withValues(alpha: 0.03), Colors.black.withValues(alpha: 0.78)],
+                stops: const [0.32, 1],
               ),
             ),
-            if (r.isPremium)
-              Positioned(
-                top: 10,
-                right: 10,
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(color: const Color(0xFFFFD66B), borderRadius: BorderRadius.circular(999)),
-                  child: const Icon(Icons.workspace_premium_rounded, size: 15, color: Color(0xFF7A4B00)),
+          ),
+          if (r.isPremium)
+            Positioned(
+              top: 10,
+              right: 10,
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(color: const Color(0xFFFFD66B), borderRadius: BorderRadius.circular(999)),
+                child: const Icon(Icons.workspace_premium_rounded, size: 15, color: Color(0xFF7A4B00)),
+              ),
+            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _openProfilePopup(r.userId),
+                  child: const SizedBox.expand(),
                 ),
               ),
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: 12,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${_firstNameOnly(r.name)}, ${r.age ?? '—'}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18, height: 1.1),
-                  ),
-                  if (eduJob.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Icon(
-                            Icons.school_rounded,
-                            size: 18,
-                            color: Colors.white.withValues(alpha: 0.92),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            eduJob,
-                            softWrap: true,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.95),
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                              height: 1.35,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${_firstNameOnly(r.name)}, ${r.age ?? '—'}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18, height: 1.1),
+                    ),
+                    if (eduJob.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Icon(
+                              Icons.school_rounded,
+                              size: 18,
+                              color: Colors.white.withValues(alpha: 0.92),
                             ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              eduJob,
+                              softWrap: true,
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.95),
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    _interestsMiniCard(r),
+                    const SizedBox(height: 10),
+                    _dailyActionRow(r, busy),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _dailyActionRow(MatchPreview r, bool busy) {
+    final short = _shortlistedIds.contains(r.userId);
+    final liked = _likedUserIds.contains(r.userId);
+    return Row(
+      children: [
+        Expanded(
+          child: _dailyActionButton(
+            label: short ? 'Saved' : 'Shortlist',
+            icon: short ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+            foreground: short ? const Color(0xFFFF1493) : Colors.white,
+            background: short ? Colors.white.withValues(alpha: 0.95) : Colors.white.withValues(alpha: 0.18),
+            busy: busy,
+            onTap: busy ? null : () => _onShortlist(r),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _dailyActionButton(
+            label: liked ? 'Sent' : 'Interest',
+            icon: Icons.favorite_rounded,
+            foreground: Colors.white,
+            background: liked ? _interestOrange.withValues(alpha: 0.75) : _interestOrange,
+            busy: busy,
+            onTap: busy ? null : () => _onSendInterest(r),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _dailyActionButton(
+            label: 'Skip',
+            icon: Icons.not_interested_outlined,
+            foreground: Colors.white.withValues(alpha: 0.95),
+            background: Colors.white.withValues(alpha: 0.12),
+            outline: true,
+            busy: busy,
+            onTap: busy ? null : () => _onSkip(r),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _dailyActionButton({
+    required String label,
+    required IconData icon,
+    required Color foreground,
+    required Color background,
+    required VoidCallback? onTap,
+    bool busy = false,
+    bool outline = false,
+  }) {
+    return Material(
+      color: outline ? Colors.transparent : background,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+          decoration: outline
+              ? BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                  color: background,
+                )
+              : null,
+          child: busy
+              ? Center(
+                  child: SizedBox(
+                    height: 22,
+                    width: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: foreground,
+                    ),
+                  ),
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 20, color: foreground),
+                    const SizedBox(height: 4),
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: foreground,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 10,
+                        letterSpacing: 0.2,
+                      ),
                     ),
                   ],
-                  const SizedBox(height: 10),
-                  _interestsMiniCard(r),
-                ],
-              ),
-            ),
-          ],
+                ),
         ),
       ),
     );
