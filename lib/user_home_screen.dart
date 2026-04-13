@@ -378,7 +378,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 ],
                 onTap: () => setState(() => _speedDialOpen = !_speedDialOpen),
                 child: Icon(
-                  _speedDialOpen ? Icons.close_rounded : Icons.dialpad_rounded,
+                  _speedDialOpen ? Icons.close_rounded : Icons.apps_rounded,
                   color: Colors.white,
                   size: 26,
                 ),
