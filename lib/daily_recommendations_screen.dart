@@ -16,12 +16,28 @@ class DailyRecommendationsScreen extends StatefulWidget {
   State<DailyRecommendationsScreen> createState() => _DailyRecommendationsScreenState();
 }
 
+/// First token of a display name (e.g. "Arjun Kumar" → "Arjun").
+String _firstNameOnly(String name) {
+  final t = name.trim();
+  if (t.isEmpty) return 'Member';
+  return t.split(RegExp(r'\s+')).first;
+}
+
+/// "Degree, Job" when both exist; otherwise whichever is available.
+String _educationJobLine(MatchPreview r) {
+  final e = r.educationDegree?.trim();
+  final j = r.jobTitle?.trim();
+  if (e != null && e.isNotEmpty && j != null && j.isNotEmpty) return '$e, $j';
+  if (e != null && e.isNotEmpty) return e;
+  if (j != null && j.isNotEmpty) return j;
+  return '';
+}
+
 class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen> {
   static const Color _brand = AdminHomeScreen.brandPurple;
 
   bool _loading = true;
   List<MatchPreview> _recs = [];
-  String? _selectedId;
 
   @override
   void initState() {
@@ -41,17 +57,17 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
       final sets = await loadUserMatchSections(client, uid);
       if (!mounted) return;
       final list = sets.daily;
-      String? sel = widget.initialUserId;
-      if (sel != null && !list.any((e) => e.userId == sel)) {
-        sel = list.isNotEmpty ? list.first.userId : null;
-      } else if (sel == null && list.isNotEmpty) {
-        sel = list.first.userId;
-      }
       setState(() {
         _recs = list;
-        _selectedId = sel;
         _loading = false;
       });
+      final initial = widget.initialUserId;
+      if (mounted && initial != null && list.any((e) => e.userId == initial)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _openProfilePopup(initial);
+        });
+      }
     } catch (e, st) {
       debugPrint('DailyRecommendations: $e\n$st');
       if (mounted) setState(() => _loading = false);
@@ -88,59 +104,271 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
             )
           : _recs.isEmpty
               ? _emptyState(context)
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    final wide = constraints.maxWidth >= 720;
-                    if (wide) {
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          SizedBox(width: 260, child: _sidebar()),
-                          Expanded(
-                            child: Container(
-                              color: Colors.white,
-                              child: _selectedId == null
-                                  ? const Center(child: Text('Select a profile', style: TextStyle(color: Colors.black45)))
-                                  : MemberProfileViewScreen(
-                                      key: ValueKey(_selectedId),
-                                      targetUserId: _selectedId!,
-                                    ),
-                            ),
-                          ),
-                        ],
-                      );
-                    }
-                    return Column(
+              : _dailyGrid(context),
+    );
+  }
+
+  Widget _dailyGrid(BuildContext context) {
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 28),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 1,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 0,
+        childAspectRatio: 0.72,
+      ),
+      itemCount: _recs.length,
+      itemBuilder: (context, i) => _dailyCard(_recs[i]),
+    );
+  }
+
+  Widget _dailyCard(MatchPreview r) {
+    final image = r.photoUrl;
+    final eduJob = _educationJobLine(r);
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(22),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _openProfilePopup(r.userId),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (image != null && image.isNotEmpty)
+              Positioned.fill(
+                child: Image.network(
+                  image,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    color: _brand.withValues(alpha: 0.08),
+                    child: Icon(Icons.person_rounded, size: 54, color: _brand.withValues(alpha: 0.35)),
+                  ),
+                ),
+              )
+            else
+              Container(
+                color: _brand.withValues(alpha: 0.08),
+                child: Icon(Icons.person_rounded, size: 54, color: _brand.withValues(alpha: 0.35)),
+              ),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.black.withValues(alpha: 0.03), Colors.black.withValues(alpha: 0.72)],
+                  stops: const [0.35, 1],
+                ),
+              ),
+            ),
+            if (r.isPremium)
+              Positioned(
+                top: 10,
+                right: 10,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(color: const Color(0xFFFFD66B), borderRadius: BorderRadius.circular(999)),
+                  child: const Icon(Icons.workspace_premium_rounded, size: 15, color: Color(0xFF7A4B00)),
+                ),
+              ),
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 12,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${_firstNameOnly(r.name)}, ${r.age ?? '—'}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18, height: 1.1),
+                  ),
+                  if (eduJob.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Material(
-                          color: Colors.white,
-                          child: SizedBox(
-                            height: 100,
-                            child: ListView.separated(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                              scrollDirection: Axis.horizontal,
-                              itemCount: _recs.length,
-                              separatorBuilder: (_, _) => const SizedBox(width: 8),
-                              itemBuilder: (context, i) {
-                                final r = _recs[i];
-                                final sel = _selectedId == r.userId;
-                                return _pickChip(r, sel, () => setState(() => _selectedId = r.userId));
-                              },
-                            ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Icon(
+                            Icons.school_rounded,
+                            size: 18,
+                            color: Colors.white.withValues(alpha: 0.92),
                           ),
                         ),
+                        const SizedBox(width: 8),
                         Expanded(
-                          child: _selectedId == null
-                              ? const Center(child: Text('Select a profile', style: TextStyle(color: Colors.black45)))
-                              : MemberProfileViewScreen(
-                                  key: ValueKey(_selectedId),
-                                  targetUserId: _selectedId!,
-                                ),
+                          child: Text(
+                            eduJob,
+                            softWrap: true,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.95),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              height: 1.35,
+                            ),
+                          ),
                         ),
                       ],
-                    );
-                  },
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  _interestsMiniCard(r),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Frosted mini-card on the photo overlay: hobbies + interests from profile.
+  Widget _interestsMiniCard(MatchPreview r) {
+    final tags = r.interestTags;
+    final has = tags.isNotEmpty;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Things I have interest in',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.95),
+              fontWeight: FontWeight.w800,
+              fontSize: 11,
+              letterSpacing: 0.2,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (has)
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final t in tags.take(14))
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.22),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      t,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.98),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 11,
+                        height: 1.2,
+                      ),
+                    ),
+                  ),
+              ],
+            )
+          else
+            Text(
+              'Mysteriously blank — not a single interest yet. Impressive restraint.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.88),
+                fontWeight: FontWeight.w500,
+                fontSize: 12,
+                height: 1.35,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openProfilePopup(String userId) async {
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Close profile',
+      barrierColor: Colors.black.withValues(alpha: 0.56),
+      transitionDuration: const Duration(milliseconds: 260),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth >= 760;
+              final card = Material(
+                color: const Color(0xFFFAFAFA),
+                borderRadius: wide ? BorderRadius.circular(24) : const BorderRadius.vertical(top: Radius.circular(24)),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    Container(
+                      color: Colors.white,
+                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(left: 8),
+                            child: Text(
+                              'Profile',
+                              style: TextStyle(fontSize: 11, letterSpacing: 1, fontWeight: FontWeight.w900, color: Colors.black45),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Close',
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(child: MemberProfileViewScreen(targetUserId: userId)),
+                  ],
                 ),
+              );
+              if (wide) {
+                return Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 980, maxHeight: 860),
+                    child: card,
+                  ),
+                );
+              }
+              return Align(
+                alignment: Alignment.bottomCenter,
+                child: SizedBox(width: double.infinity, height: constraints.maxHeight * 0.94, child: card),
+              );
+            },
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero).animate(curved),
+            child: child,
+          ),
+        );
+      },
     );
   }
 
@@ -182,183 +410,5 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
     );
   }
 
-  Widget _sidebar() {
-    return Material(
-      color: Colors.white,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFF8E6),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Text(
-                    'DAILY TOP 10',
-                    style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 0.8, color: Color(0xFFB45309)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              'Daily picks',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: -0.5),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              itemCount: _recs.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 6),
-              itemBuilder: (context, i) {
-                final r = _recs[i];
-                final sel = _selectedId == r.userId;
-                return _sidebarTile(r, sel);
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              'These picks refresh every 24 hours',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.black.withValues(alpha: 0.35), letterSpacing: 0.5),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _sidebarTile(MatchPreview r, bool sel) {
-    return Material(
-      color: sel ? _brand : Colors.transparent,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: () => setState(() => _selectedId = r.userId),
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: SizedBox(
-                  width: 40,
-                  height: 40,
-                  child: r.photoUrl != null && r.photoUrl!.isNotEmpty
-                      ? Image.network(r.photoUrl!, fit: BoxFit.cover)
-                      : Container(
-                          color: sel ? Colors.white24 : _brand.withValues(alpha: 0.1),
-                          child: Icon(Icons.person_rounded, color: sel ? Colors.white70 : _brand.withValues(alpha: 0.5)),
-                        ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      r.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 12,
-                        color: sel ? Colors.white : Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${r.age ?? '—'} yrs · ${r.location.split(',').first.trim()}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: sel ? Colors.white70 : Colors.black45,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (r.isPremium)
-                Icon(Icons.workspace_premium_rounded, size: 14, color: sel ? Colors.amber.shade200 : Colors.amber.shade700),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _pickChip(MatchPreview r, bool sel, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: sel ? _brand : Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: sel ? _brand : Colors.transparent, width: 2),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: SizedBox(
-                width: 36,
-                height: 36,
-                child: r.photoUrl != null && r.photoUrl!.isNotEmpty
-                    ? Image.network(r.photoUrl!, fit: BoxFit.cover)
-                    : Container(
-                        color: sel ? Colors.white24 : _brand.withValues(alpha: 0.12),
-                        child: Icon(Icons.person_rounded, color: sel ? Colors.white70 : _brand.withValues(alpha: 0.5)),
-                      ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 120),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    r.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12,
-                      color: sel ? Colors.white : Colors.black87,
-                    ),
-                  ),
-                  Text(
-                    '${r.age ?? '—'} yrs',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: sel ? Colors.white70 : Colors.black45,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  
 }
