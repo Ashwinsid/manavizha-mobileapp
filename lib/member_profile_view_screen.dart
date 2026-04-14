@@ -5,6 +5,76 @@ import 'admin_home_screen.dart';
 import 'user_profile_completion.dart';
 import 'widgets/adaptive_network_photo.dart';
 
+String _formatDobDisplay(dynamic v) {
+  if (v == null) return '—';
+  final d = DateTime.tryParse(v.toString());
+  if (d == null) {
+    final t = v.toString().trim();
+    return t.isEmpty ? '—' : t;
+  }
+  return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+}
+
+String? _heightCmAndImperial(dynamic heightCm) {
+  if (heightCm == null) return null;
+  final cm = heightCm is num ? heightCm.toDouble() : double.tryParse(heightCm.toString());
+  if (cm == null || cm <= 0) return null;
+  final totalInches = cm / 2.54;
+  final feet = totalInches ~/ 12;
+  final inches = (totalInches % 12).round().clamp(0, 11);
+  return '${cm.round()} cm ($feet\'$inches")';
+}
+
+String _dashIfEmpty(String? s) {
+  final t = s?.trim();
+  return (t == null || t.isEmpty) ? '—' : t;
+}
+
+List<String> _jsonStringList(dynamic v) {
+  if (v is! List) return [];
+  return v.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+}
+
+List<String> _mergedHobbiesInterests(Map<String, dynamic>? row) {
+  if (row == null) return [];
+  final seen = <String>{};
+  final out = <String>[];
+  for (final x in [..._jsonStringList(row['hobbies']), ..._jsonStringList(row['interests'])]) {
+    if (seen.add(x.toLowerCase())) out.add(x);
+  }
+  return out;
+}
+
+bool _rowsHaveAnyValue(List<(String, String)> rows) {
+  return rows.any((r) => r.$2 != '—' && r.$2.trim().isNotEmpty);
+}
+
+Map<String, dynamic>? _asStringKeyedMap(dynamic v) {
+  if (v == null) return null;
+  if (v is Map<String, dynamic>) return v;
+  if (v is Map) {
+    try {
+      return Map<String, dynamic>.from(v);
+    } catch (_) {
+      return null;
+    }
+  }
+  return null;
+}
+
+List<dynamic> _asDynamicList(dynamic v) {
+  if (v == null) return [];
+  if (v is List) return v;
+  return [];
+}
+
+int? _coerceInt(dynamic v) {
+  if (v == null) return null;
+  if (v is int) return v;
+  if (v is num) return v.round();
+  return int.tryParse(v.toString().trim());
+}
+
 /// Read-only member profile for browsing (mirrors web [ProfileDetailView] essentials).
 class MemberProfileViewScreen extends StatefulWidget {
   const MemberProfileViewScreen({super.key, required this.targetUserId});
@@ -31,10 +101,14 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   String? _marital;
   String _about = '';
   List<String> _photoUrls = [];
-  String _education = '';
-  String _profession = '';
-  String _star = '';
-  String _zodiac = '';
+
+  List<(String, String)> _personalRows = [];
+  List<(String, String)> _familyRows = [];
+  String? _familyDescription;
+  List<(String, String)> _educationCareerRows = [];
+  List<(String, String)> _horoscopeRows = [];
+  List<(String, String)> _lifestyleRows = [];
+  List<String> _interestChips = [];
 
   @override
   void initState() {
@@ -56,12 +130,9 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
     final c = Supabase.instance.client;
     final uid = widget.targetUserId;
     try {
-      final pd = await c
-          .from('personal_details')
-          .select('name, age, sex, marital_status, about')
-          .eq('user_id', uid)
-          .maybeSingle();
-      if (pd == null) {
+      final pdRaw = await c.from('personal_details').select().eq('user_id', uid).maybeSingle();
+      final pdMap = _asStringKeyedMap(pdRaw);
+      if (pdMap == null) {
         if (mounted) {
           setState(() {
             _loading = false;
@@ -70,25 +141,80 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         }
         return;
       }
-      final contact = await c.from('contact_details').select('current_district, current_state').eq('user_id', uid).maybeSingle();
-      final photosRow = await c.from('photos').select('user_photos').eq('user_id', uid).maybeSingle();
-      final edu = await c.from('education_details').select('education').eq('user_id', uid).limit(1);
-      final emp = await c.from('profession_employee').select('designation, company').eq('user_id', uid).maybeSingle();
-      final bus = await c.from('profession_business').select('designation, business_name').eq('user_id', uid).maybeSingle();
-      final stu = await c.from('profession_student').select('course, institution').eq('user_id', uid).maybeSingle();
-      final horo = await c.from('horoscope_details').select('star, zodiac_sign').eq('user_id', uid).maybeSingle();
+
+      Map<String, dynamic>? contact;
+      Map<String, dynamic>? photosRow;
+      List<dynamic> eduRes = [];
+      Map<String, dynamic>? emp;
+      Map<String, dynamic>? bus;
+      Map<String, dynamic>? stu;
+      Map<String, dynamic>? fam;
+      Map<String, dynamic>? horo;
+      Map<String, dynamic>? intRow;
+      Map<String, dynamic>? soc;
+
+      Future<void> runOptional(String label, Future<void> Function() fn) async {
+        try {
+          await fn();
+        } catch (e, st) {
+          debugPrint('MemberProfileView $label: $e\n$st');
+        }
+      }
+
+      await runOptional('contact_details', () async {
+        final r = await c.from('contact_details').select('current_district, current_state').eq('user_id', uid).maybeSingle();
+        contact = _asStringKeyedMap(r);
+      });
+      await runOptional('photos', () async {
+        final r = await c.from('photos').select('user_photos').eq('user_id', uid).maybeSingle();
+        photosRow = _asStringKeyedMap(r);
+      });
+      await runOptional('education_details', () async {
+        final r = await c.from('education_details').select().eq('user_id', uid);
+        eduRes = _asDynamicList(r);
+      });
+      await runOptional('profession_employee', () async {
+        final r = await c.from('profession_employee').select().eq('user_id', uid).maybeSingle();
+        emp = _asStringKeyedMap(r);
+      });
+      await runOptional('profession_business', () async {
+        final r = await c.from('profession_business').select().eq('user_id', uid).maybeSingle();
+        bus = _asStringKeyedMap(r);
+      });
+      await runOptional('profession_student', () async {
+        final r = await c.from('profession_student').select().eq('user_id', uid).maybeSingle();
+        stu = _asStringKeyedMap(r);
+      });
+      await runOptional('family_details', () async {
+        final r = await c.from('family_details').select().eq('user_id', uid).maybeSingle();
+        fam = _asStringKeyedMap(r);
+      });
+      await runOptional('horoscope_details', () async {
+        final r = await c.from('horoscope_details').select().eq('user_id', uid).maybeSingle();
+        horo = _asStringKeyedMap(r);
+      });
+      await runOptional('interests', () async {
+        final r = await c.from('interests').select().eq('user_id', uid).maybeSingle();
+        intRow = _asStringKeyedMap(r);
+      });
+      await runOptional('social_habits', () async {
+        final r = await c.from('social_habits').select('smoking, drinking, parties, pubs').eq('user_id', uid).maybeSingle();
+        soc = _asStringKeyedMap(r);
+      });
 
       final urls = <String>[];
-      final rawList = photosRow != null ? parseUserPhotosList(photosRow['user_photos']) : <dynamic>[];
+      final photos = photosRow;
+      final rawList = photos != null ? parseUserPhotosList(photos['user_photos']) : <dynamic>[];
       for (final raw in rawList) {
         final u = await signUserProfilePhoto(c, uid, raw.toString());
         if (u != null && u.isNotEmpty) urls.add(u);
       }
 
       String loc = '';
-      if (contact != null) {
-        final d = contact['current_district']?.toString();
-        final s = contact['current_state']?.toString();
+      final contactMap = contact;
+      if (contactMap != null) {
+        final d = contactMap['current_district']?.toString();
+        final s = contactMap['current_state']?.toString();
         if (d != null && d.isNotEmpty) {
           loc = s != null && s.isNotEmpty ? '$d, $s' : d;
         } else if (s != null && s.isNotEmpty) {
@@ -96,41 +222,147 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         }
       }
 
-      String eduLine = '';
-      final eduList = edu as List<dynamic>? ?? [];
-      if (eduList.isNotEmpty) {
-        final first = Map<String, dynamic>.from(eduList.first as Map);
-        eduLine = first['education']?.toString() ?? '';
+      final langs = _jsonStringList(pdMap['languages']);
+      final motherTongue = langs.isNotEmpty ? langs.first : '—';
+      final heightLine = _heightCmAndImperial(pdMap['height']) ??
+          (pdMap['height'] != null ? _dashIfEmpty(pdMap['height'].toString()) : '—');
+      final w = pdMap['weight'];
+      final weightLine = w != null ? '$w kg' : '—';
+
+      final personalRows = <(String, String)>[
+        ('Date of birth', _formatDobDisplay(pdMap['date_of_birth'])),
+        ('Marital status', _dashIfEmpty(pdMap['marital_status']?.toString())),
+        ('Mother tongue', motherTongue),
+        ('Height', heightLine),
+        ('Weight', weightLine),
+        ('Physical status', _dashIfEmpty(pdMap['physical_status']?.toString())),
+        ('Complexion', _dashIfEmpty(pdMap['skin_color']?.toString())),
+        ('Build', _dashIfEmpty(pdMap['body_type']?.toString())),
+        ('Food preference', _dashIfEmpty(pdMap['food_preference']?.toString())),
+        ('Profile created by', _dashIfEmpty(pdMap['created_by']?.toString())),
+      ];
+
+      final familyRows = <(String, String)>[];
+      String? familyDescription;
+      final famMap = fam;
+      if (famMap != null) {
+        final fm = famMap;
+        final religion = _dashIfEmpty(fm['religion']?.toString());
+        familyRows.addAll([
+          ('Religion', religion == '—' ? 'Hindu' : religion),
+          ('Caste', _dashIfEmpty(fm['caste']?.toString())),
+          ('Subcaste', _dashIfEmpty((fm['subcaste'] ?? pdMap['subcaste'])?.toString())),
+          ('Kulam', _dashIfEmpty((fm['kulam'] ?? fm['kilai'])?.toString())),
+          ('Gotram', _dashIfEmpty(fm['gotram']?.toString())),
+          (
+            'Family status',
+            _dashIfEmpty((pdMap['family_status'] ?? fm['family_status'])?.toString()),
+          ),
+          (
+            'Family type',
+            _dashIfEmpty((pdMap['family_type'] ?? fm['family_type'])?.toString()),
+          ),
+          ('Ancestral origin', _dashIfEmpty(fm['ancestral_origin']?.toString())),
+          ('Father occupation', _dashIfEmpty(fm['father_occupation']?.toString())),
+          ('Mother occupation', _dashIfEmpty(fm['mother_occupation']?.toString())),
+          ('Siblings', _dashIfEmpty(fm['siblings']?.toString())),
+        ]);
+        final fd = fm['family_description']?.toString().trim();
+        if (fd != null && fd.isNotEmpty) familyDescription = fd;
       }
 
-      String prof = '—';
-      if (emp != null) {
-        final des = emp['designation']?.toString() ?? '';
-        final comp = emp['company']?.toString() ?? '';
-        prof = des.isEmpty ? comp : (comp.isEmpty ? des : '$des · $comp');
-      } else if (bus != null) {
-        final des = bus['designation']?.toString() ?? '';
-        final bn = bus['business_name']?.toString() ?? '';
-        prof = des.isEmpty ? bn : (bn.isEmpty ? des : '$des · $bn');
-      } else if (stu != null) {
-        final co = stu['course']?.toString() ?? '';
-        final ins = stu['institution']?.toString() ?? '';
-        prof = co.isEmpty ? ins : (ins.isEmpty ? co : '$co · $ins');
+      final eduList = eduRes;
+      final educationCareerRows = <(String, String)>[];
+      for (var i = 0; i < eduList.length; i++) {
+        final rowMap = _asStringKeyedMap(eduList[i]);
+        if (rowMap == null) continue;
+        final e = rowMap;
+        final ed = e['education']?.toString() ?? '';
+        final ins = e['institution']?.toString() ?? '';
+        final line = ins.isNotEmpty ? '$ed at $ins' : ed;
+        educationCareerRows.add(('Education ${i + 1}', _dashIfEmpty(line)));
       }
+
+      String? professionType;
+      Map<String, dynamic>? prof;
+      if (emp != null) {
+        professionType = 'employee';
+        prof = emp;
+      } else if (bus != null) {
+        professionType = 'business';
+        prof = bus;
+      } else if (stu != null) {
+        professionType = 'student';
+        prof = stu;
+      }
+
+      final profMap = prof;
+      if (profMap != null) {
+        final p = profMap;
+        final des = p['designation']?.toString().trim() ?? '';
+        final occ = professionType == 'student'
+            ? _dashIfEmpty(p['course']?.toString())
+            : _dashIfEmpty(des.isNotEmpty ? des : null);
+        educationCareerRows.add(('Current occupation', occ));
+        if (professionType == 'employee') {
+          educationCareerRows.add(('Sector', _dashIfEmpty(p['sector']?.toString())));
+          educationCareerRows.add(('Company', _dashIfEmpty(p['company']?.toString())));
+          educationCareerRows.add(('Annual salary', _dashIfEmpty(p['salary']?.toString())));
+          educationCareerRows.add(('Work location', _dashIfEmpty(p['work_location']?.toString())));
+        } else if (professionType == 'business') {
+          educationCareerRows.add(('Business type', _dashIfEmpty(p['business_type']?.toString())));
+          educationCareerRows.add(('Business name', _dashIfEmpty(p['business_name']?.toString())));
+          educationCareerRows.add(('Annual returns', _dashIfEmpty(p['annual_returns']?.toString())));
+          educationCareerRows.add(('Business location', _dashIfEmpty(p['business_location']?.toString())));
+        } else {
+          educationCareerRows.add(('Institution', _dashIfEmpty(p['institution']?.toString())));
+          educationCareerRows.add(('Course', _dashIfEmpty(p['course']?.toString())));
+          educationCareerRows.add(('Field of study', _dashIfEmpty(p['field_of_study']?.toString())));
+        }
+      }
+
+      final horoscopeRows = <(String, String)>[];
+      final horoMap = horo;
+      if (horoMap != null) {
+        final h = horoMap;
+        final dosha = h['dhosham']?.toString();
+        horoscopeRows.addAll([
+          ('Star', _dashIfEmpty(h['star']?.toString())),
+          ('Raasi', _dashIfEmpty(h['zodiac_sign']?.toString())),
+          ('Lagnam', _dashIfEmpty(h['lagnam']?.toString())),
+          ('Dosham', _dashIfEmpty(dosha != null && dosha.isNotEmpty ? dosha : 'No dosham')),
+          ('Place of birth', _dashIfEmpty(h['place_of_birth']?.toString())),
+          ('Time of birth', _dashIfEmpty(h['time_of_birth']?.toString())),
+          ('Jaadhagam', _dashIfEmpty(h['jaadhagam_url']?.toString())),
+        ]);
+      }
+
+      final lifestyleRows = <(String, String)>[
+        ('Diet', _dashIfEmpty(pdMap['food_preference']?.toString())),
+        ('Smoking', _dashIfEmpty(soc?['smoking']?.toString())),
+        ('Drinking', _dashIfEmpty(soc?['drinking']?.toString())),
+        ('Parties', _dashIfEmpty(soc?['parties']?.toString())),
+        ('Pubs', _dashIfEmpty(soc?['pubs']?.toString())),
+      ];
+
+      final interestChips = intRow != null ? _mergedHobbiesInterests(_asStringKeyedMap(intRow)) : <String>[];
 
       if (!mounted) return;
       setState(() {
-        _name = pd['name']?.toString().trim().isNotEmpty == true ? pd['name'].toString() : 'Member';
-        _age = pd['age'] != null ? (pd['age'] as num).round() : null;
-        _sex = pd['sex']?.toString();
-        _marital = pd['marital_status']?.toString();
+        _name = pdMap['name']?.toString().trim().isNotEmpty == true ? pdMap['name'].toString() : 'Member';
+        _age = _coerceInt(pdMap['age']);
+        _sex = pdMap['sex']?.toString();
+        _marital = pdMap['marital_status']?.toString();
         _location = loc.isEmpty ? 'Location not shared' : loc;
-        _about = pd['about']?.toString().trim() ?? '';
+        _about = pdMap['about']?.toString().trim() ?? '';
         _photoUrls = urls;
-        _education = eduLine.isEmpty ? '—' : eduLine;
-        _profession = prof;
-        _star = horo != null ? (horo['star']?.toString() ?? '') : '';
-        _zodiac = horo != null ? (horo['zodiac_sign']?.toString() ?? '') : '';
+        _personalRows = personalRows;
+        _familyRows = familyRows;
+        _familyDescription = familyDescription;
+        _educationCareerRows = educationCareerRows;
+        _horoscopeRows = horoscopeRows;
+        _lifestyleRows = lifestyleRows;
+        _interestChips = interestChips;
         _loading = false;
       });
     } catch (e, st) {
@@ -284,20 +516,24 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
               ],
             ),
           ),
-          _section('Education', _education, Icons.school_outlined),
-          _section('Profession', _profession, Icons.work_outline_rounded),
-          if (_star.isNotEmpty || _zodiac.isNotEmpty)
-            _section(
-              'Horoscope',
-              [_star, _zodiac].where((s) => s.isNotEmpty).join(' · '),
-              Icons.auto_awesome_outlined,
-            ),
+          if (_rowsHaveAnyValue(_personalRows))
+            _detailSection('Personal profile', Icons.person_outline_rounded, _personalRows),
+          if (_rowsHaveAnyValue(_familyRows))
+            _detailSection('Family details', Icons.groups_outlined, _familyRows),
+          if (_familyDescription != null && _familyDescription!.isNotEmpty)
+            _familyAboutCard(_familyDescription!),
+          if (_rowsHaveAnyValue(_educationCareerRows))
+            _detailSection('Education & career', Icons.school_outlined, _educationCareerRows),
+          if (_rowsHaveAnyValue(_horoscopeRows))
+            _detailSection('Horoscope & astrology', Icons.auto_awesome_outlined, _horoscopeRows),
+          if (_rowsHaveAnyValue(_lifestyleRows) || _interestChips.isNotEmpty)
+            _lifestyleSection(_lifestyleRows, _interestChips),
         ],
       ),
     );
   }
 
-  Widget _section(String title, String body, IconData icon) {
+  Widget _detailSection(String title, IconData icon, List<(String, String)> rows) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
       child: Material(
@@ -312,8 +548,75 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
                 children: [
                   Icon(icon, size: 18, color: _brand.withValues(alpha: 0.85)),
                   const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.1,
+                        color: Colors.black.withValues(alpha: 0.4),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ...List.generate(rows.length, (i) {
+                final (label, value) = rows[i];
+                final isLast = i == rows.length - 1;
+                return Padding(
+                  padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 118,
+                        child: Text(
+                          label.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.6,
+                            color: Colors.black.withValues(alpha: 0.38),
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          value,
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, height: 1.35),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _familyAboutCard(String body) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.family_restroom_outlined, size: 18, color: _brand.withValues(alpha: 0.85)),
+                  const SizedBox(width: 8),
                   Text(
-                    title,
+                    'ABOUT MY FAMILY',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
@@ -323,8 +626,124 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              Text(body, style: const TextStyle(fontSize: 15, height: 1.35)),
+              const SizedBox(height: 10),
+              Text(body, style: const TextStyle(fontSize: 15, height: 1.4)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _lifestyleSection(List<(String, String)> rows, List<String> chips) {
+    final showRows = _rowsHaveAnyValue(rows);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.favorite_outline_rounded, size: 18, color: _brand.withValues(alpha: 0.85)),
+                  const SizedBox(width: 8),
+                  Text(
+                    'LIFESTYLE & HABITS',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.1,
+                      color: Colors.black.withValues(alpha: 0.4),
+                    ),
+                  ),
+                ],
+              ),
+              if (showRows) ...[
+                const SizedBox(height: 12),
+                ...List.generate(rows.length, (i) {
+                  final (label, value) = rows[i];
+                  final isLast = i == rows.length - 1;
+                  return Padding(
+                    padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          width: 118,
+                          child: Text(
+                            label.toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.6,
+                              color: Colors.black.withValues(alpha: 0.38),
+                              height: 1.3,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            value,
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, height: 1.35),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+              if (chips.isNotEmpty) ...[
+                SizedBox(height: showRows ? 16 : 12),
+                Text(
+                  'INTERESTS',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.2,
+                    color: Colors.black.withValues(alpha: 0.38),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final t in chips)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF5F5F7),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+                        ),
+                        child: Text(
+                          t,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.4,
+                            color: Colors.black.withValues(alpha: 0.55),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ] else if (showRows) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'No interests shared',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    fontStyle: FontStyle.italic,
+                    color: Colors.black.withValues(alpha: 0.35),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
