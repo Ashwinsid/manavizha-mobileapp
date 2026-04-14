@@ -29,6 +29,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   String? _sex;
   String _location = '';
   String? _marital;
+  String _about = '';
   List<String> _photoUrls = [];
   String _education = '';
   String _profession = '';
@@ -55,7 +56,11 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
     final c = Supabase.instance.client;
     final uid = widget.targetUserId;
     try {
-      final pd = await c.from('personal_details').select('name, age, sex, marital_status').eq('user_id', uid).maybeSingle();
+      final pd = await c
+          .from('personal_details')
+          .select('name, age, sex, marital_status, about')
+          .eq('user_id', uid)
+          .maybeSingle();
       if (pd == null) {
         if (mounted) {
           setState(() {
@@ -120,6 +125,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         _sex = pd['sex']?.toString();
         _marital = pd['marital_status']?.toString();
         _location = loc.isEmpty ? 'Location not shared' : loc;
+        _about = pd['about']?.toString().trim() ?? '';
         _photoUrls = urls;
         _education = eduLine.isEmpty ? '—' : eduLine;
         _profession = prof;
@@ -252,6 +258,29 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
                     ),
                   ],
                 ),
+                if (_about.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  Text(
+                    'About me',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.1,
+                      color: Colors.black.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _about,
+                    style: TextStyle(
+                      fontSize: 15,
+                      height: 1.45,
+                      fontStyle: FontStyle.italic,
+                      color: Colors.black.withValues(alpha: 0.82),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
