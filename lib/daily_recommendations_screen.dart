@@ -5,6 +5,7 @@ import 'admin_home_screen.dart';
 import 'member_profile_view_screen.dart';
 import 'profile_social_actions.dart';
 import 'user_match_service.dart';
+import 'widgets/adaptive_network_photo.dart';
 
 /// Full-screen daily picks — aligned with [manavizha/app/dashboard/daily-recommendations/page.tsx].
 class DailyRecommendationsScreen extends StatefulWidget {
@@ -259,9 +260,9 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
         children: [
           if (image != null && image.isNotEmpty)
             Positioned.fill(
-              child: Image.network(
-                image,
-                fit: BoxFit.cover,
+              child: AdaptiveNetworkPhoto(
+                imageUrl: image,
+                blurSigma: 22,
                 errorBuilder: (context, error, stackTrace) => Container(
                   color: _brand.withValues(alpha: 0.08),
                   child: Icon(Icons.person_rounded, size: 54, color: _brand.withValues(alpha: 0.35)),

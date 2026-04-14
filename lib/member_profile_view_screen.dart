@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 import 'user_profile_completion.dart';
+import 'widgets/adaptive_network_photo.dart';
 
 /// Read-only member profile for browsing (mirrors web [ProfileDetailView] essentials).
 class MemberProfileViewScreen extends StatefulWidget {
@@ -168,10 +169,10 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
                         },
                         itemCount: _photoUrls.length,
                         itemBuilder: (context, i) {
-                          return Image.network(
-                            _photoUrls[i],
-                            fit: BoxFit.cover,
-                            width: double.infinity,
+                          return AdaptiveNetworkPhoto(
+                            imageUrl: _photoUrls[i],
+                            blurSigma: 16,
+                            backgroundScale: 1.06,
                             errorBuilder: (context, error, stackTrace) => Container(
                               color: Colors.grey.shade200,
                               child: const Icon(Icons.broken_image_outlined, size: 48),
