@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
@@ -255,7 +256,7 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
 
   var photosProgress = 0;
   if (photos != null) {
-    final userPhotos = photos['user_photos'] as List<dynamic>? ?? [];
+    final userPhotos = parseUserPhotosList(photos['user_photos']);
     final fam = photos['family_photo']?.toString();
     final a1 = photos['aadhar_front']?.toString();
     final a2 = photos['aadhar_back']?.toString();
@@ -287,7 +288,7 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
   var userPhotoCount = 0;
   var hasFamilyPhoto = false;
   if (photos != null) {
-    final userPhotos = photos['user_photos'] as List<dynamic>? ?? [];
+    final userPhotos = parseUserPhotosList(photos['user_photos']);
     userPhotoCount = userPhotos.length;
     final fam = photos['family_photo']?.toString() ?? '';
     hasFamilyPhoto = fam.isNotEmpty;
@@ -321,26 +322,78 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
   );
 }
 
-/// Resolves a [user_photos] entry to a displayable URL (signed when needed).
-/// Returns null if the object is missing from storage or signing fails (DB paths can be stale).
-Future<String?> signUserProfilePhoto(SupabaseClient client, String userId, String photo) async {
-  if (photo.isEmpty) return null;
+/// Normalizes [photos.user_photos] from PostgREST (json array or occasional json string).
+List<dynamic> parseUserPhotosList(dynamic v) {
+  if (v == null) return [];
+  if (v is List) return List<dynamic>.from(v);
+  if (v is String) {
+    final t = v.trim();
+    if (t.isEmpty) return [];
+    try {
+      final d = jsonDecode(t);
+      if (d is List) return List<dynamic>.from(d);
+    } catch (_) {}
+  }
+  return [];
+}
+
+/// Object path inside the `user-photos` bucket from a Supabase storage or API URL.
+String? _storageObjectPathForUserPhotosUrl(String url) {
   try {
-    if (photo.startsWith('http')) {
-      if (photo.contains('/storage/v1/object/sign/user-photos/')) {
-        final parts = photo.split('/user-photos/');
-        if (parts.length > 1) {
-          var path = parts[1].split('?').first;
-          final data = await client.storage.from('user-photos').createSignedUrl(path, 31536000);
-          return data;
+    final uri = Uri.parse(url.trim());
+    final segs = uri.pathSegments;
+    const bucket = 'user-photos';
+    final i = segs.indexOf(bucket);
+    if (i >= 0 && i + 1 < segs.length) {
+      return segs.sublist(i + 1).join('/');
+    }
+  } catch (_) {}
+  return null;
+}
+
+/// Resolves a [user_photos] entry to a displayable URL.
+///
+/// DB values are often full `sign` or `public` URLs (saved at upload time). Those can expire
+/// or not work for other viewers; we extract the object path and call [createSignedUrl] with
+/// the **current** session so storage RLS applies to the viewer.
+/// Returns null only when signing fails and no usable fallback exists.
+Future<String?> signUserProfilePhoto(SupabaseClient client, String userId, String photo) async {
+  final raw = photo.trim();
+  if (raw.isEmpty) return null;
+  try {
+    if (!raw.startsWith('http')) {
+      var filePath = raw;
+      if (!filePath.contains('/')) filePath = '$userId/$filePath';
+      return await client.storage.from('user-photos').createSignedUrl(filePath, 31536000);
+    }
+
+    final fromUrl = _storageObjectPathForUserPhotosUrl(raw);
+    if (fromUrl != null && fromUrl.isNotEmpty) {
+      try {
+        return await client.storage.from('user-photos').createSignedUrl(fromUrl, 31536000);
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('signUserProfilePhoto re-sign from URL path ($userId): $e');
         }
       }
-      return photo;
     }
-    var filePath = photo;
-    if (!filePath.contains('/')) filePath = '$userId/$filePath';
-    final data = await client.storage.from('user-photos').createSignedUrl(filePath, 31536000);
-    return data;
+
+    if (raw.contains('/user-photos/')) {
+      final parts = raw.split('/user-photos/');
+      if (parts.length > 1) {
+        var path = parts[1].split('?').first;
+        if (path.startsWith('/')) path = path.substring(1);
+        if (path.isNotEmpty) {
+          try {
+            return await client.storage.from('user-photos').createSignedUrl(path, 31536000);
+          } catch (e) {
+            if (kDebugMode) debugPrint('signUserProfilePhoto legacy split ($userId): $e');
+          }
+        }
+      }
+    }
+
+    return raw;
   } catch (e) {
     if (kDebugMode) {
       debugPrint('signUserProfilePhoto skipped ($userId): $e');

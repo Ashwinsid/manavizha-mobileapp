@@ -1,7 +1,51 @@
+import 'dart:convert';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'match_utils.dart';
 import 'user_profile_completion.dart';
+
+/// [interests.hobbies] / [interests.interests] — PostgREST may return json arrays, PG `text[]`, or stringified JSON.
+List<String> parseInterestsTableArrayColumn(dynamic v) {
+  if (v == null) return [];
+  if (v is List) {
+    final out = <String>[];
+    for (final e in v) {
+      final s = e?.toString().trim() ?? '';
+      if (s.isNotEmpty && s != 'null') out.add(s);
+    }
+    return out;
+  }
+  if (v is String) {
+    final t = v.trim();
+    if (t.isEmpty || t == 'null') return [];
+    if (t.startsWith('[')) {
+      try {
+        final decoded = jsonDecode(t);
+        return parseInterestsTableArrayColumn(decoded);
+      } catch (_) {}
+    }
+    if (t.startsWith('{') && t.endsWith('}')) {
+      final inner = t.substring(1, t.length - 1).trim();
+      if (inner.isEmpty) return [];
+      return inner
+          .split(',')
+          .map((s) => s.trim().replaceAll('"', '').replaceAll("'", ''))
+          .where((s) => s.isNotEmpty)
+          .toList();
+    }
+    return t.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+  }
+  if (v is Map) {
+    for (final val in v.values) {
+      if (val is List || val is String) {
+        final parsed = parseInterestsTableArrayColumn(val);
+        if (parsed.isNotEmpty) return parsed;
+      }
+    }
+  }
+  return [];
+}
 
 /// One card in dashboard carousels — aligned with web profile carousel rows.
 class MatchPreview {
@@ -12,15 +56,32 @@ class MatchPreview {
     required this.location,
     this.photoUrl,
     this.isPremium = false,
-  });
+    this.educationDegree,
+    this.jobTitle,
+    List<String>? interestTags,
+  }) : _interestTags = interestTags;
 
   final String userId;
   final String name;
   final int? age;
   final String location;
+
+  /// First entry in [photos.user_photos] only (daily cards never show the rest here).
   final String? photoUrl;
   final bool isPremium;
+
+  /// Latest education row’s [education] text (batch: last row per user in query order).
+  final String? educationDegree;
+
+  /// One-line current role (employee designation/company, business, or student), aligned with [MemberProfileViewScreen].
+  final String? jobTitle;
+
+  final List<String>? _interestTags;
+
+  /// `interests` column from [interests] table (chips on daily cards). Getter tolerates null after hot reload.
+  List<String> get interestTags => _interestTags ?? const [];
 }
+
 
 class UserMatchSets {
   const UserMatchSets({
@@ -73,10 +134,82 @@ Future<UserMatchSets> loadUserMatchSections(SupabaseClient client, String userId
   final photosRes = await client.from('photos').select('user_id, user_photos').inFilter('user_id', ids);
   final contactRes = await client.from('contact_details').select('user_id, current_district, current_state').inFilter('user_id', ids);
   final settingsRes = await client.from('user_settings').select('user_id, is_premium').inFilter('user_id', ids);
+  final eduRes = await client.from('education_details').select('user_id, education').inFilter('user_id', ids);
+  final empRes = await client.from('profession_employee').select('user_id, designation, company').inFilter('user_id', ids);
+  final busRes = await client.from('profession_business').select('user_id, designation, business_name').inFilter('user_id', ids);
+  final stuRes = await client.from('profession_student').select('user_id, course, institution').inFilter('user_id', ids);
+  final interestsRes = await client.from('interests').select('user_id, interests').inFilter('user_id', ids);
 
   final photoRows = (photosRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final contactRows = (contactRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final settingsRows = (settingsRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final eduRows = (eduRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final empRows = (empRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final busRows = (busRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final stuRows = (stuRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final interestRows = (interestsRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+
+  bool sameUserId(dynamic a, String uid) =>
+      a != null && a.toString().trim().toLowerCase() == uid.trim().toLowerCase();
+
+  List<String> interestsListForUser(String uid) {
+    for (final r in interestRows) {
+      if (sameUserId(r['user_id'], uid)) {
+        return parseInterestsTableArrayColumn(r['interests']);
+      }
+    }
+    return [];
+  }
+
+  final Map<String, List<String>> eduByUser = {};
+  for (final row in eduRows) {
+    final uid = row['user_id']?.toString();
+    final ed = row['education']?.toString().trim() ?? '';
+    if (uid == null || ed.isEmpty) continue;
+    eduByUser.putIfAbsent(uid, () => []).add(ed);
+  }
+
+  String? lastEducationFor(String uid) {
+    final list = eduByUser[uid];
+    if (list == null || list.isEmpty) return null;
+    return list.last;
+  }
+
+  Map<String, dynamic>? firstRowFor(String uid, List<Map<String, dynamic>> rows) {
+    for (final r in rows) {
+      if (r['user_id']?.toString() == uid) return r;
+    }
+    return null;
+  }
+
+  /// Short label for cards: job title / role (designation preferred over company name).
+  String? jobLineFor(String uid) {
+    final emp = firstRowFor(uid, empRows);
+    if (emp != null) {
+      final des = emp['designation']?.toString().trim() ?? '';
+      final comp = emp['company']?.toString().trim() ?? '';
+      if (des.isNotEmpty) return des;
+      if (comp.isNotEmpty) return comp;
+      return null;
+    }
+    final bus = firstRowFor(uid, busRows);
+    if (bus != null) {
+      final des = bus['designation']?.toString().trim() ?? '';
+      final bn = bus['business_name']?.toString().trim() ?? '';
+      if (des.isNotEmpty) return des;
+      if (bn.isNotEmpty) return bn;
+      return null;
+    }
+    final stu = firstRowFor(uid, stuRows);
+    if (stu != null) {
+      final co = stu['course']?.toString().trim() ?? '';
+      final ins = stu['institution']?.toString().trim() ?? '';
+      if (co.isNotEmpty) return co;
+      if (ins.isNotEmpty) return ins;
+      return null;
+    }
+    return null;
+  }
 
   Future<MatchPreview> buildPreview(Map<String, dynamic> p) async {
     final id = p['user_id'].toString();
@@ -87,7 +220,8 @@ Future<UserMatchSets> loadUserMatchSections(SupabaseClient client, String userId
         break;
       }
     }
-    final photos = ph != null ? (ph['user_photos'] as List<dynamic>? ?? []) : <dynamic>[];
+    final photos = ph != null ? parseUserPhotosList(ph['user_photos']) : <dynamic>[];
+    // Daily card: first resolvable gallery image (same order as [photos.user_photos]).
     String? url;
     for (final raw in photos) {
       final u = await signUserProfilePhoto(client, id, raw.toString());
@@ -127,6 +261,9 @@ Future<UserMatchSets> loadUserMatchSections(SupabaseClient client, String userId
       location: loc,
       photoUrl: url,
       isPremium: premium,
+      educationDegree: lastEducationFor(id),
+      jobTitle: jobLineFor(id),
+      interestTags: interestsListForUser(id),
     );
   }
 

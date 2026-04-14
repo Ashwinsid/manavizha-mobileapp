@@ -6,6 +6,7 @@ import 'daily_recommendations_screen.dart';
 import 'profile_screen.dart';
 import 'user_match_service.dart';
 import 'user_profile_completion.dart';
+import 'widgets/adaptive_network_photo.dart';
 
 /// Member home dashboard aligned with [manavizha/components/user-landing-page.tsx].
 class UserDashboardPage extends StatefulWidget {
@@ -441,7 +442,14 @@ class _MatchTile extends StatelessWidget {
                     ClipRRect(
                       borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
                       child: m.photoUrl != null && m.photoUrl!.isNotEmpty
-                          ? Image.network(m.photoUrl!, fit: BoxFit.cover)
+                          ? AdaptiveNetworkPhoto(
+                              imageUrl: m.photoUrl!,
+                              blurSigma: 14,
+                              errorBuilder: (context, error, stackTrace) => Container(
+                                color: _UserDashboardPageState._brand.withValues(alpha: 0.1),
+                                child: Icon(Icons.person_rounded, size: 48, color: _UserDashboardPageState._brand.withValues(alpha: 0.5)),
+                              ),
+                            )
                           : Container(
                               color: _UserDashboardPageState._brand.withValues(alpha: 0.1),
                               child: Icon(Icons.person_rounded, size: 48, color: _UserDashboardPageState._brand.withValues(alpha: 0.5)),
