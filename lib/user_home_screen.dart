@@ -44,7 +44,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       final photos = results[0] as Map<String, dynamic>?;
       final settings = results[1] as Map<String, dynamic>?;
       final personal = results[2] as Map<String, dynamic>?;
-      final list = photos != null ? (photos['user_photos'] as List<dynamic>? ?? []) : <dynamic>[];
+      final list = photos != null ? parseUserPhotosList(photos['user_photos']) : <dynamic>[];
       String? url;
       if (list.isNotEmpty) {
         url = await signUserProfilePhoto(client, uid, list.first.toString());

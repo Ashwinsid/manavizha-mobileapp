@@ -17,6 +17,9 @@ class MemberProfileViewScreen extends StatefulWidget {
 class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   static const Color _brand = AdminHomeScreen.brandPurple;
 
+  final PageController _photoPageController = PageController();
+  int _photoPageIndex = 0;
+
   bool _loading = true;
   String? _error;
 
@@ -35,6 +38,12 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _photoPageController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -64,7 +73,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       final horo = await c.from('horoscope_details').select('star, zodiac_sign').eq('user_id', uid).maybeSingle();
 
       final urls = <String>[];
-      final rawList = photosRow != null ? (photosRow['user_photos'] as List<dynamic>? ?? []) : <dynamic>[];
+      final rawList = photosRow != null ? parseUserPhotosList(photosRow['user_photos']) : <dynamic>[];
       for (final raw in rawList) {
         final u = await signUserProfilePhoto(c, uid, raw.toString());
         if (u != null && u.isNotEmpty) urls.add(u);
@@ -143,24 +152,74 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SizedBox(
-            height: 280,
+            height: 300,
             child: _photoUrls.isEmpty
                 ? Container(
                     color: _brand.withValues(alpha: 0.08),
                     child: Icon(Icons.person_rounded, size: 80, color: _brand.withValues(alpha: 0.35)),
                   )
-                : PageView.builder(
-                    itemCount: _photoUrls.length,
-                    itemBuilder: (context, i) {
-                      return Image.network(
-                        _photoUrls[i],
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => Container(
-                          color: Colors.grey.shade200,
-                          child: const Icon(Icons.broken_image_outlined, size: 48),
+                : Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      PageView.builder(
+                        controller: _photoPageController,
+                        onPageChanged: (i) {
+                          if (mounted) setState(() => _photoPageIndex = i);
+                        },
+                        itemCount: _photoUrls.length,
+                        itemBuilder: (context, i) {
+                          return Image.network(
+                            _photoUrls[i],
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            errorBuilder: (context, error, stackTrace) => Container(
+                              color: Colors.grey.shade200,
+                              child: const Icon(Icons.broken_image_outlined, size: 48),
+                            ),
+                          );
+                        },
+                      ),
+                      if (_photoUrls.length > 1) ...[
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          height: 72,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [Colors.transparent, Colors.black.withValues(alpha: 0.45)],
+                              ),
+                            ),
+                          ),
                         ),
-                      );
-                    },
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 14,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: List.generate(
+                              _photoUrls.length,
+                              (i) => AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                margin: const EdgeInsets.symmetric(horizontal: 4),
+                                width: i == _photoPageIndex ? 18 : 7,
+                                height: 7,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(999),
+                                  color: i == _photoPageIndex
+                                      ? Colors.white
+                                      : Colors.white.withValues(alpha: 0.45),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
           ),
           Padding(

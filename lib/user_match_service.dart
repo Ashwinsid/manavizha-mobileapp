@@ -23,6 +23,8 @@ class MatchPreview {
   final String name;
   final int? age;
   final String location;
+
+  /// First entry in [photos.user_photos] only (daily cards never show the rest here).
   final String? photoUrl;
   final bool isPremium;
 
@@ -218,7 +220,8 @@ Future<UserMatchSets> loadUserMatchSections(SupabaseClient client, String userId
         break;
       }
     }
-    final photos = ph != null ? (ph['user_photos'] as List<dynamic>? ?? []) : <dynamic>[];
+    final photos = ph != null ? parseUserPhotosList(ph['user_photos']) : <dynamic>[];
+    // Daily card: first resolvable gallery image (same order as [photos.user_photos]).
     String? url;
     for (final raw in photos) {
       final u = await signUserProfilePhoto(client, id, raw.toString());
