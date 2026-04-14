@@ -366,9 +366,7 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
           _loadingILiked = false;
         }
       });
-      if (received) {
-        await _loadSocialStatesForProfiles(uid, orderedIds);
-      }
+      await _loadSocialStatesForProfiles(uid, orderedIds);
     } catch (e, st) {
       debugPrint('LikesPage ${received ? 'Liked Me' : 'I liked'}: $e\n$st');
       if (!mounted) return;
