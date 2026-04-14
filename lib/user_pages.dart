@@ -525,7 +525,8 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
   }
 
   Widget _likedMeActionRow(MatchPreview m) {
-    const interestOrange = Color(0xFFFF4500);
+    const interestYellow = Color(0xFFFFD400);
+    const interestSentGreen = Color(0xFF16A34A);
     final short = _shortlistedIds.contains(m.userId);
     final liked = _likedUserIds.contains(m.userId);
     final busy = _actionBusyForUserId == m.userId;
@@ -544,10 +545,10 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
         const SizedBox(width: 8),
         Expanded(
           child: _actionButton(
-            label: liked ? 'Sent' : 'Interest',
+            label: liked ? 'Interest Sent' : 'Interest',
             icon: Icons.favorite_rounded,
             foreground: Colors.white,
-            background: liked ? interestOrange.withValues(alpha: 0.75) : interestOrange,
+            background: liked ? interestSentGreen : interestYellow,
             busy: busy,
             onTap: busy ? null : () => _onSendInterest(m),
           ),
