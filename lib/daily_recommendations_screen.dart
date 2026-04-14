@@ -557,26 +557,56 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
                   children: [
                     Container(
                       color: Colors.white,
-                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                      child: Stack(
+                        alignment: Alignment.center,
                         children: [
-                          const Padding(
-                            padding: EdgeInsets.only(left: 8),
-                            child: Text(
-                              'Profile',
-                              style: TextStyle(fontSize: 11, letterSpacing: 1, fontWeight: FontWeight.w900, color: Colors.black45),
-                            ),
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 42,
+                                height: 4,
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.14),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Profile details',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  letterSpacing: 0.7,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.black.withValues(alpha: 0.55),
+                                ),
+                              ),
+                            ],
                           ),
-                          IconButton(
-                            tooltip: 'Close',
-                            onPressed: () => Navigator.of(context).pop(),
-                            icon: const Icon(Icons.close_rounded),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Material(
+                              color: Colors.red.withValues(alpha: 0.12),
+                              shape: const CircleBorder(),
+                              child: InkWell(
+                                customBorder: const CircleBorder(),
+                                onTap: () => Navigator.of(context).pop(),
+                                child: Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: Icon(
+                                    Icons.close_rounded,
+                                    size: 18,
+                                    color: Colors.red.withValues(alpha: 0.88),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ),
                         ],
                       ),
                     ),
-                    const Divider(height: 1),
+                    Divider(height: 1, color: Colors.black.withValues(alpha: 0.06)),
                     Expanded(child: MemberProfileViewScreen(targetUserId: userId)),
                   ],
                 ),
