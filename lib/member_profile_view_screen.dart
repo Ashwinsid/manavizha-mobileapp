@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
+import 'user_match_service.dart';
 import 'user_profile_completion.dart';
 import 'widgets/adaptive_network_photo.dart';
 
@@ -35,12 +36,14 @@ List<String> _jsonStringList(dynamic v) {
   return v.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
 }
 
-List<String> _mergedHobbiesInterests(Map<String, dynamic>? row) {
-  if (row == null) return [];
+/// Stable order, trim, case-insensitive dedupe within one column’s list.
+List<String> _dedupeChipLabels(List<String> raw) {
   final seen = <String>{};
   final out = <String>[];
-  for (final x in [..._jsonStringList(row['hobbies']), ..._jsonStringList(row['interests'])]) {
-    if (seen.add(x.toLowerCase())) out.add(x);
+  for (final x in raw) {
+    final t = x.trim();
+    if (t.isEmpty) continue;
+    if (seen.add(t.toLowerCase())) out.add(t);
   }
   return out;
 }
@@ -108,6 +111,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   List<(String, String)> _educationCareerRows = [];
   List<(String, String)> _horoscopeRows = [];
   List<(String, String)> _lifestyleRows = [];
+  List<String> _hobbyChips = [];
   List<String> _interestChips = [];
 
   @override
@@ -345,7 +349,13 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         ('Pubs', _dashIfEmpty(soc?['pubs']?.toString())),
       ];
 
-      final interestChips = intRow != null ? _mergedHobbiesInterests(_asStringKeyedMap(intRow)) : <String>[];
+      final iMap = intRow;
+      final hobbyChips = iMap != null
+          ? _dedupeChipLabels(parseInterestsTableArrayColumn(iMap['hobbies']))
+          : <String>[];
+      final interestChips = iMap != null
+          ? _dedupeChipLabels(parseInterestsTableArrayColumn(iMap['interests']))
+          : <String>[];
 
       if (!mounted) return;
       setState(() {
@@ -362,6 +372,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         _educationCareerRows = educationCareerRows;
         _horoscopeRows = horoscopeRows;
         _lifestyleRows = lifestyleRows;
+        _hobbyChips = hobbyChips;
         _interestChips = interestChips;
         _loading = false;
       });
@@ -526,8 +537,8 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
             _detailSection('Education & career', Icons.school_outlined, _educationCareerRows),
           if (_rowsHaveAnyValue(_horoscopeRows))
             _detailSection('Horoscope & astrology', Icons.auto_awesome_outlined, _horoscopeRows),
-          if (_rowsHaveAnyValue(_lifestyleRows) || _interestChips.isNotEmpty)
-            _lifestyleSection(_lifestyleRows, _interestChips),
+          if (_rowsHaveAnyValue(_lifestyleRows) || _hobbyChips.isNotEmpty || _interestChips.isNotEmpty)
+            _lifestyleSection(_lifestyleRows, _hobbyChips, _interestChips),
         ],
       ),
     );
@@ -635,8 +646,29 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
     );
   }
 
-  Widget _lifestyleSection(List<(String, String)> rows, List<String> chips) {
+  Widget _lifestyleInterestChip(String t) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F5F7),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+      ),
+      child: Text(
+        t,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.4,
+          color: Colors.black.withValues(alpha: 0.55),
+        ),
+      ),
+    );
+  }
+
+  Widget _lifestyleSection(List<(String, String)> rows, List<String> hobbyChips, List<String> interestChips) {
     final showRows = _rowsHaveAnyValue(rows);
+    final hasAnyChips = hobbyChips.isNotEmpty || interestChips.isNotEmpty;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
       child: Material(
@@ -696,42 +728,47 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
                   );
                 }),
               ],
-              if (chips.isNotEmpty) ...[
+              if (hasAnyChips) ...[
                 SizedBox(height: showRows ? 16 : 12),
-                Text(
-                  'INTERESTS',
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.2,
-                    color: Colors.black.withValues(alpha: 0.38),
+                if (hobbyChips.isNotEmpty) ...[
+                  Text(
+                    'HOBBIES',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2,
+                      color: Colors.black.withValues(alpha: 0.38),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final t in chips)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF5F5F7),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
-                        ),
-                        child: Text(
-                          t,
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.4,
-                            color: Colors.black.withValues(alpha: 0.55),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final t in hobbyChips) _lifestyleInterestChip(t),
+                    ],
+                  ),
+                  if (interestChips.isNotEmpty) const SizedBox(height: 16),
+                ],
+                if (interestChips.isNotEmpty) ...[
+                  Text(
+                    'INTERESTS',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2,
+                      color: Colors.black.withValues(alpha: 0.38),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final t in interestChips) _lifestyleInterestChip(t),
+                    ],
+                  ),
+                ],
               ] else if (showRows) ...[
                 const SizedBox(height: 8),
                 Text(

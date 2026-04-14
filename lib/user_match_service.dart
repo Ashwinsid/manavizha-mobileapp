@@ -5,6 +5,48 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'match_utils.dart';
 import 'user_profile_completion.dart';
 
+/// [interests.hobbies] / [interests.interests] — PostgREST may return json arrays, PG `text[]`, or stringified JSON.
+List<String> parseInterestsTableArrayColumn(dynamic v) {
+  if (v == null) return [];
+  if (v is List) {
+    final out = <String>[];
+    for (final e in v) {
+      final s = e?.toString().trim() ?? '';
+      if (s.isNotEmpty && s != 'null') out.add(s);
+    }
+    return out;
+  }
+  if (v is String) {
+    final t = v.trim();
+    if (t.isEmpty || t == 'null') return [];
+    if (t.startsWith('[')) {
+      try {
+        final decoded = jsonDecode(t);
+        return parseInterestsTableArrayColumn(decoded);
+      } catch (_) {}
+    }
+    if (t.startsWith('{') && t.endsWith('}')) {
+      final inner = t.substring(1, t.length - 1).trim();
+      if (inner.isEmpty) return [];
+      return inner
+          .split(',')
+          .map((s) => s.trim().replaceAll('"', '').replaceAll("'", ''))
+          .where((s) => s.isNotEmpty)
+          .toList();
+    }
+    return t.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+  }
+  if (v is Map) {
+    for (final val in v.values) {
+      if (val is List || val is String) {
+        final parsed = parseInterestsTableArrayColumn(val);
+        if (parsed.isNotEmpty) return parsed;
+      }
+    }
+  }
+  return [];
+}
+
 /// One card in dashboard carousels — aligned with web profile carousel rows.
 class MatchPreview {
   const MatchPreview({
@@ -107,55 +149,13 @@ Future<UserMatchSets> loadUserMatchSections(SupabaseClient client, String userId
   final stuRows = (stuRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final interestRows = (interestsRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
-  /// [interests] column only — PostgREST may return json arrays, PG `text[]`, or stringified JSON.
-  List<String> parseInterestsColumn(dynamic v) {
-    if (v == null) return [];
-    if (v is List) {
-      final out = <String>[];
-      for (final e in v) {
-        final s = e?.toString().trim() ?? '';
-        if (s.isNotEmpty && s != 'null') out.add(s);
-      }
-      return out;
-    }
-    if (v is String) {
-      final t = v.trim();
-      if (t.isEmpty || t == 'null') return [];
-      if (t.startsWith('[')) {
-        try {
-          final decoded = jsonDecode(t);
-          return parseInterestsColumn(decoded);
-        } catch (_) {}
-      }
-      if (t.startsWith('{') && t.endsWith('}')) {
-        final inner = t.substring(1, t.length - 1).trim();
-        if (inner.isEmpty) return [];
-        return inner
-            .split(',')
-            .map((s) => s.trim().replaceAll('"', '').replaceAll("'", ''))
-            .where((s) => s.isNotEmpty)
-            .toList();
-      }
-      return t.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
-    }
-    if (v is Map) {
-      for (final val in v.values) {
-        if (val is List || val is String) {
-          final parsed = parseInterestsColumn(val);
-          if (parsed.isNotEmpty) return parsed;
-        }
-      }
-    }
-    return [];
-  }
-
   bool sameUserId(dynamic a, String uid) =>
       a != null && a.toString().trim().toLowerCase() == uid.trim().toLowerCase();
 
   List<String> interestsListForUser(String uid) {
     for (final r in interestRows) {
       if (sameUserId(r['user_id'], uid)) {
-        return parseInterestsColumn(r['interests']);
+        return parseInterestsTableArrayColumn(r['interests']);
       }
     }
     return [];
