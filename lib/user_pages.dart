@@ -60,6 +60,89 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
     return int.tryParse(v.toString().trim());
   }
 
+  String _educationJobLine(MatchPreview m) {
+    final e = m.educationDegree?.trim();
+    final j = m.jobTitle?.trim();
+    if (e != null && e.isNotEmpty && j != null && j.isNotEmpty) return '$e, $j';
+    if (e != null && e.isNotEmpty) return e;
+    if (j != null && j.isNotEmpty) return j;
+    return '';
+  }
+
+  Widget _interestsMiniCard(MatchPreview m) {
+    final tags = m.interestTags;
+    final has = tags.isNotEmpty;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Things I have interest in',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.95),
+              fontWeight: FontWeight.w800,
+              fontSize: 11,
+              letterSpacing: 0.2,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (has)
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final t in tags.take(14))
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.22),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      t,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.98),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 11,
+                        height: 1.2,
+                      ),
+                    ),
+                  ),
+              ],
+            )
+          else
+            Text(
+              'Mysteriously blank — not a single interest yet. Impressive restraint.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.88),
+                fontWeight: FontWeight.w500,
+                fontSize: 12,
+                height: 1.35,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _loadILikedProfiles() async {
     final c = Supabase.instance.client;
     final uid = c.auth.currentUser?.id;
@@ -361,6 +444,7 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
       itemBuilder: (context, i) {
         final m = _iLikedProfiles[i];
         final image = m.photoUrl;
+        final eduJob = _educationJobLine(m);
         return Material(
           color: Colors.white,
           borderRadius: BorderRadius.circular(22),
@@ -427,31 +511,22 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(color: Colors.white.withValues(alpha: 0.95), fontWeight: FontWeight.w600, fontSize: 13),
                         ),
-                        if (m.interestTags.isNotEmpty) ...[
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: [
-                              for (final t in m.interestTags.take(6))
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.22),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    t,
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(alpha: 0.98),
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ),
-                            ],
+                        if (eduJob.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            eduJob,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.92),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12.5,
+                              height: 1.25,
+                            ),
                           ),
                         ],
+                        const SizedBox(height: 10),
+                        _interestsMiniCard(m),
                       ],
                     ),
                   ),
