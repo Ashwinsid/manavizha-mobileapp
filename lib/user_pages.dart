@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 export 'user_dashboard_page.dart' show UserDashboardPage;
 import 'member_profile_view_screen.dart';
+import 'profile_social_actions.dart';
 import 'user_match_service.dart';
 import 'user_profile_completion.dart';
 import 'widgets/adaptive_network_photo.dart';
@@ -39,12 +40,19 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
   bool _loadingILiked = true;
   String? _iLikedError;
   List<MatchPreview> _iLikedProfiles = <MatchPreview>[];
+  bool _loadingLikedMe = true;
+  String? _likedMeError;
+  List<MatchPreview> _likedMeProfiles = <MatchPreview>[];
+  final Set<String> _shortlistedIds = {};
+  final Set<String> _likedUserIds = {};
+  String? _actionBusyForUserId;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _loadILikedProfiles();
+    _loadLikedMeProfiles();
   }
 
   @override
@@ -144,30 +152,81 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
   }
 
   Future<void> _loadILikedProfiles() async {
+    await _loadLikeProfiles(received: false);
+  }
+
+  Future<void> _loadLikedMeProfiles() async {
+    await _loadLikeProfiles(received: true);
+  }
+
+  Future<void> _loadSocialStatesForProfiles(String myId, List<String> ids) async {
+    final c = Supabase.instance.client;
+    if (ids.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _shortlistedIds.clear();
+        _likedUserIds.clear();
+      });
+      return;
+    }
+    final shortsRes = await c.from('shortlists').select('shortlisted_user_id').eq('user_id', myId).inFilter('shortlisted_user_id', ids);
+    final likesRes = await c.from('likes').select('liked_user_id').eq('user_id', myId).inFilter('liked_user_id', ids);
+    final shorts = <String>{};
+    for (final row in (shortsRes as List<dynamic>? ?? [])) {
+      shorts.add(Map<String, dynamic>.from(row as Map)['shortlisted_user_id'].toString());
+    }
+    final likes = <String>{};
+    for (final row in (likesRes as List<dynamic>? ?? [])) {
+      likes.add(Map<String, dynamic>.from(row as Map)['liked_user_id'].toString());
+    }
+    if (!mounted) return;
+    setState(() {
+      _shortlistedIds
+        ..clear()
+        ..addAll(shorts);
+      _likedUserIds
+        ..clear()
+        ..addAll(likes);
+    });
+  }
+
+  Future<void> _loadLikeProfiles({required bool received}) async {
     final c = Supabase.instance.client;
     final uid = c.auth.currentUser?.id;
     if (uid == null) {
       if (!mounted) return;
       setState(() {
-        _loadingILiked = false;
-        _iLikedError = 'Not signed in.';
+        if (received) {
+          _loadingLikedMe = false;
+          _likedMeError = 'Not signed in.';
+        } else {
+          _loadingILiked = false;
+          _iLikedError = 'Not signed in.';
+        }
       });
       return;
     }
 
     setState(() {
-      _loadingILiked = true;
-      _iLikedError = null;
+      if (received) {
+        _loadingLikedMe = true;
+        _likedMeError = null;
+      } else {
+        _loadingILiked = true;
+        _iLikedError = null;
+      }
     });
 
     try {
-      final likesRes = await c.from('likes').select('liked_user_id').eq('user_id', uid).order('created_at', ascending: false);
+      final likesRes = received
+          ? await c.from('likes').select('user_id').eq('liked_user_id', uid).order('created_at', ascending: false)
+          : await c.from('likes').select('liked_user_id').eq('user_id', uid).order('created_at', ascending: false);
       final likedRows = (likesRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
       final orderedIds = <String>[];
       final seen = <String>{};
       for (final row in likedRows) {
-        final id = row['liked_user_id']?.toString().trim() ?? '';
+        final id = (received ? row['user_id'] : row['liked_user_id'])?.toString().trim() ?? '';
         if (id.isEmpty) continue;
         if (seen.add(id)) orderedIds.add(id);
       }
@@ -175,8 +234,13 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
       if (orderedIds.isEmpty) {
         if (!mounted) return;
         setState(() {
-          _iLikedProfiles = <MatchPreview>[];
-          _loadingILiked = false;
+          if (received) {
+            _likedMeProfiles = <MatchPreview>[];
+            _loadingLikedMe = false;
+          } else {
+            _iLikedProfiles = <MatchPreview>[];
+            _loadingILiked = false;
+          }
         });
         return;
       }
@@ -294,17 +358,214 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
 
       if (!mounted) return;
       setState(() {
-        _iLikedProfiles = out;
-        _loadingILiked = false;
+        if (received) {
+          _likedMeProfiles = out;
+          _loadingLikedMe = false;
+        } else {
+          _iLikedProfiles = out;
+          _loadingILiked = false;
+        }
       });
+      if (received) {
+        await _loadSocialStatesForProfiles(uid, orderedIds);
+      }
     } catch (e, st) {
-      debugPrint('LikesPage I liked: $e\n$st');
+      debugPrint('LikesPage ${received ? 'Liked Me' : 'I liked'}: $e\n$st');
       if (!mounted) return;
       setState(() {
-        _loadingILiked = false;
-        _iLikedError = 'Could not load liked profiles.';
+        if (received) {
+          _loadingLikedMe = false;
+          _likedMeError = 'Could not load liked profiles.';
+        } else {
+          _loadingILiked = false;
+          _iLikedError = 'Could not load liked profiles.';
+        }
       });
     }
+  }
+
+  Future<void> _onShortlist(MatchPreview m) async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+    final target = m.userId;
+    final on = _shortlistedIds.contains(target);
+    setState(() => _actionBusyForUserId = target);
+    final err = await ProfileSocialActions.toggleShortlist(
+      client: Supabase.instance.client,
+      currentUserId: uid,
+      targetUserId: target,
+      remove: on,
+    );
+    if (!mounted) return;
+    setState(() => _actionBusyForUserId = null);
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      return;
+    }
+    setState(() {
+      if (on) {
+        _shortlistedIds.remove(target);
+      } else {
+        _shortlistedIds.add(target);
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(on ? 'Removed from shortlist' : 'Shortlisted!')),
+    );
+  }
+
+  Future<void> _onSendInterest(MatchPreview m) async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+    final target = m.userId;
+    if (_likedUserIds.contains(target)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You already sent interest to this profile')),
+      );
+      return;
+    }
+    setState(() => _actionBusyForUserId = target);
+    final err = await ProfileSocialActions.sendInterest(
+      client: Supabase.instance.client,
+      currentUserId: uid,
+      targetUserId: target,
+    );
+    if (!mounted) return;
+    setState(() => _actionBusyForUserId = null);
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      return;
+    }
+    setState(() => _likedUserIds.add(target));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Interest sent!')));
+  }
+
+  Future<void> _onSkip(MatchPreview m) async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+    final target = m.userId;
+    setState(() => _actionBusyForUserId = target);
+    final err = await ProfileSocialActions.ignoreProfile(
+      client: Supabase.instance.client,
+      currentUserId: uid,
+      targetUserId: target,
+    );
+    if (!mounted) return;
+    setState(() => _actionBusyForUserId = null);
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      return;
+    }
+    setState(() {
+      _likedMeProfiles = _likedMeProfiles.where((p) => p.userId != target).toList();
+      _shortlistedIds.remove(target);
+      _likedUserIds.remove(target);
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Profile skipped — we will hide them from your feed.')),
+    );
+  }
+
+  Widget _actionButton({
+    required String label,
+    required IconData icon,
+    required Color foreground,
+    required Color background,
+    required VoidCallback? onTap,
+    bool busy = false,
+    bool outline = false,
+  }) {
+    return Material(
+      color: outline ? Colors.transparent : background,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+          decoration: outline
+              ? BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                  color: background,
+                )
+              : null,
+          child: busy
+              ? Center(
+                  child: SizedBox(
+                    height: 22,
+                    width: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: foreground,
+                    ),
+                  ),
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 20, color: foreground),
+                    const SizedBox(height: 4),
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: foreground,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 10,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _likedMeActionRow(MatchPreview m) {
+    const interestOrange = Color(0xFFFF4500);
+    final short = _shortlistedIds.contains(m.userId);
+    final liked = _likedUserIds.contains(m.userId);
+    final busy = _actionBusyForUserId == m.userId;
+    return Row(
+      children: [
+        Expanded(
+          child: _actionButton(
+            label: short ? 'Saved' : 'Shortlist',
+            icon: short ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+            foreground: short ? const Color(0xFFFF1493) : Colors.white,
+            background: short ? Colors.white.withValues(alpha: 0.95) : Colors.white.withValues(alpha: 0.18),
+            busy: busy,
+            onTap: busy ? null : () => _onShortlist(m),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _actionButton(
+            label: liked ? 'Sent' : 'Interest',
+            icon: Icons.favorite_rounded,
+            foreground: Colors.white,
+            background: liked ? interestOrange.withValues(alpha: 0.75) : interestOrange,
+            busy: busy,
+            onTap: busy ? null : () => _onSendInterest(m),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _actionButton(
+            label: 'Skip',
+            icon: Icons.not_interested_outlined,
+            foreground: Colors.white.withValues(alpha: 0.95),
+            background: Colors.white.withValues(alpha: 0.12),
+            outline: true,
+            busy: busy,
+            onTap: busy ? null : () => _onSkip(m),
+          ),
+        ),
+      ],
+    );
   }
 
   Future<void> _openProfilePopup(String userId) async {
@@ -527,6 +788,131 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
                         ],
                         const SizedBox(height: 10),
                         _interestsMiniCard(m),
+                        const SizedBox(height: 10),
+                        _likedMeActionRow(m),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _likedMeTab() {
+    if (_loadingLikedMe) {
+      return const Center(child: CircularProgressIndicator(color: _brand));
+    }
+    if (_likedMeError != null) {
+      return Center(child: Text(_likedMeError!, textAlign: TextAlign.center));
+    }
+    if (_likedMeProfiles.isEmpty) {
+      return Center(
+        child: Text(
+          'No profiles yet',
+          style: TextStyle(color: Colors.black.withValues(alpha: 0.45), fontWeight: FontWeight.w600),
+        ),
+      );
+    }
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 1,
+        mainAxisSpacing: 12,
+        childAspectRatio: 0.62,
+      ),
+      itemCount: _likedMeProfiles.length,
+      itemBuilder: (context, i) {
+        final m = _likedMeProfiles[i];
+        final image = m.photoUrl;
+        final eduJob = _educationJobLine(m);
+        return Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (image != null && image.isNotEmpty)
+                Positioned.fill(
+                  child: AdaptiveNetworkPhoto(
+                    imageUrl: image,
+                    blurSigma: 22,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      color: _brand.withValues(alpha: 0.08),
+                      child: Icon(Icons.person_rounded, size: 54, color: _brand.withValues(alpha: 0.35)),
+                    ),
+                  ),
+                )
+              else
+                Container(
+                  color: _brand.withValues(alpha: 0.08),
+                  child: Icon(Icons.person_rounded, size: 54, color: _brand.withValues(alpha: 0.35)),
+                ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.black.withValues(alpha: 0.03), Colors.black.withValues(alpha: 0.78)],
+                    stops: const [0.32, 1],
+                  ),
+                ),
+              ),
+              if (m.isPremium)
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(color: const Color(0xFFFFD66B), borderRadius: BorderRadius.circular(999)),
+                    child: const Icon(Icons.workspace_premium_rounded, size: 15, color: Color(0xFF7A4B00)),
+                  ),
+                ),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => _openProfilePopup(m.userId),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Spacer(),
+                        Text(
+                          '${m.name}, ${m.age ?? '—'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18, height: 1.1),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          m.location,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.95), fontWeight: FontWeight.w600, fontSize: 13),
+                        ),
+                        if (eduJob.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            eduJob,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.92),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12.5,
+                              height: 1.25,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 10),
+                        _interestsMiniCard(m),
+                        const SizedBox(height: 10),
+                        _likedMeActionRow(m),
                       ],
                     ),
                   ),
@@ -590,42 +976,11 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
             controller: _tabController,
             children: [
               _iLikedTab(),
-              const _LikesPlaceholder(
-                icon: Icons.favorite_border_rounded,
-                title: 'Liked Me',
-                subtitle: 'Profiles that sent interest to you',
-              ),
+              _likedMeTab(),
             ],
           ),
         ),
       ],
-    );
-  }
-}
-
-class _LikesPlaceholder extends StatelessWidget {
-  const _LikesPlaceholder({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 80, color: const Color(0xFF6A11CB)),
-          const SizedBox(height: 16),
-          Text(title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          Text(subtitle, style: const TextStyle(color: Colors.black54)),
-        ],
-      ),
     );
   }
 }
