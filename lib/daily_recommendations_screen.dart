@@ -546,9 +546,12 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
           child: LayoutBuilder(
             builder: (context, constraints) {
               final wide = constraints.maxWidth >= 760;
+              final popupMaxWidth = wide ? 980.0 : 640.0;
+              final popupHorizontalMargin = wide ? 24.0 : 12.0;
+              final popupVerticalMargin = wide ? 24.0 : 10.0;
               final card = Material(
                 color: const Color(0xFFFAFAFA),
-                borderRadius: wide ? BorderRadius.circular(24) : const BorderRadius.vertical(top: Radius.circular(24)),
+                borderRadius: BorderRadius.circular(wide ? 24 : 20),
                 clipBehavior: Clip.antiAlias,
                 child: Column(
                   children: [
@@ -578,17 +581,25 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
                   ],
                 ),
               );
-              if (wide) {
-                return Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 980, maxHeight: 860),
-                    child: card,
+              return Center(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    popupHorizontalMargin,
+                    popupVerticalMargin,
+                    popupHorizontalMargin,
+                    popupVerticalMargin,
                   ),
-                );
-              }
-              return Align(
-                alignment: Alignment.bottomCenter,
-                child: SizedBox(width: double.infinity, height: constraints.maxHeight * 0.94, child: card),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: popupMaxWidth,
+                      maxHeight: constraints.maxHeight - (popupVerticalMargin * 2),
+                    ),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: card,
+                    ),
+                  ),
+                ),
               );
             },
           ),
@@ -598,8 +609,8 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
         final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
         return FadeTransition(
           opacity: curved,
-          child: SlideTransition(
-            position: Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero).animate(curved),
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
             child: child,
           ),
         );
