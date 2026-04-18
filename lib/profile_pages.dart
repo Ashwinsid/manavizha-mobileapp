@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'profile_extended_details.dart';
+import 'user_profile_completion.dart';
 
 class UserDetailsPage extends StatefulWidget {
   const UserDetailsPage({super.key});
@@ -76,6 +77,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
   Map<String, dynamic> _stuProf = {};
   Map<String, dynamic> _familyMap = {};
   Map<String, dynamic> _horoscopeMap = {};
+  UserDetailsSectionCompletion? _sectionCompletion;
 
   @override
   void initState() {
@@ -94,8 +96,61 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       _fetchProfessionDetails(),
       _fetchFamilyDetails(),
       _fetchHoroscopeDetails(),
+      _fetchSectionCompletion(),
     ]);
     if (mounted) setState(() => _isLoadingData = false);
+  }
+
+  Future<void> _fetchSectionCompletion() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+      final snap = await loadUserProfileSnapshot(Supabase.instance.client, userId);
+      if (mounted) setState(() => _sectionCompletion = snap.sections);
+    } catch (e) {
+      debugPrint('Error loading section completion: $e');
+    }
+  }
+
+  int _sectionPercentFor(String title) {
+    final s = _sectionCompletion;
+    if (s == null) return 0;
+    switch (title) {
+      case 'Basic Details':
+        return s.basicDetails;
+      case 'Educational Details':
+        return s.educationalDetails;
+      case 'Professional Details':
+        return s.professionalDetails;
+      case 'Family Details':
+        return s.familyDetails;
+      case 'Horoscope Details':
+        return s.horoscopeDetails;
+      case 'Interests':
+        return s.interests;
+      case 'Social Habits':
+        return s.socialHabits;
+      default:
+        return 0;
+    }
+  }
+
+  Widget _sectionPercentBadge(String title) {
+    final p = _sectionPercentFor(title).clamp(0, 100);
+    final color = p >= 100
+        ? const Color(0xFF15803D)
+        : (p > 0 ? const Color(0xFF6A11CB) : const Color(0xFF737373));
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        '$p%',
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: color),
+      ),
+    );
   }
 
   Future<void> _fetchEducationDetails() async {
@@ -153,7 +208,9 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       context,
       initialRows: List<Map<String, dynamic>>.from(_educationRows.map((e) => Map<String, dynamic>.from(e))),
       onSaved: () {
-        _fetchEducationDetails();
+        _fetchEducationDetails().then((_) {
+          if (mounted) _fetchSectionCompletion();
+        });
         setState(() {});
       },
     );
@@ -167,7 +224,9 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       bus: Map<String, dynamic>.from(_busProf),
       stu: Map<String, dynamic>.from(_stuProf),
       onSaved: () {
-        _fetchProfessionDetails();
+        _fetchProfessionDetails().then((_) {
+          if (mounted) _fetchSectionCompletion();
+        });
         setState(() {});
       },
     );
@@ -178,7 +237,9 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       context,
       initial: Map<String, dynamic>.from(_familyMap),
       onSaved: () {
-        _fetchFamilyDetails();
+        _fetchFamilyDetails().then((_) {
+          if (mounted) _fetchSectionCompletion();
+        });
         setState(() {});
       },
     );
@@ -189,7 +250,9 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       context,
       initial: Map<String, dynamic>.from(_horoscopeMap),
       onSaved: () {
-        _fetchHoroscopeDetails();
+        _fetchHoroscopeDetails().then((_) {
+          if (mounted) _fetchSectionCompletion();
+        });
         setState(() {});
       },
     );
@@ -443,7 +506,9 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Basic details saved successfully!')));
         Navigator.pop(context); // Close the editor modal
-        _fetchPersonalDetails();
+        _fetchPersonalDetails().then((_) {
+          if (mounted) _fetchSectionCompletion();
+        });
       }
     } catch (e) {
       debugPrint('Error saving personal details: $e');
@@ -478,8 +543,10 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Social habits saved successfully!')));
-        Navigator.pop(context); 
-        _fetchSocialHabits();
+        Navigator.pop(context);
+        _fetchSocialHabits().then((_) {
+          if (mounted) _fetchSectionCompletion();
+        });
       }
     } catch (e) {
       debugPrint('Error saving social habits: $e');
@@ -528,7 +595,9 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
           const SnackBar(content: Text('Interests saved successfully!')),
         );
         Navigator.pop(context);
-        _fetchInterestsDetails();
+        _fetchInterestsDetails().then((_) {
+          if (mounted) _fetchSectionCompletion();
+        });
       }
     } catch (e) {
       debugPrint('Error saving interests: $e');
@@ -1106,7 +1175,12 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       ),
       child: ExpansionTile(
         leading: Icon(icon, color: const Color(0xFF6A11CB)),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        title: Row(
+          children: [
+            Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600))),
+            _sectionPercentBadge(title),
+          ],
+        ),
         shape: const Border(), // Removes the default border lines upon expansion
         children: [
           Padding(

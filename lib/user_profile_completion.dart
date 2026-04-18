@@ -4,10 +4,32 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+/// Completion 0–100 for each category on [UserDetailsPage] (same rules as [loadUserProfileSnapshot]).
+class UserDetailsSectionCompletion {
+  const UserDetailsSectionCompletion({
+    required this.basicDetails,
+    required this.educationalDetails,
+    required this.professionalDetails,
+    required this.familyDetails,
+    required this.horoscopeDetails,
+    required this.interests,
+    required this.socialHabits,
+  });
+
+  final int basicDetails;
+  final int educationalDetails;
+  final int professionalDetails;
+  final int familyDetails;
+  final int horoscopeDetails;
+  final int interests;
+  final int socialHabits;
+}
+
 /// Mirrors [manavizha/components/user-landing-page.tsx] profile progress logic.
 class UserProfileSnapshot {
   UserProfileSnapshot({
     required this.completionPercent,
+    required this.sections,
     this.name,
     required this.photoVerified,
     this.firstPhotoSignedUrl,
@@ -20,6 +42,7 @@ class UserProfileSnapshot {
   });
 
   final int completionPercent;
+  final UserDetailsSectionCompletion sections;
   final String? name;
   final bool photoVerified;
   final String? firstPhotoSignedUrl;
@@ -310,6 +333,15 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
 
   return UserProfileSnapshot(
     completionPercent: averageProgress.clamp(0, 100),
+    sections: UserDetailsSectionCompletion(
+      basicDetails: personalProgress.clamp(0, 100),
+      educationalDetails: eduProgress.clamp(0, 100),
+      professionalDetails: profProgress.clamp(0, 100),
+      familyDetails: familyProgress.clamp(0, 100),
+      horoscopeDetails: horoscopeProgress.clamp(0, 100),
+      interests: interestsProgress.clamp(0, 100),
+      socialHabits: socialProgress.clamp(0, 100),
+    ),
     name: name,
     photoVerified: photoVerified,
     firstPhotoSignedUrl: firstSigned,
