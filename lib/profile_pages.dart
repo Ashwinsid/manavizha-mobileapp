@@ -484,7 +484,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
 
       setState(() => _isLoadingData = true);
 
-      await Supabase.instance.client.from('personal_details').upsert({
+      final personalRow = <String, dynamic>{
         'user_id': userId,
         'name': _nameCtrl.text,
         'date_of_birth': _dobCtrl.text,
@@ -501,7 +501,9 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
         'languages': _selectedLanguages,
         'about': _aboutCtrl.text,
         'updated_at': DateTime.now().toIso8601String(),
-      }, onConflict: 'user_id');
+      };
+      personalRow['completion_percentage'] = computePersonalDetailsCompletionPercent(personalRow);
+      await Supabase.instance.client.from('personal_details').upsert(personalRow, onConflict: 'user_id');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Basic details saved successfully!')));
@@ -532,14 +534,16 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
 
       setState(() => _isLoadingData = true);
 
-      await Supabase.instance.client.from('social_habits').upsert({
+      final socialRow = <String, dynamic>{
         'user_id': userId,
         'smoking': _selectedSmoking,
         'drinking': _selectedDrinking,
         'parties': _selectedParties,
         'pubs': _selectedPubs,
         'updated_at': DateTime.now().toIso8601String(),
-      }, onConflict: 'user_id');
+      };
+      socialRow['completion_percentage'] = computeSocialHabitsCompletionPercent(socialRow);
+      await Supabase.instance.client.from('social_habits').upsert(socialRow, onConflict: 'user_id');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Social habits saved successfully!')));
@@ -576,7 +580,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
 
       setState(() => _isLoadingData = true);
 
-      final completionPct = (hobbies.length >= 3 && interests.length >= 3) ? 100 : 0;
+      final completionPct = computeInterestsSectionPercent({'hobbies': hobbies, 'interests': interests});
 
       await Supabase.instance.client.from('interests').upsert({
         'user_id': userId,
@@ -2223,11 +2227,10 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
     setState(() { _isLoadingData = true; });
 
     try {
-      await Supabase.instance.client.from('contact_details').upsert({
+      final contactRow = <String, dynamic>{
         'user_id': userId,
         'phone': _phoneCtrl.text,
         'whatsapp_number': _whatsappCtrl.text,
-        
         'permanent_address_line1': _permLine1Ctrl.text,
         'permanent_address_line2': _permLine2Ctrl.text,
         'permanent_pincode': _permPincodeCtrl.text,
@@ -2239,7 +2242,6 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
         'permanent_state': _permStateCtrl.text,
         'permanent_country': _permCountryCtrl.text,
         'permanent_landmark': _permLandmarkCtrl.text,
-
         'current_address_line1': _currLine1Ctrl.text,
         'current_address_line2': _currLine2Ctrl.text,
         'current_pincode': _currPincodeCtrl.text,
@@ -2252,7 +2254,9 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
         'current_country': _currCountryCtrl.text,
         'current_landmark': _currLandmarkCtrl.text,
         'updated_at': DateTime.now().toIso8601String(),
-      });
+      };
+      contactRow['completion_percentage'] = computeContactCompletionPercent(contactRow);
+      await Supabase.instance.client.from('contact_details').upsert(contactRow);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact details successfully synced to backend!')));

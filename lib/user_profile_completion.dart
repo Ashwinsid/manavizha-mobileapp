@@ -54,6 +54,160 @@ class UserProfileSnapshot {
   final bool hasFamilyPhoto;
 }
 
+int _nonEmptyListItemCount(List<dynamic> list) =>
+    list.where((e) => e != null && e.toString().trim().isNotEmpty && e.toString() != 'null').length;
+
+/// Basic Details — same field rules as dashboard / [loadUserProfileSnapshot]. Used when saving [personal_details].
+int computePersonalDetailsCompletionPercent(Map<String, dynamic>? personal) {
+  if (personal == null) return 0;
+  const fields = [
+    'name',
+    'date_of_birth',
+    'age',
+    'sex',
+    'height',
+    'weight',
+    'skin_color',
+    'body_type',
+    'marital_status',
+    'about',
+    'food_preference',
+    'languages',
+  ];
+  var filled = 0;
+  for (final f in fields) {
+    final val = personal[f];
+    if (f == 'languages') {
+      if (val is List && val.isNotEmpty) filled++;
+    } else if (val != null && val.toString().trim().isNotEmpty) {
+      filled++;
+    }
+  }
+  return ((filled / fields.length) * 100).round();
+}
+
+int computeContactCompletionPercent(Map<String, dynamic>? contact) {
+  if (contact == null) return 0;
+  const fields = [
+    'phone',
+    'whatsapp_number',
+    'permanent_address_line1',
+    'permanent_pincode',
+    'permanent_area',
+    'permanent_taluk',
+    'permanent_district',
+    'permanent_division',
+    'permanent_region',
+    'permanent_state',
+    'permanent_country',
+    'current_address_line1',
+    'current_pincode',
+    'current_area',
+    'current_taluk',
+    'current_district',
+    'current_division',
+    'current_region',
+    'current_state',
+    'current_country',
+  ];
+  var filled = 0;
+  for (final f in fields) {
+    final val = contact[f];
+    if (val != null && val.toString().trim().isNotEmpty) filled++;
+  }
+  return ((filled / fields.length) * 100).round();
+}
+
+int computeFamilyDetailsCompletionPercent(Map<String, dynamic>? family) {
+  if (family == null) return 0;
+  const fields = [
+    'father_name',
+    'father_occupation',
+    'mother_name',
+    'mother_occupation',
+    'parents_address_line1',
+    'parents_pincode',
+    'parents_area',
+    'parents_taluk',
+    'parents_district',
+    'parents_division',
+    'parents_region',
+    'parents_state',
+    'parents_country',
+    'caste',
+    'family_type',
+    'family_status',
+  ];
+  var filled = 0;
+  for (final f in fields) {
+    final val = family[f];
+    if (val != null && val.toString().trim().isNotEmpty) filled++;
+  }
+  return ((filled / fields.length) * 100).round();
+}
+
+int computeHoroscopeCompletionPercent(Map<String, dynamic>? horoscope) {
+  if (horoscope == null) return 0;
+  const fields = ['jaadhagam_url', 'time_of_birth', 'place_of_birth', 'zodiac_sign', 'star', 'lagnam', 'dhosham'];
+  var filled = 0;
+  for (final f in fields) {
+    final val = horoscope[f];
+    if (val != null && val.toString().trim().isNotEmpty) filled++;
+  }
+  return ((filled / fields.length) * 100).round();
+}
+
+int _countFilledKeys(Map<String, dynamic> m, List<String> keys) {
+  var n = 0;
+  for (final k in keys) {
+    final v = m[k];
+    if (v != null && v.toString().trim().isNotEmpty) n++;
+  }
+  return n;
+}
+
+bool _rowHasAnyKey(Map<String, dynamic>? m, List<String> keys) =>
+    m != null && keys.any((k) => m[k] != null && m[k].toString().trim().isNotEmpty);
+
+/// Matches [ProfileExtendedRepository.detectProfessionType] routing.
+int computeProfessionSectionPercent(Map<String, dynamic>? empData, Map<String, dynamic>? busData, Map<String, dynamic>? stuData) {
+  if (_rowHasAnyKey(empData, ['designation', 'company', 'sector'])) {
+    final n = _countFilledKeys(empData!, ['sector', 'company', 'designation', 'salary', 'work_location']);
+    return ((n / 5) * 100).round();
+  }
+  if (_rowHasAnyKey(busData, ['business_name', 'designation'])) {
+    final n = _countFilledKeys(busData!, ['sector', 'business_name', 'designation', 'annual_returns', 'business_location']);
+    return ((n / 5) * 100).round();
+  }
+  if (_rowHasAnyKey(stuData, ['course', 'institution'])) {
+    final n = _countFilledKeys(stuData!, ['institution', 'course', 'field_of_study']);
+    return ((n / 3) * 100).round();
+  }
+  return 0;
+}
+
+/// Hobbies + interests each contribute up to half (need 3 each for 100%).
+int computeInterestsSectionPercent(Map<String, dynamic>? interests) {
+  if (interests == null) return 0;
+  final hobbies = interests['hobbies'] as List<dynamic>? ?? [];
+  final userInterests = interests['interests'] as List<dynamic>? ?? [];
+  final h = _nonEmptyListItemCount(hobbies);
+  final i = _nonEmptyListItemCount(userInterests);
+  final part = (math.min(h, 3) / 3 + math.min(i, 3) / 3) / 2;
+  return (part * 100).round();
+}
+
+int computeSocialHabitsCompletionPercent(Map<String, dynamic>? social) {
+  if (social == null) return 0;
+  const fields = ['smoking', 'drinking', 'parties', 'pubs'];
+  var filled = 0;
+  for (final f in fields) {
+    final val = social[f];
+    if (val != null && val.toString().trim().isNotEmpty) filled++;
+  }
+  return ((filled / fields.length) * 100).round();
+}
+
 double calculateTrustScore({
   required bool photoVerified,
   required int completionPercentage,
@@ -74,29 +228,37 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
     client
         .from('personal_details')
         .select(
-          'completion_percentage, name, date_of_birth, age, sex, height, weight, skin_color, body_type, marital_status, about, food_preference, languages, photo_verified',
+          'name, date_of_birth, age, sex, height, weight, skin_color, body_type, marital_status, about, food_preference, languages, photo_verified',
         )
         .eq('user_id', userId)
         .maybeSingle(),
     client
         .from('contact_details')
         .select(
-          'completion_percentage, phone, whatsapp_number, permanent_address_line1, permanent_pincode, permanent_area, permanent_taluk, permanent_district, permanent_division, permanent_region, permanent_state, permanent_country, current_address_line1, current_pincode, current_area, current_taluk, current_district, current_division, current_region, current_state, current_country',
+          'phone, whatsapp_number, permanent_address_line1, permanent_pincode, permanent_area, permanent_taluk, permanent_district, permanent_division, permanent_region, permanent_state, permanent_country, current_address_line1, current_pincode, current_area, current_taluk, current_district, current_division, current_region, current_state, current_country',
         )
         .eq('user_id', userId)
         .maybeSingle(),
     client.from('education_details').select('education').eq('user_id', userId),
-    client.from('profession_employee').select('completion_percentage, designation, company').eq('user_id', userId).maybeSingle(),
-    client.from('profession_business').select('completion_percentage, designation, business_name').eq('user_id', userId).maybeSingle(),
-    client.from('profession_student').select('completion_percentage, course, institution').eq('user_id', userId).maybeSingle(),
+    client
+        .from('profession_employee')
+        .select('sector, company, designation, salary, work_location')
+        .eq('user_id', userId)
+        .maybeSingle(),
+    client
+        .from('profession_business')
+        .select('sector, business_name, designation, annual_returns, business_location')
+        .eq('user_id', userId)
+        .maybeSingle(),
+    client.from('profession_student').select('institution, course, field_of_study').eq('user_id', userId).maybeSingle(),
     client
         .from('family_details')
         .select(
-          'completion_percentage, father_name, father_occupation, mother_name, mother_occupation, parents_address_line1, parents_pincode, parents_area, parents_taluk, parents_district, parents_division, parents_region, parents_state, parents_country, caste, family_type, family_status',
+          'father_name, father_occupation, mother_name, mother_occupation, parents_address_line1, parents_pincode, parents_area, parents_taluk, parents_district, parents_division, parents_region, parents_state, parents_country, caste, family_type, family_status',
         )
         .eq('user_id', userId)
         .maybeSingle(),
-    client.from('horoscope_details').select('completion_percentage, jaadhagam_url, time_of_birth, place_of_birth, zodiac_sign, star, lagnam, dhosham').eq('user_id', userId).maybeSingle(),
+    client.from('horoscope_details').select('jaadhagam_url, time_of_birth, place_of_birth, zodiac_sign, star, lagnam, dhosham').eq('user_id', userId).maybeSingle(),
     client.from('interests').select('hobbies, interests').eq('user_id', userId).maybeSingle(),
     client.from('social_habits').select('smoking, drinking, parties, pubs').eq('user_id', userId).maybeSingle(),
     client.from('photos').select('user_photos, family_photo, aadhar_front, aadhar_back').eq('user_id', userId).maybeSingle(),
@@ -116,75 +278,8 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
   final photos = results[10] as Map<String, dynamic>?;
   final settings = results[11] as Map<String, dynamic>?;
 
-  int personalProgress = 0;
-  if (personal != null) {
-    final cp = personal['completion_percentage'];
-    if (cp != null) {
-      personalProgress = (cp as num).round();
-    } else {
-      const fields = [
-        'name',
-        'date_of_birth',
-        'age',
-        'sex',
-        'height',
-        'weight',
-        'skin_color',
-        'body_type',
-        'marital_status',
-        'about',
-        'food_preference',
-        'languages',
-      ];
-      var filled = 0;
-      for (final f in fields) {
-        final val = personal[f];
-        if (f == 'languages') {
-          if (val is List && val.isNotEmpty) filled++;
-        } else if (val != null && val.toString().trim().isNotEmpty) {
-          filled++;
-        }
-      }
-      personalProgress = ((filled / fields.length) * 100).round();
-    }
-  }
-
-  int contactProgress = 0;
-  if (contact != null) {
-    final cp = contact['completion_percentage'];
-    if (cp != null) {
-      contactProgress = (cp as num).round();
-    } else {
-      const fields = [
-        'phone',
-        'whatsapp_number',
-        'permanent_address_line1',
-        'permanent_pincode',
-        'permanent_area',
-        'permanent_taluk',
-        'permanent_district',
-        'permanent_division',
-        'permanent_region',
-        'permanent_state',
-        'permanent_country',
-        'current_address_line1',
-        'current_pincode',
-        'current_area',
-        'current_taluk',
-        'current_district',
-        'current_division',
-        'current_region',
-        'current_state',
-        'current_country',
-      ];
-      var filled = 0;
-      for (final f in fields) {
-        final val = contact[f];
-        if (val != null && val.toString().trim().isNotEmpty) filled++;
-      }
-      contactProgress = ((filled / fields.length) * 100).round();
-    }
-  }
+  final personalProgress = computePersonalDetailsCompletionPercent(personal);
+  final contactProgress = computeContactCompletionPercent(contact);
 
   var eduProgress = 0;
   if (eduData.isNotEmpty) {
@@ -196,86 +291,11 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
     eduProgress = hasData ? 100 : 0;
   }
 
-  var profProgress = 0;
-  final empCp = empData?['completion_percentage'];
-  final busCp = busData?['completion_percentage'];
-  final stuCp = stuData?['completion_percentage'];
-  if (empCp == 100 || busCp == 100 || stuCp == 100) {
-    profProgress = 100;
-  } else if (empCp != null) {
-    profProgress = (empCp as num).round();
-  } else if (busCp != null) {
-    profProgress = (busCp as num).round();
-  } else if (stuCp != null) {
-    profProgress = (stuCp as num).round();
-  }
-
-  int familyProgress = 0;
-  if (family != null) {
-    final cp = family['completion_percentage'];
-    if (cp != null) {
-      familyProgress = (cp as num).round();
-    } else {
-      const fields = [
-        'father_name',
-        'father_occupation',
-        'mother_name',
-        'mother_occupation',
-        'parents_address_line1',
-        'parents_pincode',
-        'parents_area',
-        'parents_taluk',
-        'parents_district',
-        'parents_division',
-        'parents_region',
-        'parents_state',
-        'parents_country',
-        'caste',
-        'family_type',
-        'family_status',
-      ];
-      var filled = 0;
-      for (final f in fields) {
-        final val = family[f];
-        if (val != null && val.toString().trim().isNotEmpty) filled++;
-      }
-      familyProgress = ((filled / fields.length) * 100).round();
-    }
-  }
-
-  int horoscopeProgress = 0;
-  if (horoscope != null) {
-    final cp = horoscope['completion_percentage'];
-    if (cp != null) {
-      horoscopeProgress = (cp as num).round();
-    } else {
-      const fields = ['jaadhagam_url', 'time_of_birth', 'place_of_birth', 'zodiac_sign', 'star', 'lagnam', 'dhosham'];
-      var filled = 0;
-      for (final f in fields) {
-        final val = horoscope[f];
-        if (val != null && val.toString().trim().isNotEmpty) filled++;
-      }
-      horoscopeProgress = ((filled / fields.length) * 100).round();
-    }
-  }
-
-  var interestsProgress = 0;
-  if (interests != null) {
-    final hobbies = interests['hobbies'] as List<dynamic>? ?? [];
-    final userInterests = interests['interests'] as List<dynamic>? ?? [];
-    if (hobbies.length >= 3 && userInterests.length >= 3) interestsProgress = 100;
-  }
-
-  int socialProgress = 0;
-  if (social != null) {
-    const fields = ['smoking', 'drinking', 'parties', 'pubs'];
-    var filled = 0;
-    for (final f in fields) {
-      final val = social[f];
-      if (val != null && val.toString().trim().isNotEmpty) filled++;
-    }
-    socialProgress = ((filled / fields.length) * 100).round();
-  }
+  final profProgress = computeProfessionSectionPercent(empData, busData, stuData);
+  final familyProgress = computeFamilyDetailsCompletionPercent(family);
+  final horoscopeProgress = computeHoroscopeCompletionPercent(horoscope);
+  final interestsProgress = computeInterestsSectionPercent(interests);
+  final socialProgress = computeSocialHabitsCompletionPercent(social);
 
   var photosProgress = 0;
   if (photos != null) {
