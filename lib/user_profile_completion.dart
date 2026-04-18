@@ -179,22 +179,61 @@ int computeHoroscopeCompletionPercent(Map<String, dynamic>? horoscope) {
   return ((filled / fields.length) * 100).round();
 }
 
-/// Per-row fields in [showEducationDetailsSheet]. Empty / all-blank rows are ignored.
+bool _nonEmptyField(dynamic v) {
+  if (v == null) return false;
+  return v.toString().trim().isNotEmpty;
+}
+
+/// True when graduation year is required for validation (aligned with [profile_extended_details]).
+bool _educationStatusRequiresGraduationYear(String? status) {
+  final s = status?.toLowerCase() ?? '';
+  return s.contains('complete') || s.contains('graduated') || s.contains('discontinued');
+}
+
+/// Applicability matches [manavizha/components/profile-setup-form.tsx] education progress:
+/// [education_other] / [degree_other] only when "other"; [branch] optional; [year_of_graduation] only when status requires it.
+int _singleEducationRowCompletionPercent(Map<String, dynamic> row) {
+  final checks = <bool>[];
+
+  checks.add(_nonEmptyField(row['education']));
+  final edu = row['education']?.toString().trim() ?? '';
+  if (edu.toLowerCase() == 'other') {
+    checks.add(_nonEmptyField(row['education_other']));
+  }
+
+  checks.add(_nonEmptyField(row['degree']));
+  final deg = row['degree']?.toString().trim() ?? '';
+  if (deg.toLowerCase() == 'other') {
+    checks.add(_nonEmptyField(row['degree_other']));
+  }
+
+  checks.add(_nonEmptyField(row['institution']));
+  checks.add(_nonEmptyField(row['status']));
+
+  if (_educationStatusRequiresGraduationYear(row['status']?.toString())) {
+    checks.add(_nonEmptyField(row['year_of_graduation']));
+  }
+
+  if (checks.isEmpty) return 0;
+  final filled = checks.where((c) => c).length;
+  return ((filled / checks.length) * 100).round();
+}
+
+/// Per education row in [showEducationDetailsSheet]. Empty / all-blank rows are ignored.
 int computeEducationDetailsCompletionPercent(List<Map<String, dynamic>> rows) {
-  const keys = ['education', 'education_other', 'degree', 'degree_other', 'branch', 'institution', 'year_of_graduation', 'status'];
+  const probe = ['education', 'education_other', 'degree', 'degree_other', 'branch', 'institution', 'year_of_graduation', 'status'];
   if (rows.isEmpty) return 0;
   var sum = 0;
   var nRows = 0;
   for (final raw in rows) {
     final row = Map<String, dynamic>.from(raw);
-    final hasAny = keys.any((k) => row[k] != null && row[k].toString().trim().isNotEmpty);
+    final hasAny = probe.any((k) => _nonEmptyField(row[k]));
     if (!hasAny) continue;
-    final filled = keys.where((k) => row[k] != null && row[k].toString().trim().isNotEmpty).length;
-    sum += ((filled / keys.length) * 100).round();
+    sum += _singleEducationRowCompletionPercent(row);
     nRows++;
   }
   if (nRows == 0) return 0;
-  return (sum / nRows).round();
+  return (sum / nRows).round().clamp(0, 100);
 }
 
 int _countFilledKeys(Map<String, dynamic> m, List<String> keys) {
