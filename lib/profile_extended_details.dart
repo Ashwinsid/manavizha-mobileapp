@@ -68,7 +68,7 @@ class ProfileExtendedRepository {
   static String detectProfessionType(Map<String, dynamic>? emp, Map<String, dynamic>? bus, Map<String, dynamic>? stu) {
     bool has(Map<String, dynamic>? m, List<String> keys) =>
         m != null && keys.any((k) => m[k] != null && m[k].toString().trim().isNotEmpty);
-    if (has(emp, ['designation', 'company', 'sector'])) return 'employee';
+    if (has(emp, ['designation', 'company', 'sector', 'salary', 'salary_range', 'work_location'])) return 'employee';
     if (has(bus, ['business_name', 'designation'])) return 'business';
     if (has(stu, ['course', 'institution'])) return 'student';
     return 'none';
@@ -86,34 +86,47 @@ class ProfileExtendedRepository {
     await c.from('profession_business').delete().eq('user_id', userId);
     await c.from('profession_student').delete().eq('user_id', userId);
 
+    if (type == 'none') {
+      return;
+    }
+
     final pct = computeProfessionSectionPercentForType(type, emp, bus, stu);
 
     if (type == 'employee') {
       final m = <String, dynamic>{
         'user_id': userId,
         'sector': _s(emp['sector']),
-        'sector_other': _s(emp['sector_other']),
         'company': _s(emp['company']),
         'designation': _s(emp['designation']),
         'salary': _s(emp['salary']),
+        'salary_range': _s(emp['salary_range']),
         'work_location': _s(emp['work_location']),
         'completion_percentage': pct,
       };
+      final sec = emp['sector']?.toString().trim().toLowerCase();
+      if (sec == 'other') {
+        m['sector_other'] = _s(emp['sector_other']);
+      }
       m.removeWhere((k, v) => v == null || (v is String && v.isEmpty));
       await c.from('profession_employee').upsert(m, onConflict: 'user_id');
     } else if (type == 'business') {
       final m = <String, dynamic>{
         'user_id': userId,
         'sector': _s(bus['sector']),
-        'sector_other': _s(bus['sector_other']),
         'business_name': _s(bus['business_name']),
         'business_type': _s(bus['business_type']),
-        'business_type_other': _s(bus['business_type_other']),
         'designation': _s(bus['designation']),
         'annual_returns': _s(bus['annual_returns']),
+        'revenue_range': _s(bus['revenue_range']),
         'business_location': _s(bus['business_location']),
         'completion_percentage': pct,
       };
+      if (bus['sector']?.toString().trim().toLowerCase() == 'other') {
+        m['sector_other'] = _s(bus['sector_other']);
+      }
+      if (bus['business_type']?.toString().trim().toLowerCase() == 'other') {
+        m['business_type_other'] = _s(bus['business_type_other']);
+      }
       m.removeWhere((k, v) => v == null || (v is String && v.isEmpty));
       await c.from('profession_business').upsert(m, onConflict: 'user_id');
     } else if (type == 'student') {
@@ -183,6 +196,86 @@ class ProfileExtendedRepository {
     final stList = (stRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
     return (educationLevel: eduList, status: stList);
   }
+
+  /// Master rows for [professional-details-step.tsx] (sector, business type, year of study, course categories).
+  static Future<
+      ({
+        List<Map<String, dynamic>> sector,
+        List<Map<String, dynamic>> businessType,
+        List<Map<String, dynamic>> yearOfStudy,
+        List<Map<String, dynamic>> educationLevel,
+      })> fetchProfessionFormMasters() async {
+    final c = Supabase.instance.client;
+    final sectorRes = await c.from('master_sector').select().order('created_at', ascending: true);
+    final btRes = await c.from('master_type_of_business').select().order('created_at', ascending: true);
+    final yosRes = await c.from('master_year_of_study').select().order('created_at', ascending: true);
+    final eduRes = await c.from('master_education_level').select().order('created_at', ascending: true);
+    List<Map<String, dynamic>> mapList(dynamic res) =>
+        (res as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    return (
+      sector: mapList(sectorRes),
+      businessType: mapList(btRes),
+      yearOfStudy: mapList(yosRes),
+      educationLevel: mapList(eduRes),
+    );
+  }
+}
+
+// --- Employment / professional (aligned with manavizha/lib/profile-data.ts + professional-details-step.tsx) ---
+
+const kEmploymentTypes = [
+  'Private',
+  'Government/PSU',
+  'Business',
+  'Defence',
+  'Self Employed',
+  'Student',
+  'Not Working',
+];
+
+const _salaryRangeOptions = <String>[
+  'Below 2 Lakhs',
+  '2L - 5L',
+  '5L - 10L',
+  '10L - 15L',
+  '15L - 25L',
+  '25L - 50L',
+  '50L - 1 Crore',
+  'Above 1 Crore',
+];
+
+const _revenueRangeOptions = <String>[
+  'Below 5 Lakhs',
+  '5L - 10L',
+  '10L - 25L',
+  '25L - 50L',
+  '50L - 1 Crore',
+  '1C - 5 Crore',
+  'Above 5 Crores',
+];
+
+/// Maps UI employment label → save bucket `employee` | `business` | `student` | `none`.
+String employmentTypeToCategory(String employmentType) {
+  final x = employmentType.trim().toLowerCase();
+  if (x == 'not working') return 'none';
+  if (['private', 'government/psu', 'defence'].contains(x)) return 'employee';
+  if (['business', 'self employed'].contains(x)) return 'business';
+  if (x == 'student') return 'student';
+  return 'employee';
+}
+
+bool _sectorOtherRequired(String? sector) => sector != null && sector.trim().toLowerCase() == 'other';
+
+bool _bizTypeOtherRequired(String? t) => t != null && t.trim().toLowerCase() == 'other';
+
+List<String> _uniqueEducationCategoriesForCourse(List<Map<String, dynamic>> masterEdu) {
+  final set = <String>{};
+  for (final row in masterEdu) {
+    final c = row['category']?.toString().trim() ?? '';
+    if (c.isNotEmpty) set.add(c);
+  }
+  final list = set.toList()..sort();
+  return list;
 }
 
 // --- Education helpers (aligned with manavizha/components/profile-steps/educational-details-step.tsx) ---
@@ -757,141 +850,518 @@ InputDecoration _eduDecoration(String label) {
 
 Future<void> showProfessionDetailsSheet(
   BuildContext context, {
-  required String initialType,
+  required String initialEmploymentType,
   required Map<String, dynamic> emp,
   required Map<String, dynamic> bus,
   required Map<String, dynamic> stu,
-  required void Function(String type, Map<String, dynamic> emp, Map<String, dynamic> bus, Map<String, dynamic> stu) onSaved,
+  required void Function(
+    String category,
+    String employmentTypeLabel,
+    Map<String, dynamic> emp,
+    Map<String, dynamic> bus,
+    Map<String, dynamic> stu,
+  ) onSaved,
 }) async {
-  var type = initialType == 'none' ? 'employee' : initialType;
-  final e = Map<String, dynamic>.from(emp);
-  final b = Map<String, dynamic>.from(bus);
-  final s = Map<String, dynamic>.from(stu);
-
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    useRootNavigator: true,
+    useSafeArea: false,
     backgroundColor: Colors.white,
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
     builder: (ctx) {
-      return StatefulBuilder(
-        builder: (context, setModal) {
-          return Padding(
-            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-            child: SizedBox(
-              height: MediaQuery.of(context).size.height * 0.88,
-              child: Column(
-                children: [
-                  const SizedBox(height: 12),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Professional details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                        IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(value: 'employee', label: Text('Employee'), icon: Icon(Icons.badge_outlined)),
-                        ButtonSegment(value: 'business', label: Text('Business'), icon: Icon(Icons.store_outlined)),
-                        ButtonSegment(value: 'student', label: Text('Student'), icon: Icon(Icons.school_outlined)),
-                      ],
-                      selected: {type},
-                      onSelectionChanged: (set) => setModal(() => type = set.first),
-                    ),
-                  ),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
-                      child: type == 'employee'
-                          ? Column(
-                              children: [
-                                _mapField(e, 'sector', 'Sector'),
-                                _mapField(e, 'sector_other', 'Sector (other)'),
-                                _mapField(e, 'company', 'Company'),
-                                _mapField(e, 'designation', 'Designation'),
-                                _mapField(e, 'salary', 'Salary / income'),
-                                _mapField(e, 'work_location', 'Work location'),
-                              ],
-                            )
-                          : type == 'business'
-                              ? Column(
-                                  children: [
-                                    _mapField(b, 'sector', 'Sector'),
-                                    _mapField(b, 'sector_other', 'Sector (other)'),
-                                    _mapField(b, 'business_name', 'Business name'),
-                                    _mapField(b, 'business_type', 'Business type'),
-                                    _mapField(b, 'business_type_other', 'Business type (other)'),
-                                    _mapField(b, 'designation', 'Your role'),
-                                    _mapField(b, 'annual_returns', 'Annual returns'),
-                                    _mapField(b, 'business_location', 'Business location'),
-                                  ],
-                                )
-                              : Column(
-                                  children: [
-                                    _mapField(s, 'institution', 'Institution'),
-                                    _mapField(s, 'course', 'Course'),
-                                    _mapField(s, 'field_of_study', 'Field of study'),
-                                    _mapField(s, 'year_of_study', 'Year of study'),
-                                    _mapField(s, 'expected_graduation_year', 'Expected graduation year'),
-                                  ],
-                                ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        final uid = Supabase.instance.client.auth.currentUser?.id;
-                        if (uid == null) return;
-                        try {
-                          await ProfileExtendedRepository.saveProfession(
-                            userId: uid,
-                            type: type,
-                            emp: e,
-                            bus: b,
-                            stu: s,
-                          );
-                          if (!context.mounted) return;
-                          onSaved(
-                            type,
-                            Map<String, dynamic>.from(e),
-                            Map<String, dynamic>.from(b),
-                            Map<String, dynamic>.from(s),
-                          );
-                          if (context.mounted) {
-                            Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Professional details saved')),
-                            );
-                          }
-                        } catch (err) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $err')));
-                          }
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _brand,
-                        minimumSize: const Size(double.infinity, 48),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: const Text('Save', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
+      return _ProfessionDetailsSheetScaffold(
+        initialEmploymentType: initialEmploymentType,
+        emp: emp,
+        bus: bus,
+        stu: stu,
+        onSaved: onSaved,
       );
     },
   );
+}
+
+class _ProfessionDetailsSheetScaffold extends StatefulWidget {
+  const _ProfessionDetailsSheetScaffold({
+    required this.initialEmploymentType,
+    required this.emp,
+    required this.bus,
+    required this.stu,
+    required this.onSaved,
+  });
+
+  final String initialEmploymentType;
+  final Map<String, dynamic> emp;
+  final Map<String, dynamic> bus;
+  final Map<String, dynamic> stu;
+  final void Function(
+    String category,
+    String employmentTypeLabel,
+    Map<String, dynamic> emp,
+    Map<String, dynamic> bus,
+    Map<String, dynamic> stu,
+  ) onSaved;
+
+  @override
+  State<_ProfessionDetailsSheetScaffold> createState() => _ProfessionDetailsSheetScaffoldState();
+}
+
+class _ProfessionDetailsSheetScaffoldState extends State<_ProfessionDetailsSheetScaffold> {
+  late Future<
+      ({
+        List<Map<String, dynamic>> sector,
+        List<Map<String, dynamic>> businessType,
+        List<Map<String, dynamic>> yearOfStudy,
+        List<Map<String, dynamic>> educationLevel,
+      })> _mastersFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _mastersFuture = ProfileExtendedRepository.fetchProfessionFormMasters();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder(
+      future: _mastersFuture,
+      builder: (context, snapshot) {
+        final h = MediaQuery.sizeOf(context).height;
+        final inset = _keyboardBottomInset(context);
+        final sheetHeight = math.min(h * 0.92, math.max(200.0, h - inset));
+
+        if (snapshot.hasError) {
+          return SizedBox(
+            height: sheetHeight,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text('Could not load options: ${snapshot.error}', textAlign: TextAlign.center),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: () => setState(() {
+                        _mastersFuture = ProfileExtendedRepository.fetchProfessionFormMasters();
+                      }),
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+        if (!snapshot.hasData) {
+          return SizedBox(height: sheetHeight, child: const Center(child: CircularProgressIndicator()));
+        }
+
+        return Padding(
+          padding: EdgeInsets.only(bottom: inset),
+          child: SizedBox(
+            height: sheetHeight,
+            child: _ProfessionForm(
+              masters: snapshot.data!,
+              initialEmploymentType: widget.initialEmploymentType,
+              emp: widget.emp,
+              bus: widget.bus,
+              stu: widget.stu,
+              onSaved: widget.onSaved,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ProfessionForm extends StatefulWidget {
+  const _ProfessionForm({
+    required this.masters,
+    required this.initialEmploymentType,
+    required this.emp,
+    required this.bus,
+    required this.stu,
+    required this.onSaved,
+  });
+
+  final ({
+    List<Map<String, dynamic>> sector,
+    List<Map<String, dynamic>> businessType,
+    List<Map<String, dynamic>> yearOfStudy,
+    List<Map<String, dynamic>> educationLevel,
+  }) masters;
+  final String initialEmploymentType;
+  final Map<String, dynamic> emp;
+  final Map<String, dynamic> bus;
+  final Map<String, dynamic> stu;
+  final void Function(
+    String category,
+    String employmentTypeLabel,
+    Map<String, dynamic> emp,
+    Map<String, dynamic> bus,
+    Map<String, dynamic> stu,
+  ) onSaved;
+
+  @override
+  State<_ProfessionForm> createState() => _ProfessionFormState();
+}
+
+class _ProfessionFormState extends State<_ProfessionForm> {
+  static const _scrollPad = EdgeInsets.fromLTRB(20, 20, 20, 140);
+
+  late String _employmentLabel;
+  late Map<String, dynamic> e;
+  late Map<String, dynamic> b;
+  late Map<String, dynamic> s;
+
+  @override
+  void initState() {
+    super.initState();
+    _employmentLabel = widget.initialEmploymentType.trim().isEmpty ? 'Private' : widget.initialEmploymentType;
+    e = Map<String, dynamic>.from(widget.emp);
+    b = Map<String, dynamic>.from(widget.bus);
+    s = Map<String, dynamic>.from(widget.stu);
+  }
+
+  String get _category => employmentTypeToCategory(_employmentLabel);
+
+  bool get _isEmployee => ['private', 'government/psu', 'defence'].contains(_employmentLabel.trim().toLowerCase());
+  bool get _isBusiness => ['business', 'self employed'].contains(_employmentLabel.trim().toLowerCase());
+  bool get _isStudent => _employmentLabel.trim().toLowerCase() == 'student';
+
+  List<DropdownMenuItem<String>> _valueItems(List<Map<String, dynamic>> rows, {String field = 'value'}) {
+    final seen = <String>{};
+    final items = <DropdownMenuItem<String>>[];
+    for (final r in rows) {
+      final v = r[field]?.toString().trim() ?? '';
+      if (v.isEmpty || seen.contains(v)) continue;
+      seen.add(v);
+      items.add(DropdownMenuItem(value: v, child: Text(v, overflow: TextOverflow.ellipsis)));
+    }
+    return items;
+  }
+
+  String? _dropdownValue(String? current, Iterable<String> allowed) {
+    if (current == null || current.trim().isEmpty) return null;
+    final c = current.trim();
+    if (allowed.contains(c)) return c;
+    return c;
+  }
+
+  String? _validateProfession() {
+    final cat = _category;
+    if (cat == 'none') return null;
+    if (cat == 'employee') {
+      final sec = e['sector']?.toString().trim() ?? '';
+      if (sec.isEmpty) return 'Please select industry / sector.';
+      if (_sectorOtherRequired(sec) && (e['sector_other']?.toString().trim().isEmpty ?? true)) {
+        return 'Please specify industry (Other).';
+      }
+      if ((e['company']?.toString().trim().isEmpty ?? true)) return 'Please enter company name.';
+      if ((e['designation']?.toString().trim().isEmpty ?? true)) return 'Please enter designation.';
+      final salOk = (e['salary']?.toString().trim().isNotEmpty ?? false) && e['salary'].toString() != '₹';
+      final rangeOk = e['salary_range']?.toString().trim().isNotEmpty ?? false;
+      if (!salOk && !rangeOk) return 'Please select annual salary range or enter salary.';
+      if ((e['work_location']?.toString().trim().isEmpty ?? true)) return 'Please enter work location.';
+    } else if (cat == 'business') {
+      final sec = b['sector']?.toString().trim() ?? '';
+      if (sec.isEmpty) return 'Please select business sector.';
+      if (_sectorOtherRequired(sec) && (b['sector_other']?.toString().trim().isEmpty ?? true)) {
+        return 'Please specify sector (Other).';
+      }
+      if ((b['business_name']?.toString().trim().isEmpty ?? true)) return 'Please enter business name.';
+      final bt = b['business_type']?.toString().trim() ?? '';
+      if (bt.isEmpty) return 'Please select business type.';
+      if (_bizTypeOtherRequired(bt) && (b['business_type_other']?.toString().trim().isEmpty ?? true)) {
+        return 'Please specify business type (Other).';
+      }
+      if ((b['designation']?.toString().trim().isEmpty ?? true)) return 'Please enter your role.';
+      final retOk = (b['annual_returns']?.toString().trim().isNotEmpty ?? false) && b['annual_returns'].toString() != '₹';
+      final revOk = b['revenue_range']?.toString().trim().isNotEmpty ?? false;
+      if (!retOk && !revOk) return 'Please select revenue range or enter annual returns.';
+      if ((b['business_location']?.toString().trim().isEmpty ?? true)) return 'Please enter business location.';
+    } else if (cat == 'student') {
+      if ((s['institution']?.toString().trim().isEmpty ?? true)) return 'Please enter institution.';
+      if ((s['course']?.toString().trim().isEmpty ?? true)) return 'Please select or enter course.';
+      if ((s['field_of_study']?.toString().trim().isEmpty ?? true)) return 'Please enter field of study.';
+      if ((s['year_of_study']?.toString().trim().isEmpty ?? true)) return 'Please select year of study.';
+      if ((s['expected_graduation_year']?.toString().trim().isEmpty ?? true)) {
+        return 'Please enter expected graduation year.';
+      }
+    }
+    return null;
+  }
+
+  List<DropdownMenuItem<String>> _employmentItemsWithCurrent() {
+    final base = kEmploymentTypes
+        .map((t) => DropdownMenuItem<String>(value: t, child: Text(t, overflow: TextOverflow.ellipsis)))
+        .toList();
+    if (_employmentLabel.isNotEmpty && !kEmploymentTypes.contains(_employmentLabel)) {
+      return [
+        DropdownMenuItem<String>(value: _employmentLabel, child: Text(_employmentLabel, overflow: TextOverflow.ellipsis)),
+        ...base,
+      ];
+    }
+    return base;
+  }
+
+  List<DropdownMenuItem<String>> _salaryRangeMenu() {
+    return _salaryRangeOptions
+        .map((v) => DropdownMenuItem<String>(value: v, child: Text(v, overflow: TextOverflow.ellipsis)))
+        .toList();
+  }
+
+  List<DropdownMenuItem<String>> _revenueRangeMenu() {
+    return _revenueRangeOptions
+        .map((v) => DropdownMenuItem<String>(value: v, child: Text(v, overflow: TextOverflow.ellipsis)))
+        .toList();
+  }
+
+  Widget _text(Map<String, dynamic> m, String key, String label, {TextInputType? keyboard, List<TextInputFormatter>? formatters}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        key: ValueKey('prof_$key'),
+        initialValue: m[key]?.toString() ?? '',
+        keyboardType: keyboard,
+        inputFormatters: formatters,
+        scrollPadding: _scrollPad,
+        decoration: _eduDecoration(label),
+        onChanged: (v) => m[key] = v,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sectorRows = widget.masters.sector;
+    final btRows = widget.masters.businessType;
+    final yosRows = widget.masters.yearOfStudy;
+    final courseCategories = _uniqueEducationCategoriesForCourse(widget.masters.educationLevel);
+    final sectorVals = _valueItems(sectorRows).map((x) => x.value!).toSet();
+    final btVals = _valueItems(btRows).map((x) => x.value!).toSet();
+    final yosVals = _valueItems(yosRows).map((x) => x.value!).toSet();
+
+    final empBlock = _isEmployee || _isStudent;
+    final notWorking = _category == 'none';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Professional details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            children: [
+              DropdownButtonFormField<String>(
+                // ignore: deprecated_member_use
+                value: _employmentLabel.isEmpty ? null : _employmentLabel,
+                isExpanded: true,
+                decoration: _eduDecoration('Employment type *'),
+                items: _employmentItemsWithCurrent(),
+                onChanged: (v) => setState(() => _employmentLabel = v ?? 'Private'),
+              ),
+              const SizedBox(height: 16),
+              if (notWorking)
+                const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Text(
+                    'No professional profile will be stored. You can add details later.',
+                    style: TextStyle(color: Colors.black54),
+                  ),
+                )
+              else if (empBlock && _isEmployee) ...[
+                DropdownButtonFormField<String>(
+                  // ignore: deprecated_member_use
+                  value: _dropdownValue(e['sector']?.toString(), sectorVals),
+                  isExpanded: true,
+                  decoration: _eduDecoration('Industry *'),
+                  items: _valueItems(sectorRows),
+                  onChanged: (v) => setState(() {
+                    e['sector'] = v ?? '';
+                    if (!_sectorOtherRequired(v)) e['sector_other'] = '';
+                  }),
+                ),
+                if (_sectorOtherRequired(e['sector']?.toString())) ...[
+                  const SizedBox(height: 12),
+                  _text(e, 'sector_other', 'Specify industry *'),
+                ],
+                const SizedBox(height: 12),
+                _text(e, 'company', 'Company name *'),
+                const SizedBox(height: 12),
+                _text(e, 'designation', 'Role / designation *'),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  // ignore: deprecated_member_use
+                  value: _dropdownValue(e['salary_range']?.toString(), _salaryRangeOptions.toSet()),
+                  isExpanded: true,
+                  decoration: _eduDecoration('Annual salary range *'),
+                  items: _salaryRangeMenu(),
+                  onChanged: (v) => setState(() => e['salary_range'] = v ?? ''),
+                ),
+                const SizedBox(height: 8),
+                Text('Or exact salary (optional)', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                _text(e, 'salary', 'Salary / income'),
+                const SizedBox(height: 12),
+                _text(e, 'work_location', 'Work location *'),
+              ] else if (empBlock && _isStudent) ...[
+                _text(s, 'institution', 'Institution name *'),
+                const SizedBox(height: 12),
+                if (courseCategories.isEmpty)
+                  _text(s, 'course', 'Course *')
+                else
+                  Builder(
+                    builder: (context) {
+                      final cur = s['course']?.toString().trim() ?? '';
+                      final allowed = courseCategories.toSet();
+                      if (cur.isNotEmpty) allowed.add(cur);
+                      return DropdownButtonFormField<String>(
+                        // ignore: deprecated_member_use
+                        value: _dropdownValue(s['course']?.toString(), allowed),
+                        isExpanded: true,
+                        decoration: _eduDecoration('Course (category) *'),
+                        items: allowed
+                            .map((c) => DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis)))
+                            .toList(),
+                        onChanged: (v) => setState(() => s['course'] = v ?? ''),
+                      );
+                    },
+                  ),
+                const SizedBox(height: 12),
+                _text(s, 'field_of_study', 'Field of study *'),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  // ignore: deprecated_member_use
+                  value: _dropdownValue(s['year_of_study']?.toString(), yosVals),
+                  isExpanded: true,
+                  decoration: _eduDecoration('Year of study *'),
+                  items: _valueItems(yosRows),
+                  onChanged: (v) => setState(() => s['year_of_study'] = v ?? ''),
+                ),
+                const SizedBox(height: 12),
+                _text(
+                  s,
+                  'expected_graduation_year',
+                  'Expected graduation year *',
+                  keyboard: TextInputType.number,
+                  formatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(4)],
+                ),
+              ] else if (_isBusiness) ...[
+                DropdownButtonFormField<String>(
+                  // ignore: deprecated_member_use
+                  value: _dropdownValue(b['sector']?.toString(), sectorVals),
+                  isExpanded: true,
+                  decoration: _eduDecoration('Business sector *'),
+                  items: _valueItems(sectorRows),
+                  onChanged: (v) => setState(() {
+                    b['sector'] = v ?? '';
+                    if (!_sectorOtherRequired(v)) b['sector_other'] = '';
+                  }),
+                ),
+                if (_sectorOtherRequired(b['sector']?.toString())) ...[
+                  const SizedBox(height: 12),
+                  _text(b, 'sector_other', 'Specify sector *'),
+                ],
+                const SizedBox(height: 12),
+                _text(b, 'business_name', 'Business name *'),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  // ignore: deprecated_member_use
+                  value: _dropdownValue(b['business_type']?.toString(), btVals),
+                  isExpanded: true,
+                  decoration: _eduDecoration('Business type *'),
+                  items: _valueItems(btRows),
+                  onChanged: (v) => setState(() {
+                    b['business_type'] = v ?? '';
+                    if (!_bizTypeOtherRequired(v)) b['business_type_other'] = '';
+                  }),
+                ),
+                if (_bizTypeOtherRequired(b['business_type']?.toString())) ...[
+                  const SizedBox(height: 12),
+                  _text(b, 'business_type_other', 'Specify business type *'),
+                ],
+                const SizedBox(height: 12),
+                _text(b, 'designation', 'Role in business *'),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  // ignore: deprecated_member_use
+                  value: _dropdownValue(b['revenue_range']?.toString(), _revenueRangeOptions.toSet()),
+                  isExpanded: true,
+                  decoration: _eduDecoration('Annual business revenue *'),
+                  items: _revenueRangeMenu(),
+                  onChanged: (v) => setState(() => b['revenue_range'] = v ?? ''),
+                ),
+                const SizedBox(height: 8),
+                Text('Or annual returns (optional)', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                _text(b, 'annual_returns', 'Annual returns'),
+                const SizedBox(height: 12),
+                _text(b, 'business_location', 'Business location *'),
+              ],
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: ElevatedButton(
+            onPressed: () async {
+              final err = _validateProfession();
+              if (err != null) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+                return;
+              }
+              final uid = Supabase.instance.client.auth.currentUser?.id;
+              if (uid == null) return;
+              final cat = _category;
+              try {
+                await ProfileExtendedRepository.saveProfession(
+                  userId: uid,
+                  type: cat,
+                  emp: e,
+                  bus: b,
+                  stu: s,
+                );
+                if (!context.mounted) return;
+                widget.onSaved(
+                  cat,
+                  _employmentLabel,
+                  Map<String, dynamic>.from(e),
+                  Map<String, dynamic>.from(b),
+                  Map<String, dynamic>.from(s),
+                );
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Professional details saved')));
+                }
+              } catch (err) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $err')));
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _brand,
+              minimumSize: const Size(double.infinity, 48),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Save', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 Widget _mapField(Map<String, dynamic> m, String key, String label) {

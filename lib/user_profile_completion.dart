@@ -250,42 +250,77 @@ bool _rowHasAnyKey(Map<String, dynamic>? m, List<String> keys) =>
 
 /// Same routing as [ProfileExtendedRepository.detectProfessionType].
 String snapshotProfessionType(Map<String, dynamic>? emp, Map<String, dynamic>? bus, Map<String, dynamic>? stu) {
-  if (_rowHasAnyKey(emp, ['designation', 'company', 'sector'])) return 'employee';
+  if (_rowHasAnyKey(emp, ['designation', 'company', 'sector', 'salary', 'salary_range', 'work_location'])) {
+    return 'employee';
+  }
   if (_rowHasAnyKey(bus, ['business_name', 'designation'])) return 'business';
   if (_rowHasAnyKey(stu, ['course', 'institution'])) return 'student';
   return 'none';
 }
 
-/// Field lists match the professional details sheet for each type.
+/// Same applicability as [manavizha/components/profile-steps/professional-details-step.tsx] + web validation.
 int computeProfessionSectionPercentForType(
   String type,
   Map<String, dynamic> emp,
   Map<String, dynamic> bus,
   Map<String, dynamic> stu,
 ) {
-  int pct(Map<String, dynamic> m, List<String> keys) {
-    if (keys.isEmpty) return 0;
-    return ((_countFilledKeys(m, keys) / keys.length) * 100).round();
-  }
   switch (type) {
     case 'employee':
-      return pct(emp, ['sector', 'sector_other', 'company', 'designation', 'salary', 'work_location']);
+      return _professionEmployeeCompletionPercent(emp);
     case 'business':
-      return pct(bus, [
-        'sector',
-        'sector_other',
-        'business_name',
-        'business_type',
-        'business_type_other',
-        'designation',
-        'annual_returns',
-        'business_location',
-      ]);
+      return _professionBusinessCompletionPercent(bus);
     case 'student':
-      return pct(stu, ['institution', 'course', 'field_of_study', 'year_of_study', 'expected_graduation_year']);
+      return _professionStudentCompletionPercent(stu);
     default:
       return 0;
   }
+}
+
+int _professionEmployeeCompletionPercent(Map<String, dynamic> m) {
+  final checks = <bool>[];
+  checks.add(_nonEmptyField(m['sector']));
+  if ((m['sector']?.toString().trim().toLowerCase() ?? '') == 'other') {
+    checks.add(_nonEmptyField(m['sector_other']));
+  }
+  checks.add(_nonEmptyField(m['company']));
+  checks.add(_nonEmptyField(m['designation']));
+  final sal = m['salary']?.toString().trim() ?? '';
+  final salOk = sal.isNotEmpty && sal != '₹';
+  final rangeOk = _nonEmptyField(m['salary_range']);
+  checks.add(salOk || rangeOk);
+  checks.add(_nonEmptyField(m['work_location']));
+  if (checks.isEmpty) return 0;
+  final filled = checks.where((c) => c).length;
+  return ((filled / checks.length) * 100).round();
+}
+
+int _professionBusinessCompletionPercent(Map<String, dynamic> m) {
+  final checks = <bool>[];
+  checks.add(_nonEmptyField(m['sector']));
+  if ((m['sector']?.toString().trim().toLowerCase() ?? '') == 'other') {
+    checks.add(_nonEmptyField(m['sector_other']));
+  }
+  checks.add(_nonEmptyField(m['business_name']));
+  checks.add(_nonEmptyField(m['business_type']));
+  if ((m['business_type']?.toString().trim().toLowerCase() ?? '') == 'other') {
+    checks.add(_nonEmptyField(m['business_type_other']));
+  }
+  checks.add(_nonEmptyField(m['designation']));
+  final ret = m['annual_returns']?.toString().trim() ?? '';
+  final retOk = ret.isNotEmpty && ret != '₹';
+  final revOk = _nonEmptyField(m['revenue_range']);
+  checks.add(retOk || revOk);
+  checks.add(_nonEmptyField(m['business_location']));
+  if (checks.isEmpty) return 0;
+  final filled = checks.where((c) => c).length;
+  return ((filled / checks.length) * 100).round();
+}
+
+int _professionStudentCompletionPercent(Map<String, dynamic> m) {
+  const keys = ['institution', 'course', 'field_of_study', 'year_of_study', 'expected_graduation_year'];
+  if (keys.isEmpty) return 0;
+  return ((_countFilledKeys(m, keys) / keys.length) * 100).round();
 }
 
 /// Hobbies + interests each contribute up to half (need 3 each for 100%).
@@ -347,12 +382,14 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
         .eq('user_id', userId),
     client
         .from('profession_employee')
-        .select('sector, sector_other, company, designation, salary, work_location')
+        .select('sector, sector_other, company, designation, salary, salary_range, work_location')
         .eq('user_id', userId)
         .maybeSingle(),
     client
         .from('profession_business')
-        .select('sector, sector_other, business_name, business_type, business_type_other, designation, annual_returns, business_location')
+        .select(
+          'sector, sector_other, business_name, business_type, business_type_other, designation, annual_returns, revenue_range, business_location',
+        )
         .eq('user_id', userId)
         .maybeSingle(),
     client
