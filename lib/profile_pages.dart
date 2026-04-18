@@ -207,11 +207,15 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     showEducationDetailsSheet(
       context,
       initialRows: List<Map<String, dynamic>>.from(_educationRows.map((e) => Map<String, dynamic>.from(e))),
-      onSaved: () {
+      onSaved: (savedRows) {
+        final pct = computeEducationDetailsCompletionPercent(savedRows);
+        if (mounted) {
+          final s = _sectionCompletion;
+          if (s != null) setState(() => _sectionCompletion = s.copyWith(educationalDetails: pct));
+        }
         _fetchEducationDetails().then((_) {
           if (mounted) _fetchSectionCompletion();
         });
-        setState(() {});
       },
     );
   }
@@ -223,11 +227,15 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       emp: Map<String, dynamic>.from(_empProf),
       bus: Map<String, dynamic>.from(_busProf),
       stu: Map<String, dynamic>.from(_stuProf),
-      onSaved: () {
+      onSaved: (type, emp, bus, stu) {
+        final pct = computeProfessionSectionPercentForType(type, emp, bus, stu);
+        if (mounted) {
+          final s = _sectionCompletion;
+          if (s != null) setState(() => _sectionCompletion = s.copyWith(professionalDetails: pct));
+        }
         _fetchProfessionDetails().then((_) {
           if (mounted) _fetchSectionCompletion();
         });
-        setState(() {});
       },
     );
   }
@@ -236,11 +244,17 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     showFamilyDetailsSheet(
       context,
       initial: Map<String, dynamic>.from(_familyMap),
-      onSaved: () {
+      onSaved: (saved) {
+        final pct = computeFamilyDetailsCompletionPercent(saved);
+        if (mounted) {
+          final s = _sectionCompletion;
+          if (s != null) {
+            setState(() => _sectionCompletion = s.copyWith(familyDetails: pct));
+          }
+        }
         _fetchFamilyDetails().then((_) {
           if (mounted) _fetchSectionCompletion();
         });
-        setState(() {});
       },
     );
   }
@@ -249,11 +263,15 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     showHoroscopeDetailsSheet(
       context,
       initial: Map<String, dynamic>.from(_horoscopeMap),
-      onSaved: () {
+      onSaved: (saved) {
+        final pct = computeHoroscopeCompletionPercent(saved);
+        if (mounted) {
+          final s = _sectionCompletion;
+          if (s != null) setState(() => _sectionCompletion = s.copyWith(horoscopeDetails: pct));
+        }
         _fetchHoroscopeDetails().then((_) {
           if (mounted) _fetchSectionCompletion();
         });
-        setState(() {});
       },
     );
   }
@@ -506,6 +524,9 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       await Supabase.instance.client.from('personal_details').upsert(personalRow, onConflict: 'user_id');
 
       if (mounted) {
+        final s = _sectionCompletion;
+        final pct = computePersonalDetailsCompletionPercent(personalRow);
+        if (s != null) setState(() => _sectionCompletion = s.copyWith(basicDetails: pct));
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Basic details saved successfully!')));
         Navigator.pop(context); // Close the editor modal
         _fetchPersonalDetails().then((_) {
@@ -546,6 +567,9 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       await Supabase.instance.client.from('social_habits').upsert(socialRow, onConflict: 'user_id');
 
       if (mounted) {
+        final s = _sectionCompletion;
+        final pct = computeSocialHabitsCompletionPercent(socialRow);
+        if (s != null) setState(() => _sectionCompletion = s.copyWith(socialHabits: pct));
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Social habits saved successfully!')));
         Navigator.pop(context);
         _fetchSocialHabits().then((_) {
@@ -591,10 +615,19 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       }, onConflict: 'user_id');
 
       if (mounted) {
-        setState(() {
-          _selectedHobbies = List<String>.from(hobbies);
-          _selectedInterests = List<String>.from(interests);
-        });
+        final s = _sectionCompletion;
+        if (s != null) {
+          setState(() {
+            _sectionCompletion = s.copyWith(interests: completionPct);
+            _selectedHobbies = List<String>.from(hobbies);
+            _selectedInterests = List<String>.from(interests);
+          });
+        } else {
+          setState(() {
+            _selectedHobbies = List<String>.from(hobbies);
+            _selectedInterests = List<String>.from(interests);
+          });
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Interests saved successfully!')),
         );

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'user_profile_completion.dart';
+
 const _brand = Color(0xFF6A11CB);
 
 /// Load/save helpers for profile sections (aligned with web `profile-setup-form`).
@@ -70,7 +72,7 @@ class ProfileExtendedRepository {
     await c.from('profession_business').delete().eq('user_id', userId);
     await c.from('profession_student').delete().eq('user_id', userId);
 
-    int completion(int filled, int total) => total <= 0 ? 0 : ((filled / total) * 100).round();
+    final pct = computeProfessionSectionPercentForType(type, emp, bus, stu);
 
     if (type == 'employee') {
       final m = <String, dynamic>{
@@ -81,7 +83,7 @@ class ProfileExtendedRepository {
         'designation': _s(emp['designation']),
         'salary': _s(emp['salary']),
         'work_location': _s(emp['work_location']),
-        'completion_percentage': completion(_countFilled(emp, ['sector', 'company', 'designation', 'salary', 'work_location']), 5),
+        'completion_percentage': pct,
       };
       m.removeWhere((k, v) => v == null || (v is String && v.isEmpty));
       await c.from('profession_employee').upsert(m, onConflict: 'user_id');
@@ -96,10 +98,7 @@ class ProfileExtendedRepository {
         'designation': _s(bus['designation']),
         'annual_returns': _s(bus['annual_returns']),
         'business_location': _s(bus['business_location']),
-        'completion_percentage': completion(
-          _countFilled(bus, ['sector', 'business_name', 'designation', 'annual_returns', 'business_location']),
-          5,
-        ),
+        'completion_percentage': pct,
       };
       m.removeWhere((k, v) => v == null || (v is String && v.isEmpty));
       await c.from('profession_business').upsert(m, onConflict: 'user_id');
@@ -111,7 +110,7 @@ class ProfileExtendedRepository {
         'field_of_study': _s(stu['field_of_study']),
         'year_of_study': _s(stu['year_of_study']),
         'expected_graduation_year': _s(stu['expected_graduation_year']),
-        'completion_percentage': completion(_countFilled(stu, ['institution', 'course', 'field_of_study']), 3),
+        'completion_percentage': pct,
       };
       m.removeWhere((k, v) => v == null || (v is String && v.isEmpty));
       await c.from('profession_student').upsert(m, onConflict: 'user_id');
@@ -122,15 +121,6 @@ class ProfileExtendedRepository {
     if (v == null) return null;
     final t = v.toString().trim();
     return t.isEmpty ? null : t;
-  }
-
-  static int _countFilled(Map<String, dynamic> m, List<String> keys) {
-    var n = 0;
-    for (final k in keys) {
-      final v = m[k];
-      if (v != null && v.toString().trim().isNotEmpty) n++;
-    }
-    return n;
   }
 
   static Future<Map<String, dynamic>> fetchFamily(String userId) async {
@@ -147,17 +137,7 @@ class ProfileExtendedRepository {
       if (v is String && v.trim().isEmpty) continue;
       m[e.key] = v;
     }
-    final filled = _countFilled(m, [
-      'father_name',
-      'mother_name',
-      'caste',
-      'family_type',
-      'family_status',
-      'parents_address_line1',
-      'parents_district',
-      'parents_state',
-    ]);
-    m['completion_percentage'] = filled >= 6 ? 100 : (filled * 12).clamp(0, 99);
+    m['completion_percentage'] = computeFamilyDetailsCompletionPercent(data);
     await Supabase.instance.client.from('family_details').upsert(m, onConflict: 'user_id');
   }
 
@@ -175,9 +155,7 @@ class ProfileExtendedRepository {
       if (v is String && v.trim().isEmpty) continue;
       m[e.key] = v;
     }
-    final keys = ['time_of_birth', 'place_of_birth', 'zodiac_sign', 'star', 'lagnam', 'dhosham', 'jaadhagam_url'];
-    final filled = _countFilled(m, keys);
-    m['completion_percentage'] = filled >= 5 ? 100 : (filled * 14).clamp(0, 99);
+    m['completion_percentage'] = computeHoroscopeCompletionPercent(data);
     await Supabase.instance.client.from('horoscope_details').upsert(m, onConflict: 'user_id');
   }
 }
@@ -187,7 +165,7 @@ class ProfileExtendedRepository {
 Future<void> showEducationDetailsSheet(
   BuildContext context, {
   required List<Map<String, dynamic>> initialRows,
-  required VoidCallback onSaved,
+  required void Function(List<Map<String, dynamic>> savedRows) onSaved,
 }) async {
   final rows = initialRows.map((e) => Map<String, dynamic>.from(e)).toList();
   if (rows.isEmpty) {
@@ -280,12 +258,14 @@ Future<void> showEducationDetailsSheet(
                             if (uid == null) return;
                             try {
                               await ProfileExtendedRepository.saveEducation(uid, rows);
+                              final saved = rows.map((r) => Map<String, dynamic>.from(r)).toList();
+                              if (!context.mounted) return;
+                              onSaved(saved);
                               if (context.mounted) {
                                 Navigator.pop(context);
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(content: Text('Education details saved')),
                                 );
-                                onSaved();
                               }
                             } catch (e) {
                               if (context.mounted) {
@@ -335,7 +315,7 @@ Future<void> showProfessionDetailsSheet(
   required Map<String, dynamic> emp,
   required Map<String, dynamic> bus,
   required Map<String, dynamic> stu,
-  required VoidCallback onSaved,
+  required void Function(String type, Map<String, dynamic> emp, Map<String, dynamic> bus, Map<String, dynamic> stu) onSaved,
 }) async {
   var type = initialType == 'none' ? 'employee' : initialType;
   final e = Map<String, dynamic>.from(emp);
@@ -431,12 +411,18 @@ Future<void> showProfessionDetailsSheet(
                             bus: b,
                             stu: s,
                           );
+                          if (!context.mounted) return;
+                          onSaved(
+                            type,
+                            Map<String, dynamic>.from(e),
+                            Map<String, dynamic>.from(b),
+                            Map<String, dynamic>.from(s),
+                          );
                           if (context.mounted) {
                             Navigator.pop(context);
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('Professional details saved')),
                             );
-                            onSaved();
                           }
                         } catch (err) {
                           if (context.mounted) {
@@ -479,7 +465,7 @@ Widget _mapField(Map<String, dynamic> m, String key, String label) {
 Future<void> showFamilyDetailsSheet(
   BuildContext context, {
   required Map<String, dynamic> initial,
-  required VoidCallback onSaved,
+  required void Function(Map<String, dynamic> savedData) onSaved,
 }) async {
   final f = Map<String, dynamic>.from(initial);
 
@@ -490,9 +476,9 @@ Future<void> showFamilyDetailsSheet(
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
     builder: (ctx) {
       return Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
         child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.9,
+          height: MediaQuery.of(ctx).size.height * 0.9,
           child: Column(
             children: [
               const SizedBox(height: 12),
@@ -502,7 +488,7 @@ Future<void> showFamilyDetailsSheet(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Family details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                    IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
                   ],
                 ),
               ),
@@ -538,14 +524,16 @@ Future<void> showFamilyDetailsSheet(
                     if (uid == null) return;
                     try {
                       await ProfileExtendedRepository.saveFamily(uid, f);
-                      if (context.mounted) {
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Family details saved')));
-                        onSaved();
+                      final saved = Map<String, dynamic>.from(f);
+                      if (!ctx.mounted) return;
+                      onSaved(saved);
+                      if (ctx.mounted) {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Family details saved')));
                       }
                     } catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e')));
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('Save failed: $e')));
                       }
                     }
                   },
@@ -568,7 +556,7 @@ Future<void> showFamilyDetailsSheet(
 Future<void> showHoroscopeDetailsSheet(
   BuildContext context, {
   required Map<String, dynamic> initial,
-  required VoidCallback onSaved,
+  required void Function(Map<String, dynamic> savedData) onSaved,
 }) async {
   final h = Map<String, dynamic>.from(initial);
 
@@ -579,9 +567,9 @@ Future<void> showHoroscopeDetailsSheet(
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
     builder: (ctx) {
       return Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
         child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.85,
+          height: MediaQuery.of(ctx).size.height * 0.85,
           child: Column(
             children: [
               const SizedBox(height: 12),
@@ -591,7 +579,7 @@ Future<void> showHoroscopeDetailsSheet(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Horoscope details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                    IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
                   ],
                 ),
               ),
@@ -622,16 +610,18 @@ Future<void> showHoroscopeDetailsSheet(
                     if (uid == null) return;
                     try {
                       await ProfileExtendedRepository.saveHoroscope(uid, h);
-                      if (context.mounted) {
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
+                      final saved = Map<String, dynamic>.from(h);
+                      if (!ctx.mounted) return;
+                      onSaved(saved);
+                      if (ctx.mounted) {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(ctx).showSnackBar(
                           const SnackBar(content: Text('Horoscope details saved')),
                         );
-                        onSaved();
                       }
                     } catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e')));
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('Save failed: $e')));
                       }
                     }
                   },

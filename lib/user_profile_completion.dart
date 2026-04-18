@@ -23,6 +23,26 @@ class UserDetailsSectionCompletion {
   final int horoscopeDetails;
   final int interests;
   final int socialHabits;
+
+  UserDetailsSectionCompletion copyWith({
+    int? basicDetails,
+    int? educationalDetails,
+    int? professionalDetails,
+    int? familyDetails,
+    int? horoscopeDetails,
+    int? interests,
+    int? socialHabits,
+  }) {
+    return UserDetailsSectionCompletion(
+      basicDetails: basicDetails ?? this.basicDetails,
+      educationalDetails: educationalDetails ?? this.educationalDetails,
+      professionalDetails: professionalDetails ?? this.professionalDetails,
+      familyDetails: familyDetails ?? this.familyDetails,
+      horoscopeDetails: horoscopeDetails ?? this.horoscopeDetails,
+      interests: interests ?? this.interests,
+      socialHabits: socialHabits ?? this.socialHabits,
+    );
+  }
 }
 
 /// Mirrors [manavizha/components/user-landing-page.tsx] profile progress logic.
@@ -118,6 +138,7 @@ int computeContactCompletionPercent(Map<String, dynamic>? contact) {
   return ((filled / fields.length) * 100).round();
 }
 
+/// Same keys as the family form in `profile_extended_details.dart` so a fully filled sheet reaches 100%.
 int computeFamilyDetailsCompletionPercent(Map<String, dynamic>? family) {
   if (family == null) return 0;
   const fields = [
@@ -126,15 +147,16 @@ int computeFamilyDetailsCompletionPercent(Map<String, dynamic>? family) {
     'mother_name',
     'mother_occupation',
     'parents_address_line1',
+    'parents_address_line2',
     'parents_pincode',
     'parents_area',
-    'parents_taluk',
     'parents_district',
-    'parents_division',
-    'parents_region',
     'parents_state',
     'parents_country',
+    'siblings',
+    'family_description',
     'caste',
+    'subcaste',
     'family_type',
     'family_status',
   ];
@@ -157,6 +179,24 @@ int computeHoroscopeCompletionPercent(Map<String, dynamic>? horoscope) {
   return ((filled / fields.length) * 100).round();
 }
 
+/// Per-row fields in [showEducationDetailsSheet]. Empty / all-blank rows are ignored.
+int computeEducationDetailsCompletionPercent(List<Map<String, dynamic>> rows) {
+  const keys = ['education', 'education_other', 'degree', 'degree_other', 'branch', 'institution', 'year_of_graduation', 'status'];
+  if (rows.isEmpty) return 0;
+  var sum = 0;
+  var nRows = 0;
+  for (final raw in rows) {
+    final row = Map<String, dynamic>.from(raw);
+    final hasAny = keys.any((k) => row[k] != null && row[k].toString().trim().isNotEmpty);
+    if (!hasAny) continue;
+    final filled = keys.where((k) => row[k] != null && row[k].toString().trim().isNotEmpty).length;
+    sum += ((filled / keys.length) * 100).round();
+    nRows++;
+  }
+  if (nRows == 0) return 0;
+  return (sum / nRows).round();
+}
+
 int _countFilledKeys(Map<String, dynamic> m, List<String> keys) {
   var n = 0;
   for (final k in keys) {
@@ -169,21 +209,44 @@ int _countFilledKeys(Map<String, dynamic> m, List<String> keys) {
 bool _rowHasAnyKey(Map<String, dynamic>? m, List<String> keys) =>
     m != null && keys.any((k) => m[k] != null && m[k].toString().trim().isNotEmpty);
 
-/// Matches [ProfileExtendedRepository.detectProfessionType] routing.
-int computeProfessionSectionPercent(Map<String, dynamic>? empData, Map<String, dynamic>? busData, Map<String, dynamic>? stuData) {
-  if (_rowHasAnyKey(empData, ['designation', 'company', 'sector'])) {
-    final n = _countFilledKeys(empData!, ['sector', 'company', 'designation', 'salary', 'work_location']);
-    return ((n / 5) * 100).round();
+/// Same routing as [ProfileExtendedRepository.detectProfessionType].
+String snapshotProfessionType(Map<String, dynamic>? emp, Map<String, dynamic>? bus, Map<String, dynamic>? stu) {
+  if (_rowHasAnyKey(emp, ['designation', 'company', 'sector'])) return 'employee';
+  if (_rowHasAnyKey(bus, ['business_name', 'designation'])) return 'business';
+  if (_rowHasAnyKey(stu, ['course', 'institution'])) return 'student';
+  return 'none';
+}
+
+/// Field lists match the professional details sheet for each type.
+int computeProfessionSectionPercentForType(
+  String type,
+  Map<String, dynamic> emp,
+  Map<String, dynamic> bus,
+  Map<String, dynamic> stu,
+) {
+  int pct(Map<String, dynamic> m, List<String> keys) {
+    if (keys.isEmpty) return 0;
+    return ((_countFilledKeys(m, keys) / keys.length) * 100).round();
   }
-  if (_rowHasAnyKey(busData, ['business_name', 'designation'])) {
-    final n = _countFilledKeys(busData!, ['sector', 'business_name', 'designation', 'annual_returns', 'business_location']);
-    return ((n / 5) * 100).round();
+  switch (type) {
+    case 'employee':
+      return pct(emp, ['sector', 'sector_other', 'company', 'designation', 'salary', 'work_location']);
+    case 'business':
+      return pct(bus, [
+        'sector',
+        'sector_other',
+        'business_name',
+        'business_type',
+        'business_type_other',
+        'designation',
+        'annual_returns',
+        'business_location',
+      ]);
+    case 'student':
+      return pct(stu, ['institution', 'course', 'field_of_study', 'year_of_study', 'expected_graduation_year']);
+    default:
+      return 0;
   }
-  if (_rowHasAnyKey(stuData, ['course', 'institution'])) {
-    final n = _countFilledKeys(stuData!, ['institution', 'course', 'field_of_study']);
-    return ((n / 3) * 100).round();
-  }
-  return 0;
 }
 
 /// Hobbies + interests each contribute up to half (need 3 each for 100%).
@@ -239,22 +302,29 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
         )
         .eq('user_id', userId)
         .maybeSingle(),
-    client.from('education_details').select('education').eq('user_id', userId),
+    client
+        .from('education_details')
+        .select('education, education_other, degree, degree_other, branch, institution, year_of_graduation, status')
+        .eq('user_id', userId),
     client
         .from('profession_employee')
-        .select('sector, company, designation, salary, work_location')
+        .select('sector, sector_other, company, designation, salary, work_location')
         .eq('user_id', userId)
         .maybeSingle(),
     client
         .from('profession_business')
-        .select('sector, business_name, designation, annual_returns, business_location')
+        .select('sector, sector_other, business_name, business_type, business_type_other, designation, annual_returns, business_location')
         .eq('user_id', userId)
         .maybeSingle(),
-    client.from('profession_student').select('institution, course, field_of_study').eq('user_id', userId).maybeSingle(),
+    client
+        .from('profession_student')
+        .select('institution, course, field_of_study, year_of_study, expected_graduation_year')
+        .eq('user_id', userId)
+        .maybeSingle(),
     client
         .from('family_details')
         .select(
-          'father_name, father_occupation, mother_name, mother_occupation, parents_address_line1, parents_pincode, parents_area, parents_taluk, parents_district, parents_division, parents_region, parents_state, parents_country, caste, family_type, family_status',
+          'father_name, father_occupation, mother_name, mother_occupation, parents_address_line1, parents_address_line2, parents_pincode, parents_area, parents_district, parents_state, parents_country, siblings, family_description, caste, subcaste, family_type, family_status',
         )
         .eq('user_id', userId)
         .maybeSingle(),
@@ -281,17 +351,16 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
   final personalProgress = computePersonalDetailsCompletionPercent(personal);
   final contactProgress = computeContactCompletionPercent(contact);
 
-  var eduProgress = 0;
-  if (eduData.isNotEmpty) {
-    final hasData = eduData.any((edu) {
-      final m = Map<String, dynamic>.from(edu as Map);
-      final e = m['education']?.toString() ?? '';
-      return e.isNotEmpty;
-    });
-    eduProgress = hasData ? 100 : 0;
-  }
+  final eduRows = eduData.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final eduProgress = computeEducationDetailsCompletionPercent(eduRows);
 
-  final profProgress = computeProfessionSectionPercent(empData, busData, stuData);
+  final profType = snapshotProfessionType(empData, busData, stuData);
+  final profProgress = computeProfessionSectionPercentForType(
+    profType,
+    empData ?? {},
+    busData ?? {},
+    stuData ?? {},
+  );
   final familyProgress = computeFamilyDetailsCompletionPercent(family);
   final horoscopeProgress = computeHoroscopeCompletionPercent(horoscope);
   final interestsProgress = computeInterestsSectionPercent(interests);
