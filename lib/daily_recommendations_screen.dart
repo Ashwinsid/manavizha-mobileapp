@@ -37,7 +37,8 @@ String _educationJobLine(MatchPreview r) {
 
 class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen> {
   static const Color _brand = AdminHomeScreen.brandPurple;
-  static const Color _interestOrange = Color(0xFFFF4500);
+  static const Color _interestYellow = Color(0xFFFFD400);
+  static const Color _interestSentGreen = Color(0xFF16A34A);
 
   bool _loading = true;
   List<MatchPreview> _recs = [];
@@ -377,10 +378,10 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
         const SizedBox(width: 8),
         Expanded(
           child: _dailyActionButton(
-            label: liked ? 'Sent' : 'Interest',
+            label: liked ? 'Interest Sent' : 'Interest',
             icon: Icons.favorite_rounded,
             foreground: Colors.white,
-            background: liked ? _interestOrange.withValues(alpha: 0.75) : _interestOrange,
+            background: liked ? _interestSentGreen : _interestYellow,
             busy: busy,
             onTap: busy ? null : () => _onSendInterest(r),
           ),

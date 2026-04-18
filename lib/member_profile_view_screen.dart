@@ -110,6 +110,8 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   String? _familyDescription;
   List<(String, String)> _educationCareerRows = [];
   List<(String, String)> _horoscopeRows = [];
+  /// Resolved display URL for [horoscope_details.jaadhagam_url] (signed when needed).
+  String? _jaadhagamImageUrl;
   List<(String, String)> _lifestyleRows = [];
   List<String> _hobbyChips = [];
   List<String> _interestChips = [];
@@ -326,6 +328,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       }
 
       final horoscopeRows = <(String, String)>[];
+      String? jaadhagamSigned;
       final horoMap = horo;
       if (horoMap != null) {
         final h = horoMap;
@@ -337,8 +340,11 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
           ('Dosham', _dashIfEmpty(dosha != null && dosha.isNotEmpty ? dosha : 'No dosham')),
           ('Place of birth', _dashIfEmpty(h['place_of_birth']?.toString())),
           ('Time of birth', _dashIfEmpty(h['time_of_birth']?.toString())),
-          ('Jaadhagam', _dashIfEmpty(h['jaadhagam_url']?.toString())),
         ]);
+        final rawJa = h['jaadhagam_url']?.toString().trim();
+        if (rawJa != null && rawJa.isNotEmpty) {
+          jaadhagamSigned = await signUserProfilePhoto(c, uid, rawJa);
+        }
       }
 
       final lifestyleRows = <(String, String)>[
@@ -371,6 +377,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         _familyDescription = familyDescription;
         _educationCareerRows = educationCareerRows;
         _horoscopeRows = horoscopeRows;
+        _jaadhagamImageUrl = jaadhagamSigned;
         _lifestyleRows = lifestyleRows;
         _hobbyChips = hobbyChips;
         _interestChips = interestChips;
@@ -535,11 +542,176 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
             _familyAboutCard(_familyDescription!),
           if (_rowsHaveAnyValue(_educationCareerRows))
             _detailSection('Education & career', Icons.school_outlined, _educationCareerRows),
-          if (_rowsHaveAnyValue(_horoscopeRows))
-            _detailSection('Horoscope & astrology', Icons.auto_awesome_outlined, _horoscopeRows),
+          if (_rowsHaveAnyValue(_horoscopeRows) || _jaadhagamHasImage)
+            _horoscopeDetailSection(_horoscopeRows, _jaadhagamImageUrl),
           if (_rowsHaveAnyValue(_lifestyleRows) || _hobbyChips.isNotEmpty || _interestChips.isNotEmpty)
             _lifestyleSection(_lifestyleRows, _hobbyChips, _interestChips),
         ],
+      ),
+    );
+  }
+
+  bool get _jaadhagamHasImage => _jaadhagamImageUrl != null && _jaadhagamImageUrl!.trim().isNotEmpty;
+
+  Future<void> _showJaadhagamImageDialog(String imageUrl) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (ctx) {
+        final mq = MediaQuery.sizeOf(ctx);
+        return Dialog(
+          backgroundColor: Colors.black,
+          insetPadding: const EdgeInsets.all(16),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              SizedBox(
+                width: mq.width - 32,
+                height: mq.height * 0.78,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: InteractiveViewer(
+                    minScale: 0.6,
+                    maxScale: 4,
+                    child: AdaptiveNetworkPhoto(
+                      imageUrl: imageUrl,
+                      blurSigma: 10,
+                      backgroundScale: 1.04,
+                      errorBuilder: (context, error, stackTrace) => Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(
+                            'Could not load image.',
+                            style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontWeight: FontWeight.w600),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 4,
+                right: 4,
+                child: Material(
+                  color: Colors.black54,
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Colors.white, size: 22),
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    tooltip: 'Close',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _horoscopeDetailSection(List<(String, String)> rows, String? jaadhagamUrl) {
+    final url = jaadhagamUrl?.trim();
+    final showJaadhagam = url != null && url.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.auto_awesome_outlined, size: 18, color: _brand.withValues(alpha: 0.85)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Horoscope & astrology',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.1,
+                        color: Colors.black.withValues(alpha: 0.4),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ...List.generate(rows.length, (i) {
+                final (label, value) = rows[i];
+                final isLast = i == rows.length - 1 && !showJaadhagam;
+                return Padding(
+                  padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 118,
+                        child: Text(
+                          label.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.6,
+                            color: Colors.black.withValues(alpha: 0.38),
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          value,
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, height: 1.35),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+              if (showJaadhagam) ...[
+                if (rows.isNotEmpty) const SizedBox(height: 4),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 118,
+                      child: Text(
+                        'JAADHAGAM',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.6,
+                          color: Colors.black.withValues(alpha: 0.38),
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: OutlinedButton.icon(
+                          onPressed: () => _showJaadhagamImageDialog(url),
+                          icon: const Icon(Icons.image_outlined, size: 18),
+                          label: const Text('View image'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _brand,
+                            side: BorderSide(color: _brand.withValues(alpha: 0.55)),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
