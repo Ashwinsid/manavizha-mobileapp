@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'profile_extended_details.dart';
+import 'user_profile_completion.dart';
 
 class UserDetailsPage extends StatefulWidget {
   const UserDetailsPage({super.key});
@@ -76,6 +77,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
   Map<String, dynamic> _stuProf = {};
   Map<String, dynamic> _familyMap = {};
   Map<String, dynamic> _horoscopeMap = {};
+  UserDetailsSectionCompletion? _sectionCompletion;
 
   @override
   void initState() {
@@ -94,8 +96,61 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       _fetchProfessionDetails(),
       _fetchFamilyDetails(),
       _fetchHoroscopeDetails(),
+      _fetchSectionCompletion(),
     ]);
     if (mounted) setState(() => _isLoadingData = false);
+  }
+
+  Future<void> _fetchSectionCompletion() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+      final snap = await loadUserProfileSnapshot(Supabase.instance.client, userId);
+      if (mounted) setState(() => _sectionCompletion = snap.sections);
+    } catch (e) {
+      debugPrint('Error loading section completion: $e');
+    }
+  }
+
+  int _sectionPercentFor(String title) {
+    final s = _sectionCompletion;
+    if (s == null) return 0;
+    switch (title) {
+      case 'Basic Details':
+        return s.basicDetails;
+      case 'Educational Details':
+        return s.educationalDetails;
+      case 'Professional Details':
+        return s.professionalDetails;
+      case 'Family Details':
+        return s.familyDetails;
+      case 'Horoscope Details':
+        return s.horoscopeDetails;
+      case 'Interests':
+        return s.interests;
+      case 'Social Habits':
+        return s.socialHabits;
+      default:
+        return 0;
+    }
+  }
+
+  Widget _sectionPercentBadge(String title) {
+    final p = _sectionPercentFor(title).clamp(0, 100);
+    final color = p >= 100
+        ? const Color(0xFF15803D)
+        : (p > 0 ? const Color(0xFF6A11CB) : const Color(0xFF737373));
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        '$p%',
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: color),
+      ),
+    );
   }
 
   Future<void> _fetchEducationDetails() async {
@@ -152,9 +207,15 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     showEducationDetailsSheet(
       context,
       initialRows: List<Map<String, dynamic>>.from(_educationRows.map((e) => Map<String, dynamic>.from(e))),
-      onSaved: () {
-        _fetchEducationDetails();
-        setState(() {});
+      onSaved: (savedRows) {
+        final pct = computeEducationDetailsCompletionPercent(savedRows);
+        if (mounted) {
+          final s = _sectionCompletion;
+          if (s != null) setState(() => _sectionCompletion = s.copyWith(educationalDetails: pct));
+        }
+        _fetchEducationDetails().then((_) {
+          if (mounted) _fetchSectionCompletion();
+        });
       },
     );
   }
@@ -166,9 +227,15 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       emp: Map<String, dynamic>.from(_empProf),
       bus: Map<String, dynamic>.from(_busProf),
       stu: Map<String, dynamic>.from(_stuProf),
-      onSaved: () {
-        _fetchProfessionDetails();
-        setState(() {});
+      onSaved: (type, emp, bus, stu) {
+        final pct = computeProfessionSectionPercentForType(type, emp, bus, stu);
+        if (mounted) {
+          final s = _sectionCompletion;
+          if (s != null) setState(() => _sectionCompletion = s.copyWith(professionalDetails: pct));
+        }
+        _fetchProfessionDetails().then((_) {
+          if (mounted) _fetchSectionCompletion();
+        });
       },
     );
   }
@@ -177,9 +244,17 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     showFamilyDetailsSheet(
       context,
       initial: Map<String, dynamic>.from(_familyMap),
-      onSaved: () {
-        _fetchFamilyDetails();
-        setState(() {});
+      onSaved: (saved) {
+        final pct = computeFamilyDetailsCompletionPercent(saved);
+        if (mounted) {
+          final s = _sectionCompletion;
+          if (s != null) {
+            setState(() => _sectionCompletion = s.copyWith(familyDetails: pct));
+          }
+        }
+        _fetchFamilyDetails().then((_) {
+          if (mounted) _fetchSectionCompletion();
+        });
       },
     );
   }
@@ -188,9 +263,15 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     showHoroscopeDetailsSheet(
       context,
       initial: Map<String, dynamic>.from(_horoscopeMap),
-      onSaved: () {
-        _fetchHoroscopeDetails();
-        setState(() {});
+      onSaved: (saved) {
+        final pct = computeHoroscopeCompletionPercent(saved);
+        if (mounted) {
+          final s = _sectionCompletion;
+          if (s != null) setState(() => _sectionCompletion = s.copyWith(horoscopeDetails: pct));
+        }
+        _fetchHoroscopeDetails().then((_) {
+          if (mounted) _fetchSectionCompletion();
+        });
       },
     );
   }
@@ -421,7 +502,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
 
       setState(() => _isLoadingData = true);
 
-      await Supabase.instance.client.from('personal_details').upsert({
+      final personalRow = <String, dynamic>{
         'user_id': userId,
         'name': _nameCtrl.text,
         'date_of_birth': _dobCtrl.text,
@@ -438,12 +519,19 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
         'languages': _selectedLanguages,
         'about': _aboutCtrl.text,
         'updated_at': DateTime.now().toIso8601String(),
-      }, onConflict: 'user_id');
+      };
+      personalRow['completion_percentage'] = computePersonalDetailsCompletionPercent(personalRow);
+      await Supabase.instance.client.from('personal_details').upsert(personalRow, onConflict: 'user_id');
 
       if (mounted) {
+        final s = _sectionCompletion;
+        final pct = computePersonalDetailsCompletionPercent(personalRow);
+        if (s != null) setState(() => _sectionCompletion = s.copyWith(basicDetails: pct));
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Basic details saved successfully!')));
         Navigator.pop(context); // Close the editor modal
-        _fetchPersonalDetails();
+        _fetchPersonalDetails().then((_) {
+          if (mounted) _fetchSectionCompletion();
+        });
       }
     } catch (e) {
       debugPrint('Error saving personal details: $e');
@@ -467,19 +555,26 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
 
       setState(() => _isLoadingData = true);
 
-      await Supabase.instance.client.from('social_habits').upsert({
+      final socialRow = <String, dynamic>{
         'user_id': userId,
         'smoking': _selectedSmoking,
         'drinking': _selectedDrinking,
         'parties': _selectedParties,
         'pubs': _selectedPubs,
         'updated_at': DateTime.now().toIso8601String(),
-      }, onConflict: 'user_id');
+      };
+      socialRow['completion_percentage'] = computeSocialHabitsCompletionPercent(socialRow);
+      await Supabase.instance.client.from('social_habits').upsert(socialRow, onConflict: 'user_id');
 
       if (mounted) {
+        final s = _sectionCompletion;
+        final pct = computeSocialHabitsCompletionPercent(socialRow);
+        if (s != null) setState(() => _sectionCompletion = s.copyWith(socialHabits: pct));
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Social habits saved successfully!')));
-        Navigator.pop(context); 
-        _fetchSocialHabits();
+        Navigator.pop(context);
+        _fetchSocialHabits().then((_) {
+          if (mounted) _fetchSectionCompletion();
+        });
       }
     } catch (e) {
       debugPrint('Error saving social habits: $e');
@@ -509,7 +604,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
 
       setState(() => _isLoadingData = true);
 
-      final completionPct = (hobbies.length >= 3 && interests.length >= 3) ? 100 : 0;
+      final completionPct = computeInterestsSectionPercent({'hobbies': hobbies, 'interests': interests});
 
       await Supabase.instance.client.from('interests').upsert({
         'user_id': userId,
@@ -520,15 +615,26 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       }, onConflict: 'user_id');
 
       if (mounted) {
-        setState(() {
-          _selectedHobbies = List<String>.from(hobbies);
-          _selectedInterests = List<String>.from(interests);
-        });
+        final s = _sectionCompletion;
+        if (s != null) {
+          setState(() {
+            _sectionCompletion = s.copyWith(interests: completionPct);
+            _selectedHobbies = List<String>.from(hobbies);
+            _selectedInterests = List<String>.from(interests);
+          });
+        } else {
+          setState(() {
+            _selectedHobbies = List<String>.from(hobbies);
+            _selectedInterests = List<String>.from(interests);
+          });
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Interests saved successfully!')),
         );
         Navigator.pop(context);
-        _fetchInterestsDetails();
+        _fetchInterestsDetails().then((_) {
+          if (mounted) _fetchSectionCompletion();
+        });
       }
     } catch (e) {
       debugPrint('Error saving interests: $e');
@@ -1106,7 +1212,12 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       ),
       child: ExpansionTile(
         leading: Icon(icon, color: const Color(0xFF6A11CB)),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        title: Row(
+          children: [
+            Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600))),
+            _sectionPercentBadge(title),
+          ],
+        ),
         shape: const Border(), // Removes the default border lines upon expansion
         children: [
           Padding(
@@ -2149,11 +2260,10 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
     setState(() { _isLoadingData = true; });
 
     try {
-      await Supabase.instance.client.from('contact_details').upsert({
+      final contactRow = <String, dynamic>{
         'user_id': userId,
         'phone': _phoneCtrl.text,
         'whatsapp_number': _whatsappCtrl.text,
-        
         'permanent_address_line1': _permLine1Ctrl.text,
         'permanent_address_line2': _permLine2Ctrl.text,
         'permanent_pincode': _permPincodeCtrl.text,
@@ -2165,7 +2275,6 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
         'permanent_state': _permStateCtrl.text,
         'permanent_country': _permCountryCtrl.text,
         'permanent_landmark': _permLandmarkCtrl.text,
-
         'current_address_line1': _currLine1Ctrl.text,
         'current_address_line2': _currLine2Ctrl.text,
         'current_pincode': _currPincodeCtrl.text,
@@ -2178,7 +2287,9 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
         'current_country': _currCountryCtrl.text,
         'current_landmark': _currLandmarkCtrl.text,
         'updated_at': DateTime.now().toIso8601String(),
-      });
+      };
+      contactRow['completion_percentage'] = computeContactCompletionPercent(contactRow);
+      await Supabase.instance.client.from('contact_details').upsert(contactRow);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact details successfully synced to backend!')));
