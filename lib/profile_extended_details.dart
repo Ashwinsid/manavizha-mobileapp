@@ -2,8 +2,12 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import 'app_config.dart';
+import 'horoscope_location_options.dart';
 import 'user_profile_completion.dart';
 
 const _brand = Color(0xFF6A11CB);
@@ -178,12 +182,54 @@ class ProfileExtendedRepository {
     for (final e in data.entries) {
       if (e.key == 'id' || e.key == 'user_id') continue;
       final v = e.value;
-      if (v == null) continue;
-      if (v is String && v.trim().isEmpty) continue;
+      if (v == null) {
+        m[e.key] = null;
+        continue;
+      }
+      if (v is String && v.trim().isEmpty) {
+        m[e.key] = null;
+        continue;
+      }
       m[e.key] = v;
     }
     m['completion_percentage'] = computeHoroscopeCompletionPercent(data);
     await Supabase.instance.client.from('horoscope_details').upsert(m, onConflict: 'user_id');
+  }
+
+  /// Masters for [horoscope-details-step.tsx] (zodiac / star / lagnam).
+  static Future<
+      ({
+        List<Map<String, dynamic>> zodiac,
+        List<Map<String, dynamic>> star,
+        List<Map<String, dynamic>> lagnam,
+      })> fetchHoroscopeFormMasters() async {
+    final c = Supabase.instance.client;
+    final zRes = await c.from('master_zodiac_moon_sign').select().order('created_at', ascending: true);
+    final sRes = await c.from('master_star').select().order('created_at', ascending: true);
+    final lRes = await c.from('master_lagnam').select().order('created_at', ascending: true);
+    List<Map<String, dynamic>> mapList(dynamic res) =>
+        (res as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    return (zodiac: mapList(zRes), star: mapList(sRes), lagnam: mapList(lRes));
+  }
+
+  /// Upload jaadhagam image to `jaadhagam` bucket; returns signed URL (1 year), matching web profile-setup-form.
+  static Future<String> uploadJaadhagamImage(String userId, Uint8List bytes, String contentType) async {
+    final ext = contentType.contains('png')
+        ? 'png'
+        : contentType.contains('webp')
+            ? 'webp'
+            : 'jpg';
+    final path = '$userId/jaadhagam.$ext';
+    final client = Supabase.instance.client;
+    await client.storage.from('jaadhagam').uploadBinary(
+      path,
+      bytes,
+      fileOptions: FileOptions(
+        upsert: true,
+        contentType: contentType.isNotEmpty ? contentType : 'image/jpeg',
+      ),
+    );
+    return await client.storage.from('jaadhagam').createSignedUrl(path, 31536000);
   }
 
   /// Master rows for [educational-details-step.tsx] parity (education + status dropdowns).
@@ -1469,90 +1515,848 @@ Future<void> showFamilyDetailsSheet(
   );
 }
 
+/// Tamil Nadu cities for quick place pick (aligned with [horoscope-generator-dialog.tsx]).
+const _kHoroscopeQuickCities = <String>[
+  'Ariyalur',
+  'Chengalpattu',
+  'Chennai',
+  'Coimbatore',
+  'Cuddalore',
+  'Dharmapuri',
+  'Dindigul',
+  'Erode',
+  'Kallakurichi',
+  'Kanchipuram',
+  'Kanyakumari',
+  'Karur',
+  'Krishnagiri',
+  'Madurai',
+  'Mayiladuthurai',
+  'Nagapattinam',
+  'Namakkal',
+  'Nilgiris',
+  'Perambalur',
+  'Pudukkottai',
+  'Ramanathapuram',
+  'Ranipet',
+  'Salem',
+  'Sivaganga',
+  'Tenkasi',
+  'Thanjavur',
+  'Theni',
+  'Thoothukudi',
+  'Tiruchirappalli',
+  'Tirunelveli',
+  'Tirupathur',
+  'Tiruppur',
+  'Tiruvallur',
+  'Tiruvannamalai',
+  'Tiruvarur',
+  'Vellore',
+  'Viluppuram',
+  'Virudhunagar',
+];
+
+TimeOfDay? _parseTimeOfBirth(String? s) {
+  if (s == null || s.trim().isEmpty) return null;
+  final parts = s.trim().split(':');
+  if (parts.length < 2) return null;
+  final h = int.tryParse(parts[0].trim());
+  final m = int.tryParse(parts[1].trim());
+  if (h == null || m == null) return null;
+  return TimeOfDay(hour: h.clamp(0, 23), minute: m.clamp(0, 59));
+}
+
+String _formatTimeOfBirth(TimeOfDay t) =>
+    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+String? _masterFieldValue(List<Map<String, dynamic>> masters, dynamic current) {
+  final vals = masters
+      .map((o) => o['value']?.toString() ?? '')
+      .where((v) => v.isNotEmpty)
+      .toList();
+  final s = current?.toString().trim() ?? '';
+  if (s.isEmpty) return null;
+  return vals.contains(s) ? s : null;
+}
+
 Future<void> showHoroscopeDetailsSheet(
   BuildContext context, {
   required Map<String, dynamic> initial,
   required void Function(Map<String, dynamic> savedData) onSaved,
 }) async {
-  final h = Map<String, dynamic>.from(initial);
+  String? dateOfBirth;
+  final uid = Supabase.instance.client.auth.currentUser?.id;
+  if (uid != null) {
+    try {
+      final row = await Supabase.instance.client
+          .from('personal_details')
+          .select('date_of_birth')
+          .eq('user_id', uid)
+          .maybeSingle();
+      dateOfBirth = row?['date_of_birth']?.toString();
+    } catch (_) {}
+  }
+  if (!context.mounted) return;
 
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    useRootNavigator: true,
+    useSafeArea: false,
     backgroundColor: Colors.white,
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
     builder: (ctx) {
-      return Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: SizedBox(
-          height: MediaQuery.of(ctx).size.height * 0.85,
+      return _HoroscopeDetailsSheetScaffold(
+        initial: Map<String, dynamic>.from(initial),
+        dateOfBirth: dateOfBirth,
+        onSaved: onSaved,
+      );
+    },
+  );
+}
+
+class _HoroscopeDetailsSheetScaffold extends StatefulWidget {
+  const _HoroscopeDetailsSheetScaffold({
+    required this.initial,
+    required this.dateOfBirth,
+    required this.onSaved,
+  });
+
+  final Map<String, dynamic> initial;
+  final String? dateOfBirth;
+  final void Function(Map<String, dynamic> savedData) onSaved;
+
+  @override
+  State<_HoroscopeDetailsSheetScaffold> createState() => _HoroscopeDetailsSheetScaffoldState();
+}
+
+class _HoroscopeDetailsSheetScaffoldState extends State<_HoroscopeDetailsSheetScaffold> {
+  late Future<
+      ({
+        List<Map<String, dynamic>> zodiac,
+        List<Map<String, dynamic>> star,
+        List<Map<String, dynamic>> lagnam,
+      })> _mastersFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _mastersFuture = ProfileExtendedRepository.fetchHoroscopeFormMasters();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<
+        ({
+          List<Map<String, dynamic>> zodiac,
+          List<Map<String, dynamic>> star,
+          List<Map<String, dynamic>> lagnam,
+        })>(
+      future: _mastersFuture,
+      builder: (context, snapshot) {
+        final media = MediaQuery.of(context);
+        final h = media.size.height;
+        final inset = _keyboardBottomInset(context);
+        final maxBodyHeight = math.max(200.0, h - inset);
+        final sheetHeight = math.min(h * 0.92, maxBodyHeight);
+
+        return Padding(
+          padding: EdgeInsets.only(bottom: inset),
+          child: SizedBox(
+            height: sheetHeight,
+            child: Column(
+              children: [
+                const SizedBox(height: 12),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Horoscope details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                    ],
+                  ),
+                ),
+                if (snapshot.hasError)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text('Could not load options: ${snapshot.error}', textAlign: TextAlign.center),
+                          const SizedBox(height: 16),
+                          FilledButton(
+                            onPressed: () => setState(() {
+                              _mastersFuture = ProfileExtendedRepository.fetchHoroscopeFormMasters();
+                            }),
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else if (!snapshot.hasData)
+                  const Expanded(child: Center(child: CircularProgressIndicator()))
+                else
+                  Expanded(
+                    child: _HoroscopeDetailsForm(
+                      initial: widget.initial,
+                      dateOfBirth: widget.dateOfBirth,
+                      zodiacMasters: snapshot.data!.zodiac,
+                      starMasters: snapshot.data!.star,
+                      lagnamMasters: snapshot.data!.lagnam,
+                      onSaved: widget.onSaved,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _HoroscopeDetailsForm extends StatefulWidget {
+  const _HoroscopeDetailsForm({
+    required this.initial,
+    required this.dateOfBirth,
+    required this.zodiacMasters,
+    required this.starMasters,
+    required this.lagnamMasters,
+    required this.onSaved,
+  });
+
+  final Map<String, dynamic> initial;
+  final String? dateOfBirth;
+  final List<Map<String, dynamic>> zodiacMasters;
+  final List<Map<String, dynamic>> starMasters;
+  final List<Map<String, dynamic>> lagnamMasters;
+  final void Function(Map<String, dynamic> savedData) onSaved;
+
+  @override
+  State<_HoroscopeDetailsForm> createState() => _HoroscopeDetailsFormState();
+}
+
+class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
+  late Map<String, dynamic> _h;
+  late TextEditingController _cityCtrl;
+  late TextEditingController _dhoshamCtrl;
+  String? _birthState;
+  String? _birthCountry;
+  TimeOfDay? _tob;
+  Uint8List? _pickedBytes;
+  String? _pickedMime;
+  String? _networkJaadhagamUrl;
+  bool _clearedJaadhagam = false;
+  bool _saving = false;
+  final ImagePicker _imagePicker = ImagePicker();
+
+  @override
+  void initState() {
+    super.initState();
+    _h = Map<String, dynamic>.from(widget.initial);
+    _cityCtrl = TextEditingController(text: _h['place_of_birth']?.toString() ?? '');
+    _birthState = _trimOrNull(_h['birth_state']?.toString());
+    _birthCountry = _trimOrNull(_h['birth_country']?.toString());
+    _dhoshamCtrl = TextEditingController(text: _h['dhosham']?.toString() ?? '');
+    _tob = _parseTimeOfBirth(_h['time_of_birth']?.toString());
+    _networkJaadhagamUrl = _h['jaadhagam_url']?.toString().trim();
+    if (_networkJaadhagamUrl != null && _networkJaadhagamUrl!.isEmpty) {
+      _networkJaadhagamUrl = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _cityCtrl.dispose();
+    _dhoshamCtrl.dispose();
+    super.dispose();
+  }
+
+  String? _trimOrNull(String? s) {
+    final t = s?.trim() ?? '';
+    return t.isEmpty ? null : t;
+  }
+
+  String? _dropdownMatch(String? raw, List<String> options) {
+    final t = _trimOrNull(raw);
+    if (t == null) return null;
+    return options.contains(t) ? t : null;
+  }
+
+  String _composePlaceOfBirth() {
+    final c = _cityCtrl.text.trim();
+    final s = _birthState?.trim() ?? '';
+    final co = _birthCountry?.trim() ?? '';
+    final parts = <String>[];
+    if (c.isNotEmpty) parts.add(c);
+    if (s.isNotEmpty) parts.add(s);
+    if (co.isNotEmpty) parts.add(co);
+    return parts.join(', ');
+  }
+
+  Future<void> _pickJaadhagam() async {
+    final x = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 4096,
+      imageQuality: 88,
+    );
+    if (x == null) return;
+    final bytes = await x.readAsBytes();
+    if (bytes.length > 5 * 1024 * 1024) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Image size should be less than 5MB')),
+        );
+      }
+      return;
+    }
+    final name = x.name.toLowerCase();
+    String mime = 'image/jpeg';
+    if (name.endsWith('.png')) {
+      mime = 'image/png';
+    } else if (name.endsWith('.webp')) {
+      mime = 'image/webp';
+    }
+    setState(() {
+      _pickedBytes = bytes;
+      _pickedMime = mime;
+      _clearedJaadhagam = false;
+    });
+  }
+
+  void _removeJaadhagam() {
+    setState(() {
+      _pickedBytes = null;
+      _pickedMime = null;
+      if (_networkJaadhagamUrl != null && _networkJaadhagamUrl!.isNotEmpty) {
+        _clearedJaadhagam = true;
+      }
+      _networkJaadhagamUrl = null;
+    });
+  }
+
+  Future<void> _openWebHoroscope() async {
+    final dob = widget.dateOfBirth;
+    if (dob == null || dob.trim().isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter Date of Birth in Personal Details first.')),
+        );
+      }
+      return;
+    }
+    final tob = _tob != null ? _formatTimeOfBirth(_tob!) : '';
+    final city = _cityCtrl.text.trim();
+    if (tob.isEmpty || city.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please fill Time of Birth and Place (city) to open the calculator.')),
+        );
+      }
+      return;
+    }
+    final base = AppConfig.webAppBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    final uri = Uri.parse('$base/dashboard/horoscope').replace(
+      queryParameters: {
+        'dob': dob,
+        'tob': tob,
+        'city': city,
+      },
+    );
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open browser')),
+      );
+    }
+  }
+
+  Future<void> _save() async {
+    final tobStr = _tob != null ? _formatTimeOfBirth(_tob!) : '';
+    final city = _cityCtrl.text.trim();
+    final star = _h['star']?.toString().trim() ?? '';
+
+    if (tobStr.isEmpty || city.isEmpty || star.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fill Time of Birth, Place of birth (city), and Star to save.'),
+        ),
+      );
+      return;
+    }
+
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+
+    setState(() => _saving = true);
+    try {
+      if (_pickedBytes != null && _pickedBytes!.isNotEmpty) {
+        final url = await ProfileExtendedRepository.uploadJaadhagamImage(
+          uid,
+          _pickedBytes!,
+          _pickedMime ?? 'image/jpeg',
+        );
+        _h['jaadhagam_url'] = url;
+        _networkJaadhagamUrl = url;
+        _pickedBytes = null;
+        _pickedMime = null;
+        _clearedJaadhagam = false;
+      } else if (_clearedJaadhagam) {
+        _h['jaadhagam_url'] = null;
+      }
+
+      _h['time_of_birth'] = tobStr;
+      _h['place_of_birth'] = _composePlaceOfBirth();
+      _h['birth_state'] = _trimOrNull(_birthState);
+      _h['birth_country'] = _trimOrNull(_birthCountry);
+      _h['dhosham'] = _dhoshamCtrl.text.trim().isEmpty ? null : _dhoshamCtrl.text.trim();
+
+      await ProfileExtendedRepository.saveHoroscope(uid, _h);
+      final saved = Map<String, dynamic>.from(_h);
+      if (!mounted) return;
+      widget.onSaved(saved);
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Horoscope details saved')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Widget _sectionTitle(String kicker, String title) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFF4B0082).withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFF4B0082).withValues(alpha: 0.12)),
+          ),
+          alignment: Alignment.center,
+          child: const Text('A1', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF4B0082))),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Horoscope details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
-                  ],
+              Text(
+                kicker,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2,
+                  color: const Color(0xFF4B0082).withValues(alpha: 0.35),
                 ),
               ),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
+              Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w300, color: Colors.black87)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _masterDropdown({
+    required String label,
+    required String mapKey,
+    required List<Map<String, dynamic>> masters,
+  }) {
+    final vals = masters.map((o) => o['value']?.toString() ?? '').where((v) => v.isNotEmpty).toList();
+    final cur = _masterFieldValue(masters, _h[mapKey]);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DropdownButtonFormField<String?>(
+        // ignore: deprecated_member_use
+        value: cur,
+        isExpanded: true,
+        decoration: InputDecoration(
+          labelText: label,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+        items: [
+          const DropdownMenuItem<String?>(value: null, child: Text('—')),
+          ...vals.map(
+            (v) => DropdownMenuItem<String?>(
+              value: v,
+              child: Text(v, overflow: TextOverflow.ellipsis),
+            ),
+          ),
+        ],
+        onChanged: (v) => setState(() => _h[mapKey] = v),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final showNetworkImage =
+        _pickedBytes == null && _networkJaadhagamUrl != null && _networkJaadhagamUrl!.isNotEmpty && !_clearedJaadhagam;
+
+    return Column(
+      children: [
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            children: [
+              _sectionTitle('HOROSCOPE', 'Jaadhagam / Photo'),
+              const SizedBox(height: 16),
+              if (_pickedBytes != null)
+                Stack(
+                  clipBehavior: Clip.none,
                   children: [
-                    const Text(
-                      'Paste jaadhagam URL if you already uploaded on the website, or add text details below.',
-                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(28),
+                      child: Image.memory(
+                        _pickedBytes!,
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                    Positioned(
+                      top: -8,
+                      right: -8,
+                      child: IconButton.filled(
+                        onPressed: _removeJaadhagam,
+                        style: IconButton.styleFrom(backgroundColor: Colors.redAccent),
+                        icon: const Icon(Icons.close, color: Colors.white),
+                      ),
+                    ),
+                  ],
+                )
+              else if (showNetworkImage)
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(28),
+                      child: Image.network(
+                        _networkJaadhagamUrl!,
+                        fit: BoxFit.contain,
+                        loadingBuilder: (context, child, progress) {
+                          if (progress == null) return child;
+                          return const SizedBox(height: 180, child: Center(child: CircularProgressIndicator()));
+                        },
+                        errorBuilder: (context, error, stackTrace) => const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Text('Could not load image'),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: -8,
+                      right: -8,
+                      child: IconButton.filled(
+                        onPressed: _removeJaadhagam,
+                        style: IconButton.styleFrom(backgroundColor: Colors.redAccent),
+                        icon: const Icon(Icons.close, color: Colors.white),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                Material(
+                  color: const Color(0xFFF8F7FF),
+                  borderRadius: BorderRadius.circular(28),
+                  child: InkWell(
+                    onTap: _pickJaadhagam,
+                    borderRadius: BorderRadius.circular(28),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(28),
+                        border: Border.all(color: const Color(0xFF4B0082).withValues(alpha: 0.15), width: 2),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(Icons.cloud_upload_outlined, size: 48, color: const Color(0xFF4B0082).withValues(alpha: 0.35)),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'UPLOAD HOROSCOPE IMAGE',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 3,
+                              color: Color(0xFF4B0082),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'PNG, JPG, WEBP · Max 5MB',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.indigo.shade200,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(24),
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.amber.shade50.withValues(alpha: 0.9),
+                      Colors.white,
+                    ],
+                  ),
+                  border: Border.all(color: Colors.amber.shade100.withValues(alpha: 0.8)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Icon(Icons.bolt, color: Colors.amber.shade800, size: 28),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'TRADITIONAL METHOD',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 2,
+                                  color: Colors.amber.shade800.withValues(alpha: 0.65),
+                                ),
+                              ),
+                              const Text(
+                                'Calculate details',
+                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w300),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Opens the web calculator with your birth details',
+                                style: TextStyle(fontSize: 11, color: Colors.amber.shade900.withValues(alpha: 0.55)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 12),
-                    _mapField(h, 'jaadhagam_url', 'Jaadhagam URL'),
-                    _mapField(h, 'time_of_birth', 'Time of birth'),
-                    _mapField(h, 'place_of_birth', 'Place of birth'),
-                    _mapField(h, 'zodiac_sign', 'Zodiac sign'),
-                    _mapField(h, 'star', 'Star (nakshatra)'),
-                    _mapField(h, 'lagnam', 'Lagnam'),
-                    _mapField(h, 'dhosham', 'Dhosham'),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: _saving ? null : _openWebHoroscope,
+                          icon: const Icon(Icons.visibility_outlined, size: 18),
+                          label: const Text('Thirukanitham'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _saving ? null : _openWebHoroscope,
+                          icon: const Icon(Icons.visibility_outlined, size: 18),
+                          label: const Text('Vakkiyam'),
+                        ),
+                        FilledButton.icon(
+                          onPressed: _saving ? null : _openWebHoroscope,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.amber.shade600,
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: const Icon(Icons.auto_fix_high, size: 18),
+                          label: const Text('Calculate'),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: ElevatedButton(
-                  onPressed: () async {
-                    final uid = Supabase.instance.client.auth.currentUser?.id;
-                    if (uid == null) return;
-                    try {
-                      await ProfileExtendedRepository.saveHoroscope(uid, h);
-                      final saved = Map<String, dynamic>.from(h);
-                      if (!ctx.mounted) return;
-                      onSaved(saved);
-                      if (ctx.mounted) {
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(ctx).showSnackBar(
-                          const SnackBar(content: Text('Horoscope details saved')),
+              const SizedBox(height: 20),
+              const Text('Time of birth *', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+              const SizedBox(height: 8),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: const BorderSide(color: Colors.black26),
+                ),
+                title: Text(_tob == null ? 'Select time' : _formatTimeOfBirth(_tob!)),
+                trailing: const Icon(Icons.schedule),
+                onTap: _saving
+                    ? null
+                    : () async {
+                        final now = TimeOfDay.now();
+                        final picked = await showTimePicker(
+                          context: context,
+                          initialTime: _tob ?? now,
                         );
-                      }
-                    } catch (e) {
-                      if (ctx.mounted) {
-                        ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('Save failed: $e')));
-                      }
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _brand,
-                    minimumSize: const Size(double.infinity, 48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        if (picked != null) setState(() => _tob = picked);
+                      },
+              ),
+              const SizedBox(height: 16),
+              const Text('Place of birth *', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+              const SizedBox(height: 4),
+              Text(
+                'City is required; state and country help match the web form.',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                // ignore: deprecated_member_use
+                value: _kHoroscopeQuickCities.contains(_cityCtrl.text.trim()) ? _cityCtrl.text.trim() : null,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Quick city (Tamil Nadu)',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(value: null, child: Text('—')),
+                  ..._kHoroscopeQuickCities.map(
+                    (c) => DropdownMenuItem<String>(value: c, child: Text(c)),
                   ),
-                  child: const Text('Save', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ],
+                onChanged: _saving
+                    ? null
+                    : (v) {
+                        if (v != null) setState(() => _cityCtrl.text = v);
+                      },
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _cityCtrl,
+                enabled: !_saving,
+                decoration: InputDecoration(
+                  labelText: 'City *',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Builder(
+                builder: (context) {
+                  final stateOpts = optionListWithCurrent(kIndianStatesAndUTs, _birthState);
+                  final stateVal = _dropdownMatch(_birthState, stateOpts);
+                  return DropdownButtonFormField<String?>(
+                    // ignore: deprecated_member_use
+                    value: stateVal,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: 'State',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    items: [
+                      const DropdownMenuItem<String?>(value: null, child: Text('—')),
+                      ...stateOpts.map(
+                        (s) => DropdownMenuItem<String?>(
+                          value: s,
+                          child: Text(s, overflow: TextOverflow.ellipsis),
+                        ),
+                      ),
+                    ],
+                    onChanged: _saving
+                        ? null
+                        : (v) => setState(() => _birthState = v),
+                  );
+                },
+              ),
+              const SizedBox(height: 10),
+              Builder(
+                builder: (context) {
+                  final countryOpts = optionListWithCurrent(kWorldCountries, _birthCountry);
+                  final countryVal = _dropdownMatch(_birthCountry, countryOpts);
+                  return DropdownButtonFormField<String?>(
+                    // ignore: deprecated_member_use
+                    value: countryVal,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: 'Country',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    items: [
+                      const DropdownMenuItem<String?>(value: null, child: Text('—')),
+                      ...countryOpts.map(
+                        (s) => DropdownMenuItem<String?>(
+                          value: s,
+                          child: Text(s, overflow: TextOverflow.ellipsis),
+                        ),
+                      ),
+                    ],
+                    onChanged: _saving
+                        ? null
+                        : (v) => setState(() => _birthCountry = v),
+                  );
+                },
+              ),
+              const SizedBox(height: 16),
+              _masterDropdown(
+                label: 'Zodiac (Rashi)',
+                mapKey: 'zodiac_sign',
+                masters: widget.zodiacMasters,
+              ),
+              _masterDropdown(
+                label: 'Star (Nakshatra) *',
+                mapKey: 'star',
+                masters: widget.starMasters,
+              ),
+              _masterDropdown(
+                label: 'Lagnam',
+                mapKey: 'lagnam',
+                masters: widget.lagnamMasters,
+              ),
+              TextFormField(
+                controller: _dhoshamCtrl,
+                enabled: !_saving,
+                maxLines: 2,
+                decoration: InputDecoration(
+                  labelText: 'Dhosham details',
+                  hintText: 'e.g. No Dhosham / Chevvai Dhosham',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                 ),
               ),
             ],
           ),
         ),
-      );
-    },
-  );
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: ElevatedButton(
+            onPressed: _saving ? null : _save,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _brand,
+              minimumSize: const Size(double.infinity, 48),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: _saving
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Text('Save', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ),
+      ],
+    );
+  }
 }
