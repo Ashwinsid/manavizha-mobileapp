@@ -72,6 +72,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
 
   List<Map<String, dynamic>> _educationRows = [];
   String _professionType = 'none';
+  String _employmentLabel = 'Private';
   Map<String, dynamic> _empProf = {};
   Map<String, dynamic> _busProf = {};
   Map<String, dynamic> _stuProf = {};
@@ -175,6 +176,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
         _busProf = t.bus ?? {};
         _stuProf = t.stu ?? {};
         _professionType = ProfileExtendedRepository.detectProfessionType(_empProf, _busProf, _stuProf);
+        _employmentLabel = _inferEmploymentLabel();
       });
     } catch (e) {
       debugPrint('Error fetching profession: $e');
@@ -220,18 +222,40 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     );
   }
 
+  String _inferEmploymentLabel() {
+    switch (_professionType) {
+      case 'student':
+        return 'Student';
+      case 'business':
+        return 'Business';
+      case 'employee':
+        return 'Private';
+      default:
+        return 'Private';
+    }
+  }
+
   void _openProfessionEditor() {
     showProfessionDetailsSheet(
       context,
-      initialType: _professionType,
+      initialEmploymentType: _employmentLabel,
       emp: Map<String, dynamic>.from(_empProf),
       bus: Map<String, dynamic>.from(_busProf),
       stu: Map<String, dynamic>.from(_stuProf),
-      onSaved: (type, emp, bus, stu) {
-        final pct = computeProfessionSectionPercentForType(type, emp, bus, stu);
+      onSaved: (category, employmentLabel, emp, bus, stu) {
+        final pct = computeProfessionSectionPercentForType(category, emp, bus, stu);
         if (mounted) {
-          final s = _sectionCompletion;
-          if (s != null) setState(() => _sectionCompletion = s.copyWith(professionalDetails: pct));
+          setState(() {
+            _employmentLabel = employmentLabel;
+            _professionType = category;
+            _empProf = Map<String, dynamic>.from(emp);
+            _busProf = Map<String, dynamic>.from(bus);
+            _stuProf = Map<String, dynamic>.from(stu);
+            final s = _sectionCompletion;
+            if (s != null) {
+              _sectionCompletion = s.copyWith(professionalDetails: pct);
+            }
+          });
         }
         _fetchProfessionDetails().then((_) {
           if (mounted) _fetchSectionCompletion();
