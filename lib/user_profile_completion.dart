@@ -45,7 +45,11 @@ class UserDetailsSectionCompletion {
   }
 }
 
-/// Mirrors [manavizha/components/user-landing-page.tsx] profile progress logic.
+/// Profile snapshot for home dashboard and [UserDetailsPage].
+///
+/// [completionPercent] is the average of the seven category scores in [sections]
+/// (same badges as User Details: Basic, Education, Profession, Family, Horoscope,
+/// Interests, Social). This matches the headline progress ring on [UserDashboardPage].
 class UserProfileSnapshot {
   UserProfileSnapshot({
     required this.completionPercent,
@@ -412,7 +416,6 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
   ]);
 
   final personal = results[0] as Map<String, dynamic>?;
-  final contact = results[1] as Map<String, dynamic>?;
   final eduData = results[2] as List<dynamic>? ?? [];
   final empData = results[3] as Map<String, dynamic>?;
   final busData = results[4] as Map<String, dynamic>?;
@@ -425,7 +428,6 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
   final settings = results[11] as Map<String, dynamic>?;
 
   final personalProgress = computePersonalDetailsCompletionPercent(personal);
-  final contactProgress = computeContactCompletionPercent(contact);
 
   final eduRows = eduData.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final eduProgress = computeEducationDetailsCompletionPercent(eduRows);
@@ -441,36 +443,6 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
   final horoscopeProgress = computeHoroscopeCompletionPercent(horoscope);
   final interestsProgress = computeInterestsSectionPercent(interests);
   final socialProgress = computeSocialHabitsCompletionPercent(social);
-
-  var photosProgress = 0;
-  if (photos != null) {
-    final userPhotos = parseUserPhotosList(photos['user_photos']);
-    final fam = photos['family_photo']?.toString();
-    final a1 = photos['aadhar_front']?.toString();
-    final a2 = photos['aadhar_back']?.toString();
-    if (userPhotos.length >= 3 && fam != null && fam.isNotEmpty && a1 != null && a1.isNotEmpty && a2 != null && a2.isNotEmpty) {
-      photosProgress = 100;
-    }
-  }
-
-  final hasStartedProfile = personalProgress > 0 || contactProgress > 0;
-  final referralProgress = hasStartedProfile ? 100 : 0;
-
-  final stepProgresses = [
-    personalProgress,
-    contactProgress,
-    eduProgress,
-    profProgress,
-    familyProgress,
-    horoscopeProgress,
-    interestsProgress,
-    socialProgress,
-    photosProgress,
-    referralProgress,
-  ];
-
-  final total = stepProgresses.fold<int>(0, (a, b) => a + b);
-  final averageProgress = hasStartedProfile ? (total / stepProgresses.length).round() : 0;
 
   String? firstSigned;
   var userPhotoCount = 0;
@@ -496,17 +468,29 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
   final isPremium = settings?['is_premium'] == true;
   final premiumPlan = settings?['premium_plan']?.toString();
 
+  final sections = UserDetailsSectionCompletion(
+    basicDetails: personalProgress.clamp(0, 100),
+    educationalDetails: eduProgress.clamp(0, 100),
+    professionalDetails: profProgress.clamp(0, 100),
+    familyDetails: familyProgress.clamp(0, 100),
+    horoscopeDetails: horoscopeProgress.clamp(0, 100),
+    interests: interestsProgress.clamp(0, 100),
+    socialHabits: socialProgress.clamp(0, 100),
+  );
+
+  final headlineCompletion = (
+        sections.basicDetails +
+        sections.educationalDetails +
+        sections.professionalDetails +
+        sections.familyDetails +
+        sections.horoscopeDetails +
+        sections.interests +
+        sections.socialHabits) ~/
+      7;
+
   return UserProfileSnapshot(
-    completionPercent: averageProgress.clamp(0, 100),
-    sections: UserDetailsSectionCompletion(
-      basicDetails: personalProgress.clamp(0, 100),
-      educationalDetails: eduProgress.clamp(0, 100),
-      professionalDetails: profProgress.clamp(0, 100),
-      familyDetails: familyProgress.clamp(0, 100),
-      horoscopeDetails: horoscopeProgress.clamp(0, 100),
-      interests: interestsProgress.clamp(0, 100),
-      socialHabits: socialProgress.clamp(0, 100),
-    ),
+    completionPercent: headlineCompletion.clamp(0, 100),
+    sections: sections,
     name: name,
     photoVerified: photoVerified,
     firstPhotoSignedUrl: firstSigned,
