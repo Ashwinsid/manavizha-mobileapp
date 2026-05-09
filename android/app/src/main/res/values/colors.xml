@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Matches Flutter [splash_screen.dart] background — near-black canvas behind the teal logo -->
-    <color name="splash_brand">#FF050D0B</color>
-    <color name="splash_gradient_end">#FF0E2622</color>
+    <!-- Matches Flutter [splash_screen.dart] visible 3-stop light gradient (white -> mid mint -> mint) -->
+    <color name="splash_brand">#FFFFFFFF</color>
+    <color name="splash_gradient_mid">#FFD8F2EA</color>
+    <color name="splash_gradient_end">#FF9BDDC9</color>
 </resources>

@@ -87,17 +87,19 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    // Background tuned to the logo art — the PNG sits on a near-black canvas with subtle teal glow.
+    // Light multi-stop gradient — bright white flowing into a clearly visible mint at the far corner.
     return Scaffold(
-      backgroundColor: const Color(0xFF050D0B),
+      backgroundColor: const Color(0xFFF5FBF9),
       body: Container(
         decoration: const BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment.center,
-            radius: 0.9,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            stops: [0.0, 0.55, 1.0],
             colors: [
-              Color(0xFF0E2622), // dark teal glow behind the mark
-              Color(0xFF050D0B), // near-black edges
+              Color(0xFFFFFFFF), // pure white start
+              Color(0xFFD8F2EA), // soft mid-mint
+              Color(0xFF9BDDC9), // visible brand mint end
             ],
           ),
         ),
