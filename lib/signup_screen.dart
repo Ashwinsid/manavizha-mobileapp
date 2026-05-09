@@ -173,6 +173,7 @@ class _PasswordStrength {
 class _SignupScreenState extends State<SignupScreen> {
   static const Color _brand = Color(0xFF2FA086);
   static const Color _fieldFill = Color(0xFFF5F6FA);
+  static const Color _errorRed = Color(0xFFDC2626);
 
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _nameController = TextEditingController();
@@ -185,6 +186,11 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _showConfirm = false;
   bool _isLoading = false;
   String? _errorMessage;
+
+  /// Which input(s) the current error applies to. Names: 'email', 'name',
+  /// 'phone', 'password', 'confirm'. Used to render a red border around
+  /// the offending field(s).
+  Set<String> _errorFields = const <String>{};
 
   /// When true, the inline error block also surfaces a "Contact admin" CTA
   /// (used for "email/phone already exists" cases).
@@ -400,17 +406,37 @@ class _SignupScreenState extends State<SignupScreen> {
     return null;
   }
 
-  void _setError(String message, {bool contactAdmin = false}) {
+  void _setError(
+    String message, {
+    Set<String> fields = const <String>{},
+    bool contactAdmin = false,
+  }) {
     setState(() {
       _errorMessage = message;
+      _errorFields = fields;
       _showContactAdmin = contactAdmin;
       _isLoading = false;
     });
   }
 
+  /// Clear field highlighting as soon as the user starts editing the
+  /// offending input.
+  void _clearErrorFor(String field) {
+    if (_errorFields.contains(field)) {
+      setState(() {
+        _errorFields = _errorFields.where((f) => f != field).toSet();
+        if (_errorFields.isEmpty) {
+          _errorMessage = null;
+          _showContactAdmin = false;
+        }
+      });
+    }
+  }
+
   Future<void> _handleSignup() async {
     setState(() {
       _errorMessage = null;
+      _errorFields = const <String>{};
       _showContactAdmin = false;
     });
 
@@ -421,23 +447,38 @@ class _SignupScreenState extends State<SignupScreen> {
     final password = _passwordController.text;
     final confirm = _confirmController.text;
 
-    if (email.isEmpty ||
-        password.isEmpty ||
-        confirm.isEmpty ||
-        name.isEmpty ||
-        phoneDigitsOnly.isEmpty) {
-      _setError('Please fill in all the fields above.');
+    final empties = <String>{};
+    if (email.isEmpty) empties.add('email');
+    if (name.isEmpty) empties.add('name');
+    if (phoneDigitsOnly.isEmpty) empties.add('phone');
+    if (password.isEmpty) empties.add('password');
+    if (confirm.isEmpty) empties.add('confirm');
+    if (empties.isNotEmpty) {
+      _setError('Please fill in all the fields above.', fields: empties);
       return;
     }
 
     if (phoneDigitsOnly.length != phoneRules.maxDigits) {
-      _setError('Enter all ${phoneRules.maxDigits} digits of your phone number for this country.');
+      _setError(
+        'Enter all ${phoneRules.maxDigits} digits of your phone number for this country.',
+        fields: const {'phone'},
+      );
       return;
     }
 
     final strength = _computeStrength(password);
-    if (!strength.isValid || password != confirm) {
-      _setError('Please ensure your password meets all requirements and matches the confirmation.');
+    if (!strength.isValid) {
+      _setError(
+        'Your password does not meet the minimum requirements yet.',
+        fields: const {'password'},
+      );
+      return;
+    }
+    if (password != confirm) {
+      _setError(
+        'Passwords do not match. Please re-enter the same password to confirm.',
+        fields: const {'confirm'},
+      );
       return;
     }
 
@@ -454,9 +495,15 @@ class _SignupScreenState extends State<SignupScreen> {
         'phone' => 'phone number',
         _ => 'email address and phone number',
       };
+      final fields = switch (existing) {
+        'email' => const {'email'},
+        'phone' => const {'phone'},
+        _ => const {'email', 'phone'},
+      };
       _setError(
         'An account with this $what already exists. If you believe this is a '
         'mistake, please contact the administrator.',
+        fields: fields,
         contactAdmin: true,
       );
       return;
@@ -497,6 +544,7 @@ class _SignupScreenState extends State<SignupScreen> {
               ? 'An account with this phone number already exists. If you '
                   'believe this is a mistake, please contact the administrator.'
               : e.message,
+          fields: dupPhone ? const {'phone'} : const <String>{},
           contactAdmin: dupPhone,
         );
         return;
@@ -525,6 +573,7 @@ class _SignupScreenState extends State<SignupScreen> {
             ? 'An account with this email address already exists. If you '
                 'believe this is a mistake, please contact the administrator.'
             : e.message,
+        fields: isDuplicate ? const {'email'} : const <String>{},
         contactAdmin: isDuplicate,
       );
     } catch (_) {
@@ -623,109 +672,6 @@ class _SignupScreenState extends State<SignupScreen> {
               ),
               const SizedBox(height: 32),
 
-              if (_errorMessage != null)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFEF2F2),
-                    border: Border.all(color: const Color(0xFFFECACA)),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(Icons.error_outline,
-                              color: Color(0xFFDC2626), size: 18),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _errorMessage!,
-                              style: const TextStyle(
-                                color: Color(0xFFB91C1C),
-                                fontSize: 13,
-                                height: 1.4,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (_showContactAdmin) ...[
-                        const SizedBox(height: 10),
-                        const Divider(height: 1, color: Color(0xFFFECACA)),
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Contact administrator',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.4,
-                            color: Color(0xFF7F1D1D),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        InkWell(
-                          onTap: _emailAdmin,
-                          borderRadius: BorderRadius.circular(8),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.email_outlined,
-                                    size: 16, color: Color(0xFFB91C1C)),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    AppConfig.adminEmail,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFFB91C1C),
-                                      decoration: TextDecoration.underline,
-                                    ),
-                                  ),
-                                ),
-                                const Icon(Icons.open_in_new,
-                                    size: 14, color: Color(0xFFB91C1C)),
-                              ],
-                            ),
-                          ),
-                        ),
-                        InkWell(
-                          onTap: _callAdmin,
-                          borderRadius: BorderRadius.circular(8),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.phone_outlined,
-                                    size: 16, color: Color(0xFFB91C1C)),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    AppConfig.adminPhone,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFFB91C1C),
-                                      decoration: TextDecoration.underline,
-                                    ),
-                                  ),
-                                ),
-                                const Icon(Icons.open_in_new,
-                                    size: 14, color: Color(0xFFB91C1C)),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-
               _label('Email Address'),
               const SizedBox(height: 8),
               _textField(
@@ -734,6 +680,8 @@ class _SignupScreenState extends State<SignupScreen> {
                 keyboardType: TextInputType.emailAddress,
                 prefix: const Icon(Icons.email_outlined, color: Colors.black45),
                 autofillHints: const [AutofillHints.email],
+                hasError: _errorFields.contains('email'),
+                onChanged: (_) => _clearErrorFor('email'),
               ),
               const SizedBox(height: 20),
 
@@ -745,6 +693,8 @@ class _SignupScreenState extends State<SignupScreen> {
                 keyboardType: TextInputType.name,
                 prefix: const Icon(Icons.person_outline, color: Colors.black45),
                 autofillHints: const [AutofillHints.name],
+                hasError: _errorFields.contains('name'),
+                onChanged: (_) => _clearErrorFor('name'),
               ),
               const SizedBox(height: 20),
 
@@ -761,6 +711,9 @@ class _SignupScreenState extends State<SignupScreen> {
                         decoration: BoxDecoration(
                           color: _fieldFill,
                           borderRadius: BorderRadius.circular(12),
+                          border: _errorFields.contains('phone')
+                              ? Border.all(color: _errorRed, width: 1.5)
+                              : null,
                         ),
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<String>(
@@ -787,6 +740,7 @@ class _SignupScreenState extends State<SignupScreen> {
                                   _countryCode = v;
                                   _reformatPhoneAfterCountryChange();
                                 });
+                                _clearErrorFor('phone');
                               }
                             },
                           ),
@@ -807,6 +761,8 @@ class _SignupScreenState extends State<SignupScreen> {
                             ),
                           ],
                           autofillHints: const [AutofillHints.telephoneNumberNational],
+                          hasError: _errorFields.contains('phone'),
+                          onChanged: (_) => _clearErrorFor('phone'),
                         ),
                       ),
                     ],
@@ -841,6 +797,8 @@ class _SignupScreenState extends State<SignupScreen> {
                   onPressed: () => setState(() => _showPassword = !_showPassword),
                 ),
                 autofillHints: const [AutofillHints.newPassword],
+                hasError: _errorFields.contains('password'),
+                onChanged: (_) => _clearErrorFor('password'),
               ),
               if (_passwordController.text.isNotEmpty) ...[
                 const SizedBox(height: 12),
@@ -863,6 +821,8 @@ class _SignupScreenState extends State<SignupScreen> {
                   onPressed: () => setState(() => _showConfirm = !_showConfirm),
                 ),
                 autofillHints: const [AutofillHints.newPassword],
+                hasError: _errorFields.contains('confirm'),
+                onChanged: (_) => _clearErrorFor('confirm'),
               ),
               if (_confirmController.text.isNotEmpty) ...[
                 const SizedBox(height: 8),
@@ -891,7 +851,9 @@ class _SignupScreenState extends State<SignupScreen> {
                   ],
                 ),
               ],
-              const SizedBox(height: 28),
+              const SizedBox(height: 24),
+
+              if (_errorMessage != null) _buildErrorBlock(),
 
               SizedBox(
                 width: double.infinity,
@@ -991,13 +953,32 @@ class _SignupScreenState extends State<SignupScreen> {
     Widget? suffix,
     List<TextInputFormatter>? inputFormatters,
     Iterable<String>? autofillHints,
+    bool hasError = false,
+    ValueChanged<String>? onChanged,
   }) {
+    final errorBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: _errorRed, width: 1.5),
+    );
+    final defaultBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide.none,
+    );
+    final focusedBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(
+        color: hasError ? _errorRed : _brand,
+        width: 1.5,
+      ),
+    );
+
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
       obscureText: obscure,
       inputFormatters: inputFormatters,
       autofillHints: autofillHints,
+      onChanged: onChanged,
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: const TextStyle(color: Colors.black38),
@@ -1005,15 +986,114 @@ class _SignupScreenState extends State<SignupScreen> {
         suffixIcon: suffix,
         filled: true,
         fillColor: _fieldFill,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: _brand, width: 1.5),
-        ),
+        border: hasError ? errorBorder : defaultBorder,
+        enabledBorder: hasError ? errorBorder : defaultBorder,
+        focusedBorder: focusedBorder,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+      ),
+    );
+  }
+
+  Widget _buildErrorBlock() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF2F2),
+        border: Border.all(color: const Color(0xFFFECACA)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.error_outline,
+                  color: _errorRed, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _errorMessage!,
+                  style: const TextStyle(
+                    color: Color(0xFFB91C1C),
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_showContactAdmin) ...[
+            const SizedBox(height: 10),
+            const Divider(height: 1, color: Color(0xFFFECACA)),
+            const SizedBox(height: 10),
+            const Text(
+              'Contact administrator',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.4,
+                color: Color(0xFF7F1D1D),
+              ),
+            ),
+            const SizedBox(height: 6),
+            InkWell(
+              onTap: _emailAdmin,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    const Icon(Icons.email_outlined,
+                        size: 16, color: Color(0xFFB91C1C)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        AppConfig.adminEmail,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFFB91C1C),
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                    const Icon(Icons.open_in_new,
+                        size: 14, color: Color(0xFFB91C1C)),
+                  ],
+                ),
+              ),
+            ),
+            InkWell(
+              onTap: _callAdmin,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    const Icon(Icons.phone_outlined,
+                        size: 16, color: Color(0xFFB91C1C)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        AppConfig.adminPhone,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFFB91C1C),
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                    const Icon(Icons.open_in_new,
+                        size: 14, color: Color(0xFFB91C1C)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
