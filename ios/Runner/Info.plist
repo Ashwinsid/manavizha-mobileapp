@@ -4,6 +4,12 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Manavizha needs camera access so you can take a live selfie to verify your identity.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Manavizha needs access to your photos so you can upload your profile pictures, family photo, and ID images.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Manavizha may briefly use the microphone while capturing video for identity verification.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

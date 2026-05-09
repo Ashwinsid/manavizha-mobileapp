@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 import 'daily_recommendations_screen.dart';
+import 'identity_verification_screen.dart';
 import 'profile_screen.dart';
 import 'user_match_service.dart';
 import 'user_profile_completion.dart';
@@ -132,6 +133,19 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
     Navigator.of(context).push<void>(MaterialPageRoute<void>(builder: (context) => const ProfileScreen()));
   }
 
+  Future<void> _openVerification() async {
+    final submitted = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (context) => const IdentityVerificationScreen(),
+      ),
+    );
+    if (!mounted) return;
+    if (submitted == true) {
+      // Reload so the verify banner reflects the new pending status.
+      await _refresh();
+    }
+  }
+
   Future<void> _confirmMarried() async {
     final uid = Supabase.instance.client.auth.currentUser?.id;
     if (uid == null) return;
@@ -198,9 +212,7 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
                   color: const Color(0xFFEEF2FF),
                   borderRadius: BorderRadius.circular(16),
                   child: InkWell(
-                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Complete ID verification on the website for now.')),
-                    ),
+                    onTap: _openVerification,
                     borderRadius: BorderRadius.circular(16),
                     child: Padding(
                       padding: const EdgeInsets.all(16),
