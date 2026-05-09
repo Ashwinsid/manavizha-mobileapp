@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth_navigation.dart';
+import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.initialEmail});
+
+  /// Email to prefill (e.g. after the user has just signed up).
+  final String? initialEmail;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -15,6 +19,26 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _passwordController = TextEditingController();
   bool _isPasswordVisible = false;
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialEmail;
+    if (initial != null && initial.trim().isNotEmpty) {
+      _emailController.text = initial.trim();
+    }
+  }
+
+  Future<void> _openSignup() async {
+    final email = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const SignupScreen()),
+    );
+    if (!mounted) return;
+    if (email != null && email.trim().isNotEmpty) {
+      _emailController.text = email.trim();
+      _passwordController.clear();
+    }
+  }
 
   Future<void> _handleLogin() async {
     final email = _emailController.text.trim();
@@ -240,9 +264,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       style: TextStyle(color: Colors.black54),
                     ),
                     TextButton(
-                      onPressed: () {
-                        // TODO: Navigate to Sign Up screen
-                      },
+                      onPressed: _openSignup,
                       child: const Text(
                         "Sign Up",
                         style: TextStyle(

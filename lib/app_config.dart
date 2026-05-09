@@ -11,4 +11,17 @@ class AppConfig {
   );
 
   static bool get hasWebAppForAdminApi => webAppBaseUrl.trim().isNotEmpty;
+
+  /// Public-facing admin contact (mirrors the web app — see
+  /// `manavizha/app/referral-partner/settings/page.tsx`). Surfaced to users
+  /// when sign up fails because of an existing email/phone, etc.
+  static const String adminEmail = String.fromEnvironment(
+    'ADMIN_EMAIL',
+    defaultValue: 'arjun.rksaravanan@gmail.com',
+  );
+
+  static const String adminPhone = String.fromEnvironment(
+    'ADMIN_PHONE',
+    defaultValue: '+91 8072734996',
+  );
 }

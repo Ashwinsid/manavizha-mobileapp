@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'login_screen.dart';
+import 'signup_screen.dart';
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
@@ -170,8 +171,20 @@ class WelcomeScreen extends StatelessWidget {
                         width: double.infinity,
                         height: 56,
                         child: ElevatedButton(
-                          onPressed: () {
-                            // TODO: Navigate to Create Account screen
+                          onPressed: () async {
+                            final email = await Navigator.of(context).push<String>(
+                              MaterialPageRoute(
+                                builder: (context) => const SignupScreen(),
+                              ),
+                            );
+                            if (!context.mounted) return;
+                            // After successful sign up, take the user straight to Login,
+                            // pre-filling the email they just registered with.
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => LoginScreen(initialEmail: email),
+                              ),
+                            );
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF2FA086),
