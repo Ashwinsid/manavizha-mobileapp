@@ -4,4 +4,5 @@
     <color name="splash_brand">#FFFFFFFF</color>
     <color name="splash_gradient_mid">#FFD8F2EA</color>
     <color name="splash_gradient_end">#FF9BDDC9</color>
+	<color name="ic_launcher_background">#FFFFFF</color>
 </resources>
