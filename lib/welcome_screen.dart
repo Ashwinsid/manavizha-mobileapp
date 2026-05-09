@@ -19,7 +19,7 @@ class WelcomeScreen extends StatelessWidget {
           Positioned(
             top: 300,
             right: -50,
-            child: Icon(Icons.favorite, color: const Color(0xFF6A11CB).withOpacity(0.04), size: 250),
+            child: Icon(Icons.favorite, color: const Color(0xFF2FA086).withOpacity(0.04), size: 250),
           ),
           Positioned(
             bottom: 150,
@@ -49,7 +49,7 @@ class WelcomeScreen extends StatelessWidget {
                             height: 110,
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(
-                                colors: [Color(0xFF6A11CB), Color(0xFF2575FC)],
+                                colors: [Color(0xFF2FA086), Color(0xFF2575FC)],
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
                               ),
@@ -174,13 +174,13 @@ class WelcomeScreen extends StatelessWidget {
                             // TODO: Navigate to Create Account screen
                           },
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF6A11CB),
+                            backgroundColor: const Color(0xFF2FA086),
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
                             ),
                             elevation: 4,
-                            shadowColor: const Color(0xFF6A11CB).withOpacity(0.4),
+                            shadowColor: const Color(0xFF2FA086).withOpacity(0.4),
                           ),
                           child: const Text(
                             'Create an Account',
@@ -202,8 +202,8 @@ class WelcomeScreen extends StatelessWidget {
                             );
                           },
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFF6A11CB),
-                            side: const BorderSide(color: Color(0xFF6A11CB), width: 2),
+                            foregroundColor: const Color(0xFF2FA086),
+                            side: const BorderSide(color: Color(0xFF2FA086), width: 2),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
                             ),

@@ -17,7 +17,7 @@ class MatchesPage extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.people_outline, size: 80, color: Color(0xFF6A11CB)),
+          Icon(Icons.people_outline, size: 80, color: Color(0xFF2FA086)),
           SizedBox(height: 16),
           Text('Matches', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
           Text('Browse profiles — coming soon', style: TextStyle(color: Colors.black54)),
@@ -36,7 +36,7 @@ class LikesPage extends StatefulWidget {
 
 class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMixin {
   late final TabController _tabController;
-  static const Color _brand = Color(0xFF6A11CB);
+  static const Color _brand = Color(0xFF2FA086);
   bool _loadingILiked = true;
   String? _iLikedError;
   List<MatchPreview> _iLikedProfiles = <MatchPreview>[];
@@ -957,7 +957,7 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
                     labelStyle: const TextStyle(fontWeight: FontWeight.w700),
                     indicatorSize: TabBarIndicatorSize.tab,
                     indicator: BoxDecoration(
-                      color: const Color(0xFF6A11CB),
+                      color: const Color(0xFF2FA086),
                       borderRadius: BorderRadius.circular(999),
                     ),
                     tabs: const [
@@ -993,7 +993,7 @@ class MessagesPage extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.chat_bubble_outline, size: 80, color: Color(0xFF6A11CB)),
+          Icon(Icons.chat_bubble_outline, size: 80, color: Color(0xFF2FA086)),
           SizedBox(height: 16),
           Text('Messages', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
           Text('Your conversations — coming soon', style: TextStyle(color: Colors.black54)),

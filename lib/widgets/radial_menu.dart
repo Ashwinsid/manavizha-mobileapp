@@ -104,7 +104,7 @@ class RadialMenu extends StatefulWidget {
     this.backgroundPainter,
     this.iconColor = const Color(0xFF3D1466),
     this.itemBackgroundColor = const Color(0xFFF3E5FF),
-    this.brandColor = const Color(0xFF6A11CB),
+    this.brandColor = const Color(0xFF2FA086),
     this.showHapticOnSnap = true,
     this.clipOuterRadius,
     this.clipInnerRadius,

@@ -23,7 +23,7 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         fontFamily: 'Satoshi',
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6A11CB)),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2FA086)),
         useMaterial3: true,
       ),
       home: const SplashScreen(),

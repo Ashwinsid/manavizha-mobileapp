@@ -10,7 +10,7 @@ import 'app_config.dart';
 import 'horoscope_location_options.dart';
 import 'user_profile_completion.dart';
 
-const _brand = Color(0xFF6A11CB);
+const _brand = Color(0xFF2FA086);
 
 /// Modal routes often report 0 [MediaQuery.viewInsets] while the keyboard is open; fall back to [View] metrics.
 double _keyboardBottomInset(BuildContext context) {

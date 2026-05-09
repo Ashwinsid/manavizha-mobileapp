@@ -133,7 +133,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF6A11CB), width: 1.5),
+                      borderSide: const BorderSide(color: Color(0xFF2FA086), width: 1.5),
                     ),
                   ),
                 ),
@@ -171,7 +171,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF6A11CB), width: 1.5),
+                      borderSide: const BorderSide(color: Color(0xFF2FA086), width: 1.5),
                     ),
                   ),
                 ),
@@ -189,7 +189,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: const Text(
                       "Forgot Password?",
                       style: TextStyle(
-                        color: Color(0xFF6A11CB),
+                        color: Color(0xFF2FA086),
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -205,13 +205,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _handleLogin,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6A11CB),
+                      backgroundColor: const Color(0xFF2FA086),
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
                       elevation: 4,
-                      shadowColor: const Color(0xFF6A11CB).withOpacity(0.4),
+                      shadowColor: const Color(0xFF2FA086).withOpacity(0.4),
                     ),
                     child: _isLoading 
                       ? const SizedBox(
@@ -246,7 +246,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: const Text(
                         "Sign Up",
                         style: TextStyle(
-                          color: Color(0xFF6A11CB),
+                          color: Color(0xFF2FA086),
                           fontWeight: FontWeight.w700,
                         ),
                       ),

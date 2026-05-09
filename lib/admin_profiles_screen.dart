@@ -172,7 +172,7 @@ Widget _premiumChip(_AdminProfile p) {
       break;
     case 'elite':
       label = 'Elite';
-      bg = const Color(0xFF6A11CB);
+      bg = const Color(0xFF2FA086);
       break;
     case 'prime_gold':
       label = 'Gold';

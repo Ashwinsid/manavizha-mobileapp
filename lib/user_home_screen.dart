@@ -16,7 +16,7 @@ class UserHomeScreen extends StatefulWidget {
 }
 
 class _UserHomeScreenState extends State<UserHomeScreen> {
-  static const Color _brand = Color(0xFF6A11CB);
+  static const Color _brand = Color(0xFF2FA086);
 
   int _currentIndex = 0;
   bool _speedDialOpen = false;
@@ -141,17 +141,17 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     return [
       const SizedBox(height: 8),
       ListTile(
-        leading: const Icon(Icons.favorite_border, color: Color(0xFF6A11CB)),
+        leading: const Icon(Icons.favorite_border, color: Color(0xFF2FA086)),
         title: const Text('I Liked', style: TextStyle(fontWeight: FontWeight.w600)),
         onTap: () => _dismissMenuAndGoTo(menuContext, 2),
       ),
       ListTile(
-        leading: const Icon(Icons.favorite, color: Color(0xFF6A11CB)),
+        leading: const Icon(Icons.favorite, color: Color(0xFF2FA086)),
         title: const Text('Liked Me', style: TextStyle(fontWeight: FontWeight.w600)),
         onTap: () => _dismissMenuAndGoTo(menuContext, 2),
       ),
       ListTile(
-        leading: const Icon(Icons.tune_rounded, color: Color(0xFF6A11CB)),
+        leading: const Icon(Icons.tune_rounded, color: Color(0xFF2FA086)),
         title: const Text('Preferences', style: TextStyle(fontWeight: FontWeight.w600)),
         onTap: () => _dismissMenuAndSnack(
           menuContext,
@@ -159,7 +159,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         ),
       ),
       ListTile(
-        leading: const Icon(Icons.auto_awesome, color: Color(0xFF6A11CB)),
+        leading: const Icon(Icons.auto_awesome, color: Color(0xFF2FA086)),
         title: const Text('Generate Horoscope', style: TextStyle(fontWeight: FontWeight.w600)),
         onTap: () => _dismissMenuAndSnack(menuContext, 'Horoscope tools are on the website dashboard for now.'),
       ),
@@ -405,7 +405,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
             DrawerHeader(
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Color(0xFF6A11CB), Color(0xFF2575FC)],
+                  colors: [Color(0xFF2FA086), Color(0xFF2575FC)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -425,7 +425,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                       style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.w900,
-                        color: Color(0xFF6A11CB),
+                        color: Color(0xFF2FA086),
                       ),
                     ),
                   ),
@@ -451,7 +451,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
           'Manavizha',
           style: TextStyle(
             fontWeight: FontWeight.w800,
-            color: Color(0xFF6A11CB),
+            color: Color(0xFF2FA086),
             letterSpacing: -0.5,
           ),
         ),
@@ -549,7 +549,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
             borderRadius: BorderRadius.circular(32),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF6A11CB).withValues(alpha: 0.15),
+                color: const Color(0xFF2FA086).withValues(alpha: 0.15),
                 blurRadius: 24,
                 offset: const Offset(0, 10),
               )
@@ -583,7 +583,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         curve: Curves.fastOutSlowIn,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF6A11CB).withValues(alpha: 0.12) : Colors.transparent,
+          color: isSelected ? const Color(0xFF2FA086).withValues(alpha: 0.12) : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
@@ -591,7 +591,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
           children: [
             Icon(
               isSelected ? activeIcon : inactiveIcon,
-              color: isSelected ? const Color(0xFF6A11CB) : Colors.black45,
+              color: isSelected ? const Color(0xFF2FA086) : Colors.black45,
               size: 26,
             ),
             // We use AnimatedSize to smoothly slide the text in and out
@@ -605,7 +605,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                         Text(
                           label,
                           style: const TextStyle(
-                            color: Color(0xFF6A11CB),
+                            color: Color(0xFF2FA086),
                             fontWeight: FontWeight.w700,
                             fontSize: 14,
                           ),

@@ -140,7 +140,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     final p = _sectionPercentFor(title).clamp(0, 100);
     final color = p >= 100
         ? const Color(0xFF15803D)
-        : (p > 0 ? const Color(0xFF6A11CB) : const Color(0xFF737373));
+        : (p > 0 ? const Color(0xFF2FA086) : const Color(0xFF737373));
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
@@ -754,8 +754,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                                         }
                                       });
                                     },
-                                    selectedColor: const Color(0xFF6A11CB).withOpacity(0.2),
-                                    checkmarkColor: const Color(0xFF6A11CB),
+                                    selectedColor: const Color(0xFF2FA086).withOpacity(0.2),
+                                    checkmarkColor: const Color(0xFF2FA086),
                                   );
                                 }).toList(),
                               ),
@@ -795,8 +795,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                                         }
                                       });
                                     },
-                                    selectedColor: const Color(0xFF6A11CB).withOpacity(0.2),
-                                    checkmarkColor: const Color(0xFF6A11CB),
+                                    selectedColor: const Color(0xFF2FA086).withOpacity(0.2),
+                                    checkmarkColor: const Color(0xFF2FA086),
                                   );
                                 }).toList(),
                               ),
@@ -819,7 +819,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                                           interests: localInterests,
                                         ),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF6A11CB),
+                                  backgroundColor: const Color(0xFF2FA086),
                                   padding: const EdgeInsets.all(16),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(16),
@@ -902,7 +902,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
   Widget _buildSectionTitle(String title) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF6A11CB))),
+      child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
     );
   }
 
@@ -1000,7 +1000,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                           
                           const Padding(
                             padding: EdgeInsets.only(bottom: 8.0, top: 8.0),
-                            child: Text('Languages', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF6A11CB))),
+                            child: Text('Languages', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
                           ),
                           Wrap(
                             spacing: 8,
@@ -1009,7 +1009,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                                 label: Text(lang, style: const TextStyle(fontSize: 12)),
                                 onDeleted: () => setModalState(() => _selectedLanguages.remove(lang)),
                                 deleteIcon: const Icon(Icons.close, size: 14),
-                                backgroundColor: const Color(0xFF6A11CB).withOpacity(0.1),
+                                backgroundColor: const Color(0xFF2FA086).withOpacity(0.1),
                               )),
                               ActionChip(
                                 label: const Text('Add Language', style: TextStyle(fontSize: 12)),
@@ -1063,7 +1063,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                             child: ElevatedButton(
                               onPressed: _savePersonalDetails,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF6A11CB),
+                                backgroundColor: const Color(0xFF2FA086),
                                 padding: const EdgeInsets.all(16),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                               ),
@@ -1127,7 +1127,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                               child: ElevatedButton(
                                 onPressed: _saveSocialHabits,
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF6A11CB),
+                                  backgroundColor: const Color(0xFF2FA086),
                                   padding: const EdgeInsets.all(16),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                                 ),
@@ -1161,10 +1161,10 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
             decoration: BoxDecoration(
               color: const Color(0xFFF0F0F5),
               shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFF6A11CB).withOpacity(0.1), width: 4),
+              border: Border.all(color: const Color(0xFF2FA086).withOpacity(0.1), width: 4),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF6A11CB).withOpacity(0.1),
+                  color: const Color(0xFF2FA086).withOpacity(0.1),
                   blurRadius: 20,
                   offset: const Offset(0, 10),
                 )
@@ -1174,15 +1174,15 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
               child: _isLoadingPhoto 
                 ? const Padding(
                     padding: EdgeInsets.all(30.0),
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6A11CB)),
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF2FA086)),
                   )
                 : _profilePhotoUrl != null 
                   ? Image.network(
                       _profilePhotoUrl!,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => const Icon(Icons.person, size: 50, color: Color(0xFF6A11CB)),
+                      errorBuilder: (context, error, stackTrace) => const Icon(Icons.person, size: 50, color: Color(0xFF2FA086)),
                     )
-                  : const Icon(Icons.person, size: 50, color: Color(0xFF6A11CB)),
+                  : const Icon(Icons.person, size: 50, color: Color(0xFF2FA086)),
             ),
           ),
         ),
@@ -1235,7 +1235,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
         side: BorderSide(color: Colors.black.withOpacity(0.05)),
       ),
       child: ExpansionTile(
-        leading: Icon(icon, color: const Color(0xFF6A11CB)),
+        leading: Icon(icon, color: const Color(0xFF2FA086)),
         title: Row(
           children: [
             Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600))),
@@ -1264,8 +1264,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit Details'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF6A11CB),
-                        side: const BorderSide(color: Color(0xFF6A11CB)),
+                        foregroundColor: const Color(0xFF2FA086),
+                        side: const BorderSide(color: Color(0xFF2FA086)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
@@ -1286,7 +1286,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                           .map(
                             (h) => Chip(
                               label: Text(h, style: const TextStyle(fontSize: 12)),
-                              backgroundColor: const Color(0xFF6A11CB).withOpacity(0.1),
+                              backgroundColor: const Color(0xFF2FA086).withOpacity(0.1),
                               padding: EdgeInsets.zero,
                               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),
@@ -1324,8 +1324,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit Interests'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF6A11CB),
-                        side: const BorderSide(color: Color(0xFF6A11CB)),
+                        foregroundColor: const Color(0xFF2FA086),
+                        side: const BorderSide(color: Color(0xFF2FA086)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
@@ -1343,8 +1343,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit Social Habits'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF6A11CB),
-                        side: const BorderSide(color: Color(0xFF6A11CB)),
+                        foregroundColor: const Color(0xFF2FA086),
+                        side: const BorderSide(color: Color(0xFF2FA086)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
@@ -1384,8 +1384,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       icon: const Icon(Icons.edit, size: 16),
                       label: Text(_educationRows.isEmpty ? 'Add education' : 'Edit education'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF6A11CB),
-                        side: const BorderSide(color: Color(0xFF6A11CB)),
+                        foregroundColor: const Color(0xFF2FA086),
+                        side: const BorderSide(color: Color(0xFF2FA086)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
@@ -1406,8 +1406,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit professional details'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF6A11CB),
-                        side: const BorderSide(color: Color(0xFF6A11CB)),
+                        foregroundColor: const Color(0xFF2FA086),
+                        side: const BorderSide(color: Color(0xFF2FA086)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
@@ -1426,8 +1426,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit family details'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF6A11CB),
-                        side: const BorderSide(color: Color(0xFF6A11CB)),
+                        foregroundColor: const Color(0xFF2FA086),
+                        side: const BorderSide(color: Color(0xFF2FA086)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
@@ -1446,8 +1446,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit horoscope details'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF6A11CB),
-                        side: const BorderSide(color: Color(0xFF6A11CB)),
+                        foregroundColor: const Color(0xFF2FA086),
+                        side: const BorderSide(color: Color(0xFF2FA086)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
@@ -1681,7 +1681,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
           color: const Color(0xFFF0F0F5),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: fileOrUrl != null ? const Color(0xFF6A11CB) : Colors.black12,
+            color: fileOrUrl != null ? const Color(0xFF2FA086) : Colors.black12,
             width: 2,
             style: fileOrUrl != null ? BorderStyle.solid : BorderStyle.none,
           ),
@@ -1737,7 +1737,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFF6A11CB), width: 2),
+            border: Border.all(color: const Color(0xFF2FA086), width: 2),
             color: const Color(0xFFF0F0F5),
           ),
           child: Stack(
@@ -1868,7 +1868,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF6A11CB)));
+      return const Center(child: CircularProgressIndicator(color: Color(0xFF2FA086)));
     }
 
     return ListView(
@@ -1877,7 +1877,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text('Your Gallery', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF6A11CB))),
+            const Text('Your Gallery', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
             IconButton(
               icon: Icon(_isEditing ? Icons.close : Icons.edit, color: _isEditing ? Colors.redAccent : Colors.black54),
               onPressed: () {
@@ -1942,7 +1942,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
             child: ElevatedButton(
               onPressed: _isSaving ? null : _savePhotos,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6A11CB),
+                backgroundColor: const Color(0xFF2FA086),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               ),
@@ -1967,7 +1967,7 @@ class ReferralDetailsPage extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.card_giftcard_outlined, size: 80, color: Color(0xFF6A11CB)),
+          Icon(Icons.card_giftcard_outlined, size: 80, color: Color(0xFF2FA086)),
           SizedBox(height: 16),
           Text('Referral Details', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
           Text('Track your referrals and rewards', style: TextStyle(color: Colors.black54)),
@@ -2036,7 +2036,7 @@ class _ContactDetailsPageState extends State<ContactDetailsPage> {
           children: [
             Row(
               children: [
-                Icon(icon, color: const Color(0xFF6A11CB), size: 20),
+                Icon(icon, color: const Color(0xFF2FA086), size: 20),
                 const SizedBox(width: 8),
                 Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ],
@@ -2063,7 +2063,7 @@ class _ContactDetailsPageState extends State<ContactDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) return const Center(child: CircularProgressIndicator(color: Color(0xFF6A11CB)));
+    if (_isLoading) return const Center(child: CircularProgressIndicator(color: Color(0xFF2FA086)));
 
     return ListView(
       padding: const EdgeInsets.all(24.0),
@@ -2075,15 +2075,15 @@ class _ContactDetailsPageState extends State<ContactDetailsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                   Text('Contact Details', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF6A11CB))),
+                   Text('Contact Details', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
                    SizedBox(height: 4),
                    Text('Your active communication lines', style: TextStyle(color: Colors.black54)),
                 ],
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.edit_note, color: Color(0xFF6A11CB), size: 30),
-              style: IconButton.styleFrom(backgroundColor: const Color(0xFF6A11CB).withOpacity(0.1)),
+              icon: const Icon(Icons.edit_note, color: Color(0xFF2FA086), size: 30),
+              style: IconButton.styleFrom(backgroundColor: const Color(0xFF2FA086).withOpacity(0.1)),
               onPressed: _openEditor,
             ),
           ],
@@ -2473,7 +2473,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
                   itemCount: list.length,
                   itemBuilder: (ctx, i) {
                     return ListTile(
-                      leading: const Icon(Icons.location_on_outlined, color: Color(0xFF6A11CB)),
+                      leading: const Icon(Icons.location_on_outlined, color: Color(0xFF2FA086)),
                       title: Text(list[i]['Name']),
                       onTap: () {
                         Navigator.pop(ctx);
@@ -2547,7 +2547,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
       return SizedBox(
         height: modalHeight,
         child: const Center(
-          child: CircularProgressIndicator(color: Color(0xFF6A11CB)),
+          child: CircularProgressIndicator(color: Color(0xFF2FA086)),
         ),
       );
     }
@@ -2565,7 +2565,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Edit Contacts', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF6A11CB))),
+                    const Text('Edit Contacts', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
                     IconButton(
                       icon: const Icon(Icons.close, color: Colors.black54),
                       onPressed: () => Navigator.pop(context),
@@ -2587,7 +2587,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
           children: [
             Checkbox(
               value: _sameAsPhone,
-              activeColor: const Color(0xFF6A11CB),
+              activeColor: const Color(0xFF2FA086),
               onChanged: (val) {
                 setState(() {
                   _sameAsPhone = val ?? false;
@@ -2627,7 +2627,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
           children: [
             Checkbox(
               value: _sameAsPerm,
-              activeColor: const Color(0xFF6A11CB),
+              activeColor: const Color(0xFF2FA086),
               onChanged: (val) {
                 setState(() {
                   _sameAsPerm = val ?? false;
@@ -2659,7 +2659,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
           child: ElevatedButton(
             onPressed: _saveUserData,
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF6A11CB),
+              backgroundColor: const Color(0xFF2FA086),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             ),
