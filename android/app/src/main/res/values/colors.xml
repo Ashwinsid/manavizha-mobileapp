@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Matches Flutter [splash_screen.dart] gradient start + Android 12+ splash -->
-    <color name="splash_brand">#FF2FA086</color>
-    <color name="splash_gradient_end">#FF2575FC</color>
+    <!-- Matches Flutter [splash_screen.dart] background — near-black canvas behind the teal logo -->
+    <color name="splash_brand">#FF050D0B</color>
+    <color name="splash_gradient_end">#FF0E2622</color>
 </resources>

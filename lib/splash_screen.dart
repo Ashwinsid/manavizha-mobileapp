@@ -87,13 +87,18 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
   @override
   Widget build(BuildContext context) {
+    // Background tuned to the logo art — the PNG sits on a near-black canvas with subtle teal glow.
     return Scaffold(
+      backgroundColor: const Color(0xFF050D0B),
       body: Container(
         decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF2FA086), Color(0xFF2575FC)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+          gradient: RadialGradient(
+            center: Alignment.center,
+            radius: 0.9,
+            colors: [
+              Color(0xFF0E2622), // dark teal glow behind the mark
+              Color(0xFF050D0B), // near-black edges
+            ],
           ),
         ),
         child: Center(
@@ -108,30 +113,13 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                 ),
               );
             },
-            child: Container(
-              width: 140,
-              height: 140,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 30,
-                    offset: const Offset(0, 15),
-                  )
-                ],
-              ),
-              child: const Center(
-                child: Text(
-                  'M',
-                  style: TextStyle(
-                    fontSize: 84,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF2FA086),
-                    letterSpacing: -2.0,
-                  ),
-                ),
+            child: SizedBox(
+              width: 240,
+              height: 240,
+              child: Image.asset(
+                'assets/images/logo.png',
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
               ),
             ),
           ),

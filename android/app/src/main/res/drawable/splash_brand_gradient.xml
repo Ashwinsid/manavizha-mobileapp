@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Same gradient as lib/splash_screen.dart (top-left → bottom-right) -->
+<!-- Subtle radial dark teal vignette behind the logo (matches lib/splash_screen.dart) -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <gradient
-        android:type="linear"
-        android:angle="135"
-        android:startColor="@color/splash_brand"
-        android:endColor="@color/splash_gradient_end" />
+        android:type="radial"
+        android:gradientRadius="600"
+        android:startColor="@color/splash_gradient_end"
+        android:endColor="@color/splash_brand" />
 </shape>
