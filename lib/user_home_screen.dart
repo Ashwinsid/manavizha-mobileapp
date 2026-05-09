@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'dashboard_shell_service.dart';
 import 'profile_screen.dart';
 import 'user_activity_tracker.dart';
 import 'user_pages.dart';
 import 'user_profile_completion.dart';
+import 'welcome_screen.dart';
 import 'widgets/radial_menu.dart';
 
 class UserHomeScreen extends StatefulWidget {
@@ -26,6 +29,12 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
   String? _appBarNameHint;
   bool _appBarPremium = false;
   bool _appBarProfileLoading = true;
+
+  int _unreadMessages = 0;
+  List<DashboardShellNotification> _notifInterests = [];
+  List<DashboardShellNotification> _notifViews = [];
+  Timer? _shellPollTimer;
+  RealtimeChannel? _messagesRealtimeChannel;
 
   late final List<Widget> _pages;
 
@@ -79,6 +88,403 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
         .then((_) => _loadAppBarProfile());
   }
 
+  String _tabSubtitle(int index) {
+    switch (index) {
+      case 1:
+        return 'MATCHES';
+      case 2:
+        return 'LIKES';
+      case 3:
+        return 'MESSAGES';
+      default:
+        return '';
+    }
+  }
+
+  Future<void> _refreshShellCounts() async {
+    final c = Supabase.instance.client;
+    final uid = c.auth.currentUser?.id;
+    if (uid == null || !mounted) return;
+    try {
+      final unread = await fetchUnreadMessageCount(c, uid);
+      final bundle = await fetchDashboardNotifications(c, uid);
+      if (!mounted) return;
+      setState(() {
+        _unreadMessages = unread;
+        _notifInterests = bundle.interests;
+        _notifViews = bundle.views;
+      });
+    } catch (e, st) {
+      debugPrint('_refreshShellCounts: $e\n$st');
+    }
+  }
+
+  /// Mirrors web `app/dashboard/layout.tsx` — if the member had deactivated,
+  /// signing back in clears `is_deactivated` and shows a welcome toast.
+  Future<void> _maybeReactivateAccount() async {
+    final c = Supabase.instance.client;
+    final uid = c.auth.currentUser?.id;
+    if (uid == null) return;
+    try {
+      final row = await c.from('user_settings').select('is_deactivated').eq('user_id', uid).maybeSingle();
+      final deactivated = row != null && row['is_deactivated'] == true;
+      if (!deactivated) return;
+
+      await c.from('user_settings').update({
+        'is_deactivated': false,
+        'deactivated_until': null,
+      }).eq('user_id', uid);
+
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Welcome back! Your profile has been reactivated and is now visible to all members.',
+          ),
+          duration: Duration(seconds: 6),
+        ),
+      );
+    } catch (e, st) {
+      debugPrint('_maybeReactivateAccount: $e\n$st');
+    }
+  }
+
+  void _subscribeMessagesRealtime() {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+    try {
+      final ch = Supabase.instance.client.channel('shell-unread-$uid')
+        ..onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'messages',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'receiver_id',
+            value: uid,
+          ),
+          callback: (_) {
+            if (mounted) unawaited(_refreshShellCounts());
+          },
+        )
+        ..subscribe();
+      _messagesRealtimeChannel = ch;
+    } catch (e, st) {
+      debugPrint('_subscribeMessagesRealtime: $e\n$st');
+    }
+  }
+
+  String _relativeShort(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inSeconds < 60) return 'Just now';
+    if (d.inMinutes < 60) return '${d.inMinutes}m ago';
+    if (d.inHours < 24) return '${d.inHours}h ago';
+    if (d.inDays < 7) return '${d.inDays}d ago';
+    return '${t.day}/${t.month}/${t.year}';
+  }
+
+  Future<void> _logout() async {
+    await Supabase.instance.client.auth.signOut();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(builder: (context) => const WelcomeScreen()),
+      (route) => false,
+    );
+  }
+
+  void _openSettingsFromShell() {
+    Navigator.of(context)
+        .push<void>(MaterialPageRoute<void>(builder: (context) => const ProfileScreen()))
+        .then((_) {
+      _loadAppBarProfile();
+      _refreshShellCounts();
+    });
+  }
+
+  void _goMessagesTab() {
+    setState(() {
+      _currentIndex = 3;
+      _speedDialOpen = false;
+    });
+    _refreshShellCounts();
+  }
+
+  Future<void> _showNotificationsPopover() async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        final interests = _notifInterests;
+        final views = _notifViews;
+        final totalBadge = interests.length + views.length;
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Text(
+                      'NOTIFICATIONS',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 2,
+                        color: Color(0xFF2FA086),
+                      ),
+                    ),
+                    Text(
+                      'Activity from last 30 days',
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1,
+                        color: Colors.black.withValues(alpha: 0.38),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: totalBadge == 0 ? 120 : 340,
+                      child: totalBadge == 0
+                            ? Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 28),
+                                child: Column(
+                                  children: [
+                                    Icon(Icons.notifications_none_rounded, size: 40, color: _brand.withValues(alpha: 0.25)),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'NO NEW ACTIVITY',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 1.5,
+                                        color: Colors.black.withValues(alpha: 0.35),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : ListView(
+                                shrinkWrap: true,
+                                children: [
+                                  if (interests.isNotEmpty) ...[
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: Text(
+                                        'INTEREST RECEIVED',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 1.2,
+                                          color: Colors.pink.shade600,
+                                        ),
+                                      ),
+                                    ),
+                                    ...interests.take(5).map((n) => _notificationTile(n, uid)),
+                                  ],
+                                  if (views.isNotEmpty) ...[
+                                    const SizedBox(height: 8),
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: Text(
+                                        'PROFILE VISITORS',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 1.2,
+                                          color: _brand,
+                                        ),
+                                      ),
+                                    ),
+                                    ...views.take(5).map((n) => _notificationTile(n, uid)),
+                                  ],
+                                ],
+                              ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(sheetContext).pop();
+                        setState(() => _currentIndex = 2);
+                      },
+                      child: const Text(
+                        'SEE ALL ACTIVITY',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.2,
+                          fontSize: 11,
+                          color: Color(0xFF2FA086),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _notificationTile(DashboardShellNotification n, String myUid) {
+    final client = Supabase.instance.client;
+    final title = n.isInterest ? '${n.name} expressed interest' : '${n.name} viewed you';
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () async {
+          Navigator.of(context).pop();
+          if (n.isInterest) {
+            await markReceivedLikeRead(client, myUid, n.otherUserId);
+          } else {
+            await markProfileViewNotificationRead(client, myUid, n.otherUserId);
+          }
+          if (!mounted) return;
+          setState(() {
+            if (n.isInterest) {
+              _notifInterests.removeWhere((x) => x.otherUserId == n.otherUserId);
+            } else {
+              _notifViews.removeWhere((x) => x.otherUserId == n.otherUserId);
+            }
+          });
+          await pushMemberProfileFullscreen(context, n.otherUserId);
+          await _refreshShellCounts();
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: _brand.withValues(alpha: 0.12),
+                child: Text(
+                  n.name.isNotEmpty ? n.name[0].toUpperCase() : '?',
+                  style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF2FA086)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 2,
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _relativeShort(n.at),
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: _brand.withValues(alpha: 0.75),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (n.subtitle.isNotEmpty)
+                      Text(
+                        n.subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 10, color: Colors.black.withValues(alpha: 0.45)),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _badgeIconButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+    required int badgeCount,
+    Color badgeColor = const Color(0xFFFF1493),
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
+        children: [
+          IconButton(
+            icon: Icon(icon, color: _brand),
+            onPressed: onPressed,
+          ),
+          if (badgeCount > 0)
+            Positioned(
+              right: 4,
+              top: 6,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                decoration: BoxDecoration(
+                  color: badgeColor,
+                  borderRadius: BorderRadius.circular(999),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
+                  ],
+                ),
+                constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                child: Text(
+                  badgeCount > 9 ? '9+' : '$badgeCount',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -87,7 +493,13 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
     // immediate heartbeat the moment the home shell mounts, then keep a
     // `Timer.periodic(1m)` running while we're in the foreground.
     UserActivityTracker.instance.start();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadAppBarProfile());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadAppBarProfile();
+      _maybeReactivateAccount();
+      _refreshShellCounts();
+    });
+    _shellPollTimer = Timer.periodic(const Duration(seconds: 30), (_) => _refreshShellCounts());
+    _subscribeMessagesRealtime();
     _pages = [
       UserDashboardPage(
         onOpenProfileEditor: _openProfile,
@@ -100,6 +512,12 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
 
   @override
   void dispose() {
+    _shellPollTimer?.cancel();
+    final ch = _messagesRealtimeChannel;
+    if (ch != null) {
+      Supabase.instance.client.removeChannel(ch);
+      _messagesRealtimeChannel = null;
+    }
     WidgetsBinding.instance.removeObserver(this);
     UserActivityTracker.instance.stop();
     super.dispose();
@@ -112,6 +530,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
     // heartbeat so other members see the green dot without a 60s lag.
     if (state == AppLifecycleState.resumed) {
       UserActivityTracker.instance.pulseNow();
+      _refreshShellCounts();
     }
   }
 
@@ -470,19 +889,97 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
         ),
       ),
       appBar: AppBar(
-        title: const Text(
-          'Manavizha',
-          style: TextStyle(
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF2FA086),
-            letterSpacing: -0.5,
+        leading: _currentIndex == 0
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back_rounded),
+                tooltip: 'Home',
+                onPressed: () => setState(() {
+                  _currentIndex = 0;
+                  _speedDialOpen = false;
+                }),
+              ),
+        automaticallyImplyLeading: _currentIndex == 0,
+        titleSpacing: 8,
+        title: InkWell(
+          onTap: () => setState(() {
+            _currentIndex = 0;
+            _speedDialOpen = false;
+          }),
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Manavizha',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF2FA086),
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                if (_currentIndex != 0) ...[
+                  const SizedBox(height: 2),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 4,
+                        height: 4,
+                        decoration: const BoxDecoration(color: Color(0xFFFF1493), shape: BoxShape.circle),
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          _tabSubtitle(_currentIndex),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 2,
+                            color: const Color(0xFF2FA086).withValues(alpha: 0.65),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
+          _badgeIconButton(
+            icon: Icons.chat_bubble_outline_rounded,
+            tooltip: 'Messages',
+            onPressed: _goMessagesTab,
+            badgeCount: _unreadMessages,
+          ),
+          _badgeIconButton(
+            icon: Icons.notifications_none_rounded,
+            tooltip: 'Notifications',
+            onPressed: () => unawaited(_showNotificationsPopover()),
+            badgeCount: _notifInterests.length + _notifViews.length,
+            badgeColor: const Color(0xFFE11D48),
+          ),
+          IconButton(
+            tooltip: 'Profile settings',
+            icon: Icon(Icons.settings_outlined, color: _brand.withValues(alpha: 0.75)),
+            onPressed: _openSettingsFromShell,
+          ),
+          IconButton(
+            tooltip: 'Log out',
+            icon: Icon(Icons.logout_rounded, color: _brand.withValues(alpha: 0.85)),
+            onPressed: () => unawaited(_logout()),
+          ),
           Padding(
-            padding: const EdgeInsets.only(right: 16.0),
+            padding: const EdgeInsets.only(right: 8.0),
             child: GestureDetector(
               onTap: _openProfile,
               child: Stack(
@@ -530,7 +1027,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
                 ],
               ),
             ),
-          )
+          ),
         ],
       ),
       floatingActionButton: Padding(
@@ -599,6 +1096,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
         setState(() {
           _currentIndex = index;
         });
+        if (index == 3) unawaited(_refreshShellCounts());
       },
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
