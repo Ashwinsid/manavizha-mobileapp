@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'match_utils.dart';
+import 'user_activity_tracker.dart';
 import 'user_profile_completion.dart';
 
 /// [interests.hobbies] / [interests.interests] — PostgREST may return json arrays, PG `text[]`, or stringified JSON.
@@ -59,6 +60,7 @@ class MatchPreview {
     this.educationDegree,
     this.jobTitle,
     List<String>? interestTags,
+    this.lastActiveAt,
   }) : _interestTags = interestTags;
 
   final String userId;
@@ -80,6 +82,10 @@ class MatchPreview {
 
   /// `interests` column from [interests] table (chips on daily cards). Getter tolerates null after hot reload.
   List<String> get interestTags => _interestTags ?? const [];
+
+  /// Latest heartbeat from the `users` table (UTC). Drives the green online
+  /// dot + "Active X ago" chip — same source the web cards read from.
+  final DateTime? lastActiveAt;
 }
 
 
@@ -139,6 +145,15 @@ Future<UserMatchSets> loadUserMatchSections(SupabaseClient client, String userId
   final busRes = await client.from('profession_business').select('user_id, designation, business_name').inFilter('user_id', ids);
   final stuRes = await client.from('profession_student').select('user_id, course, institution').inFilter('user_id', ids);
   final interestsRes = await client.from('interests').select('user_id, interests').inFilter('user_id', ids);
+  // Tolerant fetch: `users` may be RLS-restricted on some deployments. If the
+  // request fails we just leave [lastActiveAt] empty and fall back to the
+  // existing card UI without an online dot.
+  List<dynamic>? activityRes;
+  try {
+    activityRes = await client.from('users').select('id, last_active_at').inFilter('id', ids) as List<dynamic>?;
+  } catch (_) {
+    activityRes = null;
+  }
 
   final photoRows = (photosRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final contactRows = (contactRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
@@ -148,6 +163,11 @@ Future<UserMatchSets> loadUserMatchSections(SupabaseClient client, String userId
   final busRows = (busRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final stuRows = (stuRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final interestRows = (interestsRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final activityRows = (activityRes ?? const []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final Map<String, DateTime?> lastActiveByUser = {
+    for (final r in activityRows)
+      if (r['id'] != null) r['id'].toString(): parseLastActive(r['last_active_at']),
+  };
 
   bool sameUserId(dynamic a, String uid) =>
       a != null && a.toString().trim().toLowerCase() == uid.trim().toLowerCase();
@@ -264,6 +284,7 @@ Future<UserMatchSets> loadUserMatchSections(SupabaseClient client, String userId
       educationDegree: lastEducationFor(id),
       jobTitle: jobLineFor(id),
       interestTags: interestsListForUser(id),
+      lastActiveAt: lastActiveByUser[id],
     );
   }
 

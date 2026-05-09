@@ -5,6 +5,7 @@ import 'admin_home_screen.dart';
 import 'daily_recommendations_screen.dart';
 import 'identity_verification_screen.dart';
 import 'profile_screen.dart';
+import 'user_activity_tracker.dart';
 import 'user_match_service.dart';
 import 'user_profile_completion.dart';
 import 'widgets/adaptive_network_photo.dart';
@@ -472,6 +473,20 @@ class _MatchTile extends StatelessWidget {
                         top: 8,
                         right: 8,
                         child: Icon(Icons.workspace_premium_rounded, size: 18, color: Colors.amber.shade700),
+                      ),
+                    if (formatActivityTime(m.lastActiveAt).isNotEmpty)
+                      Positioned(
+                        left: 8,
+                        bottom: 8,
+                        right: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: OnlineActivityChip.dark(m.lastActiveAt),
+                        ),
                       ),
                   ],
                 ),

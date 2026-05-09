@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'admin_home_screen.dart';
 import 'member_profile_view_screen.dart';
 import 'profile_social_actions.dart';
+import 'user_activity_tracker.dart';
 import 'user_match_service.dart';
 import 'widgets/adaptive_network_photo.dart';
 
@@ -317,6 +318,10 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18, height: 1.1),
                     ),
+                    if (formatActivityTime(r.lastActiveAt).isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      OnlineActivityChip.dark(r.lastActiveAt),
+                    ],
                     if (eduJob.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Row(

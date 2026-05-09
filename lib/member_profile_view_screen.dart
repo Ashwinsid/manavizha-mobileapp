@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
+import 'user_activity_tracker.dart';
 import 'user_match_service.dart';
 import 'user_profile_completion.dart';
 import 'widgets/adaptive_network_photo.dart';
@@ -104,6 +105,10 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   String? _marital;
   String _about = '';
   List<String> _photoUrls = [];
+  /// Latest heartbeat from `users.last_active_at` — drives the green dot +
+  /// "Active X ago" label under the location row, mirroring the web profile
+  /// detail view.
+  DateTime? _lastActiveAt;
 
   List<(String, String)> _personalRows = [];
   List<(String, String)> _familyRows = [];
@@ -206,6 +211,14 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       await runOptional('social_habits', () async {
         final r = await c.from('social_habits').select('smoking, drinking, parties, pubs').eq('user_id', uid).maybeSingle();
         soc = _asStringKeyedMap(r);
+      });
+      DateTime? lastActiveAt;
+      // `users` table is RLS-restricted on some deployments — failures here
+      // simply hide the activity label rather than break the whole profile.
+      await runOptional('users.last_active_at', () async {
+        final r = await c.from('users').select('last_active_at').eq('id', uid).maybeSingle();
+        final m = _asStringKeyedMap(r);
+        lastActiveAt = parseLastActive(m?['last_active_at']);
       });
 
       final urls = <String>[];
@@ -381,6 +394,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         _lifestyleRows = lifestyleRows;
         _hobbyChips = hobbyChips;
         _interestChips = interestChips;
+        _lastActiveAt = lastActiveAt;
         _loading = false;
       });
     } catch (e, st) {
@@ -508,6 +522,10 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
                     ),
                   ],
                 ),
+                if (formatActivityTime(_lastActiveAt).isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  _activityPill(_lastActiveAt),
+                ],
                 if (_about.isNotEmpty) ...[
                   const SizedBox(height: 18),
                   Text(
@@ -712,6 +730,52 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// "Online Now" / "Active X ago" pill — mirrors the badge in
+  /// `manavizha/components/profile-detail-view.tsx`.
+  Widget _activityPill(DateTime? lastActive) {
+    final label = formatActivityTime(lastActive);
+    if (label.isEmpty) return const SizedBox.shrink();
+    final isOnline = label == 'Online';
+    final bg = isOnline
+        ? const Color(0xFF10B981).withValues(alpha: 0.12)
+        : Colors.black.withValues(alpha: 0.05);
+    final fg = isOnline
+        ? const Color(0xFF047857)
+        : Colors.black.withValues(alpha: 0.6);
+    final border = isOnline
+        ? const Color(0xFF10B981).withValues(alpha: 0.5)
+        : Colors.black.withValues(alpha: 0.08);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: isOnline ? const Color(0xFF10B981) : Colors.black.withValues(alpha: 0.35),
+              shape: BoxShape.circle,
+              boxShadow: isOnline
+                  ? [const BoxShadow(color: Color(0xFF10B981), blurRadius: 8)]
+                  : null,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            isOnline ? 'Online Now' : label,
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: fg),
+          ),
+        ],
       ),
     );
   }

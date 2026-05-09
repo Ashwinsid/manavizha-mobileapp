@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 export 'user_dashboard_page.dart' show UserDashboardPage;
 import 'member_profile_view_screen.dart';
 import 'profile_social_actions.dart';
+import 'user_activity_tracker.dart';
 import 'user_match_service.dart';
 import 'user_profile_completion.dart';
 import 'widgets/adaptive_network_photo.dart';
@@ -257,6 +258,15 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
         c.from('interests').select('user_id, interests').inFilter('user_id', orderedIds),
       ]);
 
+      // Optional 10th query for activity timestamps — `users` may be RLS-restricted
+      // so we tolerate failures and just leave the green dot off.
+      List<dynamic>? activityRaw;
+      try {
+        activityRaw = await c.from('users').select('id, last_active_at').inFilter('id', orderedIds) as List<dynamic>?;
+      } catch (_) {
+        activityRaw = null;
+      }
+
       List<Map<String, dynamic>> mapsFrom(dynamic value) =>
           (value as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
@@ -269,6 +279,11 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
       final stuRows = mapsFrom(batch[6]);
       final settingsRows = mapsFrom(batch[7]);
       final interestsRows = mapsFrom(batch[8]);
+      final activityRows = (activityRaw ?? const []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      final Map<String, DateTime?> lastActiveByUser = {
+        for (final r in activityRows)
+          if (r['id'] != null) r['id'].toString(): parseLastActive(r['last_active_at']),
+      };
 
       Map<String, dynamic>? firstByUser(List<Map<String, dynamic>> rows, String id) {
         for (final r in rows) {
@@ -352,6 +367,7 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
             educationDegree: latestEducation(id),
             jobTitle: jobTitle,
             interestTags: interestTags,
+            lastActiveAt: lastActiveByUser[id],
           ),
         );
       }
@@ -758,6 +774,10 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Spacer(),
+                        if (formatActivityTime(m.lastActiveAt).isNotEmpty) ...[
+                          OnlineActivityChip.dark(m.lastActiveAt),
+                          const SizedBox(height: 6),
+                        ],
                         Text(
                           '${m.name}, ${m.age ?? '—'}',
                           maxLines: 1,
@@ -881,6 +901,10 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Spacer(),
+                        if (formatActivityTime(m.lastActiveAt).isNotEmpty) ...[
+                          OnlineActivityChip.dark(m.lastActiveAt),
+                          const SizedBox(height: 6),
+                        ],
                         Text(
                           '${m.name}, ${m.age ?? '—'}',
                           maxLines: 1,

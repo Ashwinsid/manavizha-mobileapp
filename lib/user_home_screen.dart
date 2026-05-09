@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'profile_screen.dart';
+import 'user_activity_tracker.dart';
 import 'user_pages.dart';
 import 'user_profile_completion.dart';
 import 'widgets/radial_menu.dart';
@@ -15,7 +16,7 @@ class UserHomeScreen extends StatefulWidget {
   State<UserHomeScreen> createState() => _UserHomeScreenState();
 }
 
-class _UserHomeScreenState extends State<UserHomeScreen> {
+class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObserver {
   static const Color _brand = Color(0xFF2FA086);
 
   int _currentIndex = 0;
@@ -81,6 +82,11 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Mirrors `manavizha/components/user-activity-tracker.tsx` — fire an
+    // immediate heartbeat the moment the home shell mounts, then keep a
+    // `Timer.periodic(1m)` running while we're in the foreground.
+    UserActivityTracker.instance.start();
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadAppBarProfile());
     _pages = [
       UserDashboardPage(
@@ -90,6 +96,23 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       const LikesPage(),
       const MessagesPage(),
     ];
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    UserActivityTracker.instance.stop();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // When the OS brings the app back from background, fire one immediate
+    // heartbeat so other members see the green dot without a 60s lag.
+    if (state == AppLifecycleState.resumed) {
+      UserActivityTracker.instance.pulseNow();
+    }
   }
 
   void _dismissMenuAndGoTo(BuildContext menuContext, int index) {
