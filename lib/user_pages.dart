@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 export 'user_dashboard_page.dart' show UserDashboardPage;
+import 'compatibility_sheet.dart';
+import 'dashboard_shell_service.dart';
 import 'member_profile_view_screen.dart';
 import 'profile_social_actions.dart';
 import 'user_activity_tracker.dart';
@@ -9,21 +11,801 @@ import 'user_match_service.dart';
 import 'user_profile_completion.dart';
 import 'widgets/adaptive_network_photo.dart';
 
-class MatchesPage extends StatelessWidget {
+/// Categories on the Browse Profiles page — ordered to match the web sidebar
+/// in `manavizha/components/browse-profiles.tsx::menuGroups`.
+enum BrowseCategory {
+  allMatches,
+  horoscope,
+  star,
+  shortlistedByMe,
+  whoShortlistedMe,
+  whoViewedMe,
+  profilesIViewed,
+  newMembers,
+  withPhotos,
+}
+
+extension on BrowseCategory {
+  String get label {
+    switch (this) {
+      case BrowseCategory.allMatches:
+        return 'All matches';
+      case BrowseCategory.horoscope:
+        return 'Horoscope';
+      case BrowseCategory.star:
+        return 'Star';
+      case BrowseCategory.shortlistedByMe:
+        return 'Shortlisted';
+      case BrowseCategory.whoShortlistedMe:
+        return 'Shortlisted me';
+      case BrowseCategory.whoViewedMe:
+        return 'Viewed me';
+      case BrowseCategory.profilesIViewed:
+        return 'I viewed';
+      case BrowseCategory.newMembers:
+        return 'New';
+      case BrowseCategory.withPhotos:
+        return 'With photos';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case BrowseCategory.allMatches:
+        return Icons.people_alt_rounded;
+      case BrowseCategory.horoscope:
+        return Icons.auto_awesome_rounded;
+      case BrowseCategory.star:
+        return Icons.star_rounded;
+      case BrowseCategory.shortlistedByMe:
+        return Icons.bookmark_rounded;
+      case BrowseCategory.whoShortlistedMe:
+        return Icons.bookmark_added_rounded;
+      case BrowseCategory.whoViewedMe:
+        return Icons.visibility_rounded;
+      case BrowseCategory.profilesIViewed:
+        return Icons.history_rounded;
+      case BrowseCategory.newMembers:
+        return Icons.fiber_new_rounded;
+      case BrowseCategory.withPhotos:
+        return Icons.photo_library_rounded;
+    }
+  }
+}
+
+/// Browse profiles screen — Flutter port of
+/// `manavizha/components/browse-profiles.tsx`. Shipped categories: All
+/// matches, Horoscope, Star, Shortlisted-by-me, Shortlisted-me,
+/// Viewed-me, I-viewed, New (last 30 days), With-photos. Per-card actions:
+/// View (tap), Like (interest), Shortlist; Compatibility on long-press.
+class MatchesPage extends StatefulWidget {
   const MatchesPage({super.key});
 
   @override
+  State<MatchesPage> createState() => _MatchesPageState();
+}
+
+class _MatchesPageState extends State<MatchesPage> {
+  static const Color _brand = Color(0xFF2FA086);
+
+  bool _loading = true;
+  String? _error;
+
+  bool _applyPreferences = true;
+  BrowseCategory _category = BrowseCategory.allMatches;
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  List<MatchPreview> _all = <MatchPreview>[];
+  Set<String> _ignoredIds = <String>{};
+  Set<String> _shortlistedByMe = <String>{};
+  Set<String> _shortlistedMe = <String>{};
+  Set<String> _likedByMe = <String>{};
+  Set<String> _viewedByMe = <String>{};
+  Set<String> _viewedMe = <String>{};
+
+  bool _isPremium = false;
+  String? _busyAction; // userId currently doing a like/shortlist call.
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final client = Supabase.instance.client;
+    final uid = client.auth.currentUser?.id;
+    if (uid == null) {
+      setState(() {
+        _loading = false;
+        _error = 'Please sign in to browse profiles.';
+      });
+      return;
+    }
+    try {
+      final results = await Future.wait([
+        loadUserMatchSections(client, uid, applyPreferences: _applyPreferences),
+        loadInteractionCounts(client, uid),
+        loadShortlistIdSets(client, uid),
+        loadIgnoredProfileIds(client, uid),
+        _loadIsPremium(client, uid),
+        _loadUserProfileSnapshotSafe(client, uid),
+      ]);
+      final sets = results[0] as UserMatchSets;
+      final counts = results[1] as InteractionCounts;
+      final shortlists = results[2] as ({Set<String> byMe, Set<String> ofMe});
+      final ignored = results[3] as Set<String>;
+      final premium = results[4] as bool;
+      if (!mounted) return;
+      setState(() {
+        _all = sets.allMatches;
+        _likedByMe = counts.iLikedIds.toSet();
+        _viewedByMe = counts.iViewedIds.toSet();
+        _viewedMe = counts.viewedMeIds.toSet();
+        _shortlistedByMe = shortlists.byMe;
+        _shortlistedMe = shortlists.ofMe;
+        _ignoredIds = ignored;
+        _isPremium = premium;
+        _loading = false;
+      });
+    } catch (e, st) {
+      debugPrint('MatchesPage refresh: $e\n$st');
+      if (!mounted) return;
+      setState(() {
+        _error = 'Could not load matches.';
+        _loading = false;
+      });
+    }
+  }
+
+  Future<bool> _loadIsPremium(SupabaseClient client, String userId) async {
+    try {
+      final row = await client.from('user_settings').select('is_premium').eq('user_id', userId).maybeSingle();
+      return row != null && row['is_premium'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<UserProfileSnapshot?> _loadUserProfileSnapshotSafe(SupabaseClient client, String userId) async {
+    try {
+      return await loadUserProfileSnapshot(client, userId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  List<MatchPreview> get _visibleProfiles {
+    final now = DateTime.now();
+    final thirtyDaysAgo = now.subtract(const Duration(days: 30));
+    Iterable<MatchPreview> rows = _all.where((m) => !_ignoredIds.contains(m.userId));
+
+    switch (_category) {
+      case BrowseCategory.allMatches:
+        break;
+      case BrowseCategory.horoscope:
+      case BrowseCategory.star:
+        rows = rows.where((m) => (m.star ?? '').isNotEmpty);
+        break;
+      case BrowseCategory.shortlistedByMe:
+        rows = rows.where((m) => _shortlistedByMe.contains(m.userId));
+        break;
+      case BrowseCategory.whoShortlistedMe:
+        rows = rows.where((m) => _shortlistedMe.contains(m.userId));
+        break;
+      case BrowseCategory.whoViewedMe:
+        rows = rows.where((m) => _viewedMe.contains(m.userId));
+        break;
+      case BrowseCategory.profilesIViewed:
+        rows = rows.where((m) => _viewedByMe.contains(m.userId));
+        break;
+      case BrowseCategory.newMembers:
+        rows = rows.where((m) => m.createdAt != null && m.createdAt!.isAfter(thirtyDaysAgo));
+        break;
+      case BrowseCategory.withPhotos:
+        rows = rows.where((m) => (m.photoUrl ?? '').isNotEmpty);
+        break;
+    }
+
+    final term = _searchCtrl.text.trim().toLowerCase();
+    if (term.isNotEmpty) {
+      rows = rows.where((m) {
+        return m.name.toLowerCase().contains(term) || m.userId.toLowerCase().contains(term);
+      });
+    }
+    return rows.toList(growable: false);
+  }
+
+  Future<void> _toggleLike(MatchPreview m) async {
+    final client = Supabase.instance.client;
+    final uid = client.auth.currentUser?.id;
+    if (uid == null) return;
+    if (_likedByMe.contains(m.userId)) {
+      // Web's POST /api/likes is insert-only; "unlike" is not a Browse-card
+      // action there. Mirror that by surfacing an info toast instead.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Interest already sent.')),
+      );
+      return;
+    }
+    setState(() => _busyAction = m.userId);
+    final err = await ProfileSocialActions.sendInterest(
+      client: client,
+      currentUserId: uid,
+      targetUserId: m.userId,
+    );
+    if (!mounted) return;
+    setState(() {
+      if (err == null) _likedByMe.add(m.userId);
+      _busyAction = null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(err ?? 'Interest sent to ${m.name}.')),
+    );
+  }
+
+  Future<void> _toggleShortlist(MatchPreview m) async {
+    final client = Supabase.instance.client;
+    final uid = client.auth.currentUser?.id;
+    if (uid == null) return;
+    final remove = _shortlistedByMe.contains(m.userId);
+    setState(() => _busyAction = m.userId);
+    final err = await ProfileSocialActions.toggleShortlist(
+      client: client,
+      currentUserId: uid,
+      targetUserId: m.userId,
+      remove: remove,
+    );
+    if (!mounted) return;
+    setState(() {
+      if (err == null) {
+        if (remove) {
+          _shortlistedByMe.remove(m.userId);
+        } else {
+          _shortlistedByMe.add(m.userId);
+        }
+      }
+      _busyAction = null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(err ?? (remove ? 'Removed from shortlist.' : 'Added to shortlist.'))),
+    );
+  }
+
+  Future<void> _ignore(MatchPreview m) async {
+    final client = Supabase.instance.client;
+    final uid = client.auth.currentUser?.id;
+    if (uid == null) return;
+    setState(() => _busyAction = m.userId);
+    final err = await ProfileSocialActions.ignoreProfile(
+      client: client,
+      currentUserId: uid,
+      targetUserId: m.userId,
+    );
+    if (!mounted) return;
+    setState(() {
+      if (err == null) _ignoredIds.add(m.userId);
+      _busyAction = null;
+    });
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+    }
+  }
+
+  void _openProfile(MatchPreview m) {
+    pushMemberProfileFullscreen(context, m.userId);
+    // Optimistic insert into "I viewed" so the category filters update without
+    // waiting for the next refresh.
+    _viewedByMe.add(m.userId);
+  }
+
+  void _openCompatibility(MatchPreview m) {
+    showCompatibilitySheet(
+      context,
+      targetUserId: m.userId,
+      targetName: m.name,
+      isPremium: _isPremium,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const Center(
+    final visible = _visibleProfiles;
+    return RefreshIndicator(
+      color: _brand,
+      onRefresh: _refresh,
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+            sliver: SliverToBoxAdapter(
+              child: _SearchBar(
+                controller: _searchCtrl,
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: SizedBox(
+              height: 44,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: BrowseCategory.values.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 8),
+                itemBuilder: (context, i) {
+                  final c = BrowseCategory.values[i];
+                  final selected = _category == c;
+                  return ChoiceChip(
+                    label: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(c.icon, size: 14, color: selected ? Colors.white : _brand),
+                        const SizedBox(width: 6),
+                        Text(c.label),
+                      ],
+                    ),
+                    selected: selected,
+                    selectedColor: _brand,
+                    backgroundColor: Colors.white,
+                    labelStyle: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                      color: selected ? Colors.white : Colors.black87,
+                    ),
+                    side: BorderSide(color: selected ? _brand : Colors.black.withValues(alpha: 0.08)),
+                    onSelected: (_) => setState(() => _category = c),
+                  );
+                },
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            sliver: SliverToBoxAdapter(
+              child: _PreferencesBar(
+                applyPreferences: _applyPreferences,
+                resultCount: visible.length,
+                onChanged: (v) {
+                  setState(() => _applyPreferences = v);
+                  _refresh();
+                },
+              ),
+            ),
+          ),
+          if (_loading)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: CircularProgressIndicator(color: _brand)),
+            )
+          else if (_error != null)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: Text(_error!)),
+            )
+          else if (visible.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: _EmptyState(category: _category),
+            )
+          else
+            SliverList.separated(
+              itemCount: visible.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 10),
+              itemBuilder: (context, i) {
+                final m = visible[i];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _BrowseCard(
+                    m: m,
+                    liked: _likedByMe.contains(m.userId),
+                    shortlisted: _shortlistedByMe.contains(m.userId),
+                    shortlistedMe: _shortlistedMe.contains(m.userId),
+                    busy: _busyAction == m.userId,
+                    onTap: () => _openProfile(m),
+                    onLongPress: () => _openCompatibility(m),
+                    onLike: () => _toggleLike(m),
+                    onShortlist: () => _toggleShortlist(m),
+                    onIgnore: () => _ignore(m),
+                  ),
+                );
+              },
+            ),
+          const SliverPadding(padding: EdgeInsets.only(bottom: 100)),
+        ],
+      ),
+    );
+  }
+}
+
+class _SearchBar extends StatelessWidget {
+  const _SearchBar({required this.controller, required this.onChanged});
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.black.withValues(alpha: 0.08)),
+        ),
+        child: TextField(
+          controller: controller,
+          onChanged: onChanged,
+          decoration: const InputDecoration(
+            hintText: 'Search by name or member ID…',
+            border: InputBorder.none,
+            prefixIcon: Icon(Icons.search_rounded),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PreferencesBar extends StatelessWidget {
+  const _PreferencesBar({
+    required this.applyPreferences,
+    required this.resultCount,
+    required this.onChanged,
+  });
+
+  final bool applyPreferences;
+  final int resultCount;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            '$resultCount profiles',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: Colors.black.withValues(alpha: 0.55),
+              letterSpacing: 0.6,
+            ),
+          ),
+        ),
+        const Text(
+          'Apply preferences',
+          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+        ),
+        Switch.adaptive(
+          value: applyPreferences,
+          activeThumbColor: _MatchesPageState._brand,
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.category});
+  final BrowseCategory category;
+
+  @override
+  Widget build(BuildContext context) {
+    String msg;
+    switch (category) {
+      case BrowseCategory.allMatches:
+        msg = 'No profiles match your filters yet.';
+        break;
+      case BrowseCategory.horoscope:
+      case BrowseCategory.star:
+        msg = 'No matches with horoscope details yet.';
+        break;
+      case BrowseCategory.shortlistedByMe:
+        msg = "You haven't shortlisted anyone yet.";
+        break;
+      case BrowseCategory.whoShortlistedMe:
+        msg = "Nobody has shortlisted you in the last 30 days.";
+        break;
+      case BrowseCategory.whoViewedMe:
+        msg = 'No one has viewed your profile recently.';
+        break;
+      case BrowseCategory.profilesIViewed:
+        msg = "You haven't viewed any profile yet.";
+        break;
+      case BrowseCategory.newMembers:
+        msg = 'No new members in the last 30 days.';
+        break;
+      case BrowseCategory.withPhotos:
+        msg = 'No matches with photos to show.';
+        break;
+    }
+    return Padding(
+      padding: const EdgeInsets.all(40),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.people_outline, size: 80, color: Color(0xFF2FA086)),
-          SizedBox(height: 16),
-          Text('Matches', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          Text('Browse profiles — coming soon', style: TextStyle(color: Colors.black54)),
+          Icon(category.icon, size: 56, color: _MatchesPageState._brand.withValues(alpha: 0.5)),
+          const SizedBox(height: 12),
+          Text(
+            msg,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: Colors.black.withValues(alpha: 0.55)),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _BrowseCard extends StatelessWidget {
+  const _BrowseCard({
+    required this.m,
+    required this.liked,
+    required this.shortlisted,
+    required this.shortlistedMe,
+    required this.busy,
+    required this.onTap,
+    required this.onLongPress,
+    required this.onLike,
+    required this.onShortlist,
+    required this.onIgnore,
+  });
+
+  final MatchPreview m;
+  final bool liked;
+  final bool shortlisted;
+  final bool shortlistedMe;
+  final bool busy;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+  final VoidCallback onLike;
+  final VoidCallback onShortlist;
+  final VoidCallback onIgnore;
+
+  static const Color _brand = _MatchesPageState._brand;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+          ),
+          // [IntrinsicHeight] is required because this card is rendered inside a
+          // [SliverList] (unbounded vertical constraints). The inner Row uses
+          // `crossAxisAlignment: stretch` and the inner Column uses
+          // `mainAxisAlignment: spaceBetween` — both need a bounded height to
+          // lay out, otherwise we hit "BoxConstraints forces an infinite height".
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  width: 110,
+                  height: 154,
+                  child: ClipRRect(
+                  borderRadius: const BorderRadius.horizontal(left: Radius.circular(20)),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if ((m.photoUrl ?? '').isNotEmpty)
+                        AdaptiveNetworkPhoto(
+                          imageUrl: m.photoUrl!,
+                          blurSigma: 14,
+                          errorBuilder: (context, error, stackTrace) => Container(
+                            color: _brand.withValues(alpha: 0.1),
+                            child: Icon(Icons.person_rounded, size: 40, color: _brand.withValues(alpha: 0.5)),
+                          ),
+                        )
+                      else
+                        Container(
+                          color: _brand.withValues(alpha: 0.1),
+                          child: Icon(Icons.person_rounded, size: 40, color: _brand.withValues(alpha: 0.5)),
+                        ),
+                      if (m.isPremium)
+                        const Positioned(
+                          top: 6,
+                          right: 6,
+                          child: Icon(Icons.workspace_premium_rounded, size: 18, color: Color(0xFFEAB308)),
+                        ),
+                      if (formatActivityTime(m.lastActiveAt).isNotEmpty)
+                        Positioned(
+                          left: 6,
+                          right: 6,
+                          bottom: 6,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.55),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: OnlineActivityChip.dark(m.lastActiveAt),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 8, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  m.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
+                                ),
+                              ),
+                              if (shortlistedMe)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: _brand.withValues(alpha: 0.10),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: const Text(
+                                    'SAVED YOU',
+                                    style: TextStyle(
+                                      color: _brand,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            m.age != null ? '${m.age} yrs • ${m.location}' : m.location,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 11, color: Colors.black.withValues(alpha: 0.55)),
+                          ),
+                          const SizedBox(height: 4),
+                          if ((m.jobTitle ?? '').isNotEmpty)
+                            Text(
+                              m.jobTitle!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 11, color: Colors.black.withValues(alpha: 0.55)),
+                            ),
+                          if ((m.educationDegree ?? '').isNotEmpty)
+                            Text(
+                              m.educationDegree!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 11, color: Colors.black.withValues(alpha: 0.55)),
+                            ),
+                          if ((m.star ?? '').isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: _brand.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  m.star!.toUpperCase(),
+                                  style: const TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.8,
+                                    color: _brand,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          _ActionIcon(
+                            icon: liked ? Icons.favorite_rounded : Icons.favorite_outline_rounded,
+                            color: liked ? Colors.pink : Colors.black54,
+                            tooltip: liked ? 'Interest sent' : 'Send interest',
+                            onTap: busy ? null : onLike,
+                            busy: busy,
+                          ),
+                          const SizedBox(width: 4),
+                          _ActionIcon(
+                            icon: shortlisted ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded,
+                            color: shortlisted ? _brand : Colors.black54,
+                            tooltip: shortlisted ? 'Remove from shortlist' : 'Shortlist',
+                            onTap: busy ? null : onShortlist,
+                          ),
+                          const Spacer(),
+                          PopupMenuButton<String>(
+                            icon: Icon(Icons.more_vert_rounded, color: Colors.black.withValues(alpha: 0.55)),
+                            onSelected: (value) {
+                              switch (value) {
+                                case 'view':
+                                  onTap();
+                                  break;
+                                case 'compat':
+                                  onLongPress();
+                                  break;
+                                case 'ignore':
+                                  onIgnore();
+                                  break;
+                              }
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(value: 'view', child: Text('View profile')),
+                              PopupMenuItem(value: 'compat', child: Text('Compatibility')),
+                              PopupMenuItem(value: 'ignore', child: Text('Ignore')),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionIcon extends StatelessWidget {
+  const _ActionIcon({
+    required this.icon,
+    required this.color,
+    required this.tooltip,
+    required this.onTap,
+    this.busy = false,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String tooltip;
+  final VoidCallback? onTap;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onTap,
+      icon: busy
+          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+          : Icon(icon, color: color, size: 22),
     );
   }
 }

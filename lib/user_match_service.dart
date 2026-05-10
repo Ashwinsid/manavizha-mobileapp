@@ -61,6 +61,9 @@ class MatchPreview {
     this.jobTitle,
     List<String>? interestTags,
     this.lastActiveAt,
+    this.createdAt,
+    this.star,
+    this.zodiacSign,
   }) : _interestTags = interestTags;
 
   final String userId;
@@ -86,6 +89,16 @@ class MatchPreview {
   /// Latest heartbeat from the `users` table (UTC). Drives the green online
   /// dot + "Active X ago" chip — same source the web cards read from.
   final DateTime? lastActiveAt;
+
+  /// `personal_details.created_at` — populated by [loadUserMatchSections] and
+  /// used by the Browse "New members" filter (last 30 days).
+  final DateTime? createdAt;
+
+  /// Optional birth star and rashi from `horoscope_details`. Populated by
+  /// [loadUserMatchSections]; used by the Browse Star / Horoscope category
+  /// filters and by the porutham score.
+  final String? star;
+  final String? zodiacSign;
 }
 
 
@@ -103,7 +116,16 @@ class UserMatchSets {
 
 /// Loads “Daily recommendations”, “All matches”, and “New members” the same way as
 /// [manavizha/components/user-landing-page.tsx] (seeded daily shuffle + preference filters).
-Future<UserMatchSets> loadUserMatchSections(SupabaseClient client, String userId) async {
+///
+/// When [applyPreferences] is `false`, age preferences from
+/// `partner_preferences` are ignored. This mirrors the
+/// "Apply preferences" toggle on the web Browse Profiles page so it can
+/// expand the dataset on demand.
+Future<UserMatchSets> loadUserMatchSections(
+  SupabaseClient client,
+  String userId, {
+  bool applyPreferences = true,
+}) async {
   final userRow = await client.from('personal_details').select('sex').eq('user_id', userId).maybeSingle();
   if (userRow == null) {
     return const UserMatchSets(daily: [], allMatches: [], newMatches: []);
@@ -111,7 +133,9 @@ Future<UserMatchSets> loadUserMatchSections(SupabaseClient client, String userId
   final sex = (userRow['sex'] as String? ?? '').toLowerCase();
   final targetGender = sex.contains('male') && !sex.contains('female') ? 'Female' : 'Male';
 
-  final prefs = await client.from('partner_preferences').select('min_age, max_age').eq('user_id', userId).maybeSingle();
+  final prefs = applyPreferences
+      ? await client.from('partner_preferences').select('min_age, max_age').eq('user_id', userId).maybeSingle()
+      : null;
   final minAge = prefs != null ? prefs['min_age'] as int? : null;
   final maxAge = prefs != null ? prefs['max_age'] as int? : null;
 
@@ -154,6 +178,21 @@ Future<UserMatchSets> loadUserMatchSections(SupabaseClient client, String userId
   } catch (_) {
     activityRes = null;
   }
+  // Tolerant horoscope fetch — drives the Browse Star / Horoscope filters.
+  List<dynamic>? horoscopeRes;
+  try {
+    horoscopeRes = await client
+        .from('horoscope_details')
+        .select('user_id, star, zodiac_sign')
+        .inFilter('user_id', ids) as List<dynamic>?;
+  } catch (_) {
+    horoscopeRes = null;
+  }
+  final horoscopeRows = (horoscopeRes ?? const []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final Map<String, Map<String, dynamic>> horoscopeByUser = {
+    for (final r in horoscopeRows)
+      if (r['user_id'] != null) r['user_id'].toString(): r,
+  };
 
   final photoRows = (photosRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final contactRows = (contactRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
@@ -274,6 +313,7 @@ Future<UserMatchSets> loadUserMatchSections(SupabaseClient client, String userId
       }
     }
 
+    final horo = horoscopeByUser[id];
     return MatchPreview(
       userId: id,
       name: p['name']?.toString().trim().isNotEmpty == true ? p['name'].toString() : 'Member',
@@ -285,6 +325,9 @@ Future<UserMatchSets> loadUserMatchSections(SupabaseClient client, String userId
       jobTitle: jobLineFor(id),
       interestTags: interestsListForUser(id),
       lastActiveAt: lastActiveByUser[id],
+      createdAt: DateTime.tryParse(p['created_at']?.toString() ?? ''),
+      star: horo?['star']?.toString(),
+      zodiacSign: horo?['zodiac_sign']?.toString(),
     );
   }
 
@@ -470,4 +513,57 @@ Future<List<MatchPreview>> loadMatchPreviewsByIds(
     if (p != null) ordered.add(p);
   }
   return ordered;
+}
+
+/// Return shortlist id-sets for [userId]:
+///  - `byMe` = ids the current user has shortlisted.
+///  - `ofMe` = ids of users who have shortlisted the current user.
+///
+/// Tolerant of RLS / network errors — falls back to empty sets.
+Future<({Set<String> byMe, Set<String> ofMe})> loadShortlistIdSets(
+  SupabaseClient client,
+  String userId,
+) async {
+  Future<List<Map<String, dynamic>>> safe(String column, String value) async {
+    try {
+      final r = await client
+          .from('shortlists')
+          .select('user_id, shortlisted_user_id')
+          .eq(column, value)
+          .limit(500);
+      return (r as List<dynamic>).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  final byMeRows = await safe('user_id', userId);
+  final ofMeRows = await safe('shortlisted_user_id', userId);
+  final byMe = <String>{
+    for (final r in byMeRows)
+      if (r['shortlisted_user_id'] != null) r['shortlisted_user_id'].toString(),
+  };
+  final ofMe = <String>{
+    for (final r in ofMeRows)
+      if (r['user_id'] != null) r['user_id'].toString(),
+  };
+  return (byMe: byMe, ofMe: ofMe);
+}
+
+/// Return the set of user ids the current user has hidden via the
+/// `ignored_profiles` table (manavizha `/api/ignores`). RLS-tolerant.
+Future<Set<String>> loadIgnoredProfileIds(SupabaseClient client, String userId) async {
+  try {
+    final r = await client
+        .from('ignored_profiles')
+        .select('ignored_user_id')
+        .eq('user_id', userId)
+        .limit(500);
+    return {
+      for (final row in (r as List<dynamic>))
+        if ((row as Map)['ignored_user_id'] != null) (row['ignored_user_id']).toString(),
+    };
+  } catch (_) {
+    return const {};
+  }
 }
