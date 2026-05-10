@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
+import 'compatibility_sheet.dart';
 import 'daily_recommendations_screen.dart';
+import 'dashboard_shell_service.dart';
 import 'identity_verification_screen.dart';
 import 'profile_screen.dart';
 import 'user_activity_tracker.dart';
@@ -36,10 +39,27 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
   List<MatchPreview> _allMatches = <MatchPreview>[];
   List<MatchPreview> _newMatches = <MatchPreview>[];
 
+  // Activity carousels + counts (members who interacted with my profile).
+  bool _activityLoading = true;
+  InteractionCounts? _counts;
+  List<MatchPreview> _whoViewedMe = <MatchPreview>[];
+  List<MatchPreview> _profilesIViewed = <MatchPreview>[];
+  List<MatchPreview> _whoExpressedInterest = <MatchPreview>[];
+
+  // Sidebar quick search.
+  final TextEditingController _searchCtrl = TextEditingController();
+  bool _searching = false;
+
   @override
   void initState() {
     super.initState();
     _refresh();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   @override
@@ -52,9 +72,13 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
       _daily = <MatchPreview>[];
       _allMatches = <MatchPreview>[];
       _newMatches = <MatchPreview>[];
+      _whoViewedMe = <MatchPreview>[];
+      _profilesIViewed = <MatchPreview>[];
+      _whoExpressedInterest = <MatchPreview>[];
     });
     if (uid != null) {
       _loadMatchSections(uid);
+      _loadActivitySections(uid);
     }
   }
 
@@ -90,7 +114,100 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
       });
     }
 
-    await _loadMatchSections(uid);
+    await Future.wait([
+      _loadMatchSections(uid),
+      _loadActivitySections(uid),
+    ]);
+  }
+
+  Future<void> _loadActivitySections(String userId) async {
+    final client = Supabase.instance.client;
+    setState(() => _activityLoading = true);
+    try {
+      final counts = await loadInteractionCounts(client, userId);
+      // Cap to a reasonable preview window per carousel (most-recent first).
+      final cutoff = DateTime.now().subtract(const Duration(days: 30));
+      bool isFresh(String id, Map<String, DateTime> at) {
+        final t = at[id];
+        return t != null && t.isAfter(cutoff);
+      }
+
+      final viewedIds = counts.viewedMeIds.where((id) => isFresh(id, counts.viewedMeAt)).take(20).toList();
+      final interestedIds = counts.likedMeIds.where((id) => isFresh(id, counts.likedMeAt)).take(20).toList();
+      final iViewedIds = counts.iViewedIds.take(20).toList();
+
+      final results = await Future.wait([
+        loadMatchPreviewsByIds(client, viewedIds),
+        loadMatchPreviewsByIds(client, iViewedIds),
+        loadMatchPreviewsByIds(client, interestedIds),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _counts = counts;
+        _whoViewedMe = results[0];
+        _profilesIViewed = results[1];
+        _whoExpressedInterest = results[2];
+        _activityLoading = false;
+      });
+    } catch (e, st) {
+      debugPrint('UserDashboard activity: $e\n$st');
+      if (!mounted) return;
+      setState(() {
+        _counts = const InteractionCounts(
+          iLiked: 0,
+          likedMe: 0,
+          mutual: 0,
+          iLikedIds: [],
+          likedMeIds: [],
+          iViewedIds: [],
+          viewedMeIds: [],
+          viewedMeAt: {},
+          likedMeAt: {},
+        );
+        _whoViewedMe = <MatchPreview>[];
+        _profilesIViewed = <MatchPreview>[];
+        _whoExpressedInterest = <MatchPreview>[];
+        _activityLoading = false;
+      });
+    }
+  }
+
+  Future<void> _runQuickSearch() async {
+    final raw = _searchCtrl.text.trim();
+    if (raw.isEmpty || _searching) return;
+    setState(() => _searching = true);
+    try {
+      final client = Supabase.instance.client;
+      final myUid = client.auth.currentUser?.id;
+      if (raw == myUid) {
+        _showSearchError("That's your own ID.");
+        return;
+      }
+      final res = await resolveUserById(client, raw);
+      if (!mounted) return;
+      if (res == null) {
+        _showSearchError('No member found with that ID.');
+        return;
+      }
+      _searchCtrl.clear();
+      await pushMemberProfileFullscreen(context, res.userId);
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  void _showSearchError(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  void _openCompatibility(MatchPreview m) {
+    showCompatibilitySheet(
+      context,
+      targetUserId: m.userId,
+      targetName: m.name,
+      isPremium: _snapshot?.isPremium ?? false,
+    );
   }
 
   Future<void> _loadMatchSections(String userId) async {
@@ -199,12 +316,46 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
     final showProgress = !complete;
     final carouselTop = (showVerifyBanner || showProgress) ? 8.0 : 12.0;
 
+    final trustScore = calculateTrustScore(
+      photoVerified: snap.photoVerified,
+      completionPercentage: snap.completionPercent,
+      photoCount: snap.userPhotoCount,
+      hasFamilyPhoto: snap.hasFamilyPhoto,
+    );
+
     return RefreshIndicator(
       color: _brand,
       onRefresh: _refresh,
       child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+            sliver: SliverToBoxAdapter(
+              child: _SearchByIdField(
+                controller: _searchCtrl,
+                searching: _searching,
+                onSubmit: _runQuickSearch,
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            sliver: SliverToBoxAdapter(
+              child: _TrustScoreTile(
+                trustScore: trustScore,
+                onEdit: _openEditor,
+                photoVerified: snap.photoVerified,
+                completionPercent: snap.completionPercent,
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            sliver: SliverToBoxAdapter(
+              child: _InteractionCountsCard(counts: _counts, loading: _activityLoading),
+            ),
+          ),
           if (showVerifyBanner)
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
@@ -255,6 +406,7 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
                 loading: _sectionsLoading,
                 onViewAll: () => _openDailyRecommendations(),
                 onProfileTap: (m) => _openDailyRecommendations(initialUserId: m.userId),
+                onProfileLongPress: _openCompatibility,
               ),
             ),
           ),
@@ -266,6 +418,8 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
                 subtitle: 'Based on your preferences',
                 items: _allMatches,
                 loading: _sectionsLoading,
+                onProfileTap: (m) => pushMemberProfileFullscreen(context, m.userId),
+                onProfileLongPress: _openCompatibility,
               ),
             ),
           ),
@@ -277,6 +431,47 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
                 subtitle: 'Joined in the last 30 days',
                 items: _newMatches,
                 loading: _sectionsLoading,
+                onProfileTap: (m) => pushMemberProfileFullscreen(context, m.userId),
+                onProfileLongPress: _openCompatibility,
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+            sliver: SliverToBoxAdapter(
+              child: _CarouselSection(
+                title: 'Who viewed me',
+                subtitle: 'Members who looked at your profile in the last 30 days',
+                items: _whoViewedMe,
+                loading: _activityLoading,
+                onProfileTap: (m) => pushMemberProfileFullscreen(context, m.userId),
+                onProfileLongPress: _openCompatibility,
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+            sliver: SliverToBoxAdapter(
+              child: _CarouselSection(
+                title: 'Interest received',
+                subtitle: 'Members who liked you in the last 30 days',
+                items: _whoExpressedInterest,
+                loading: _activityLoading,
+                onProfileTap: (m) => pushMemberProfileFullscreen(context, m.userId),
+                onProfileLongPress: _openCompatibility,
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+            sliver: SliverToBoxAdapter(
+              child: _CarouselSection(
+                title: 'Profiles I viewed',
+                subtitle: 'People you recently checked out',
+                items: _profilesIViewed,
+                loading: _activityLoading,
+                onProfileTap: (m) => pushMemberProfileFullscreen(context, m.userId),
+                onProfileLongPress: _openCompatibility,
               ),
             ),
           ),
@@ -365,6 +560,7 @@ class _CarouselSection extends StatelessWidget {
     required this.loading,
     this.onViewAll,
     this.onProfileTap,
+    this.onProfileLongPress,
   });
 
   final String title;
@@ -373,6 +569,7 @@ class _CarouselSection extends StatelessWidget {
   final bool loading;
   final VoidCallback? onViewAll;
   final void Function(MatchPreview m)? onProfileTap;
+  final void Function(MatchPreview m)? onProfileLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -420,6 +617,7 @@ class _CarouselSection extends StatelessWidget {
                         return _MatchTile(
                           m: m,
                           onTap: onProfileTap != null ? () => onProfileTap!(m) : null,
+                          onLongPress: onProfileLongPress != null ? () => onProfileLongPress!(m) : null,
                         );
                       },
                     ),
@@ -430,10 +628,11 @@ class _CarouselSection extends StatelessWidget {
 }
 
 class _MatchTile extends StatelessWidget {
-  const _MatchTile({required this.m, this.onTap});
+  const _MatchTile({required this.m, this.onTap, this.onLongPress});
 
   final MatchPreview m;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -444,6 +643,7 @@ class _MatchTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         child: InkWell(
           onTap: onTap,
+          onLongPress: onLongPress,
           borderRadius: BorderRadius.circular(18),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -515,6 +715,265 @@ class _MatchTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SearchByIdField extends StatelessWidget {
+  const _SearchByIdField({
+    required this.controller,
+    required this.searching,
+    required this.onSubmit,
+  });
+
+  final TextEditingController controller;
+  final bool searching;
+  final VoidCallback onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: _UserDashboardPageState._brand,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.search_rounded, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextField(
+                controller: controller,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => onSubmit(),
+                decoration: const InputDecoration(
+                  isDense: true,
+                  hintText: 'Search by member ID…',
+                  border: InputBorder.none,
+                ),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+                inputFormatters: [
+                  FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                ],
+              ),
+            ),
+            searching
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: _UserDashboardPageState._brand),
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.arrow_forward_rounded),
+                    color: _UserDashboardPageState._brand,
+                    onPressed: onSubmit,
+                  ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TrustScoreTile extends StatelessWidget {
+  const _TrustScoreTile({
+    required this.trustScore,
+    required this.onEdit,
+    required this.photoVerified,
+    required this.completionPercent,
+  });
+
+  final double trustScore;
+  final VoidCallback onEdit;
+  final bool photoVerified;
+  final int completionPercent;
+
+  @override
+  Widget build(BuildContext context) {
+    final fill = (trustScore / 10).clamp(0.0, 1.0);
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 64,
+              height: 64,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 64,
+                    height: 64,
+                    child: CircularProgressIndicator(
+                      value: fill,
+                      strokeWidth: 6,
+                      backgroundColor: _UserDashboardPageState._brand.withValues(alpha: 0.12),
+                      color: _UserDashboardPageState._brand,
+                    ),
+                  ),
+                  Text(
+                    trustScore.toStringAsFixed(1),
+                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'TRUST SCORE',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.4,
+                      fontSize: 10,
+                      color: Colors.black.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    photoVerified
+                        ? 'Verified profile, $completionPercent% complete'
+                        : 'Verify your photo to grow this score',
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+            TextButton.icon(
+              onPressed: onEdit,
+              icon: const Icon(Icons.edit_rounded, size: 16, color: _UserDashboardPageState._brand),
+              label: const Text(
+                'Edit',
+                style: TextStyle(fontWeight: FontWeight.w800, color: _UserDashboardPageState._brand),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InteractionCountsCard extends StatelessWidget {
+  const _InteractionCountsCard({required this.counts, required this.loading});
+
+  final InteractionCounts? counts;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: _CountTile(
+                icon: Icons.favorite_rounded,
+                color: const Color(0xFFE91E63),
+                label: 'Sent',
+                value: loading ? null : counts?.iLiked ?? 0,
+              ),
+            ),
+            _Divider(),
+            Expanded(
+              child: _CountTile(
+                icon: Icons.auto_awesome_rounded,
+                color: const Color(0xFF6750A4),
+                label: 'Received',
+                value: loading ? null : counts?.likedMe ?? 0,
+              ),
+            ),
+            _Divider(),
+            Expanded(
+              child: _CountTile(
+                icon: Icons.handshake_rounded,
+                color: _UserDashboardPageState._brand,
+                label: 'Mutual',
+                value: loading ? null : counts?.mutual ?? 0,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Divider extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 36,
+      color: Colors.black.withValues(alpha: 0.08),
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+    );
+  }
+}
+
+class _CountTile extends StatelessWidget {
+  const _CountTile({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String label;
+  final int? value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(height: 4),
+        Text(
+          value == null ? '—' : '$value',
+          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: 9,
+            letterSpacing: 1.0,
+            color: Colors.black.withValues(alpha: 0.5),
+          ),
+        ),
+      ],
     );
   }
 }

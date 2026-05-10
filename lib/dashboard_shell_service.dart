@@ -254,6 +254,159 @@ Future<void> markReceivedLikeRead(SupabaseClient client, String myUserId, String
   }
 }
 
+/// Aggregate counts shown on the dashboard sidebar — mirrors `mutualCount`,
+/// `iLikedCount`, `likedMeCount` from `components/user-landing-page.tsx`.
+class InteractionCounts {
+  const InteractionCounts({
+    required this.iLiked,
+    required this.likedMe,
+    required this.mutual,
+    required this.iLikedIds,
+    required this.likedMeIds,
+    required this.iViewedIds,
+    required this.viewedMeIds,
+    required this.viewedMeAt,
+    required this.likedMeAt,
+  });
+
+  final int iLiked;
+  final int likedMe;
+  final int mutual;
+  final List<String> iLikedIds;
+  final List<String> likedMeIds;
+  final List<String> iViewedIds;
+  final List<String> viewedMeIds;
+  final Map<String, DateTime> viewedMeAt;
+  final Map<String, DateTime> likedMeAt;
+}
+
+/// Reads `likes` (both directions) and `profile_views` (both directions) for
+/// [myUserId] and computes the counts shown in the dashboard sidebar plus the
+/// id sets used by the activity carousels (Who Viewed Me / I Viewed / Interest
+/// Received). Tolerates RLS by returning empty-list counters on errors.
+Future<InteractionCounts> loadInteractionCounts(SupabaseClient client, String myUserId) async {
+  Future<List<Map<String, dynamic>>> safeSelect(
+    String table,
+    String columns,
+    String column,
+    String value, {
+    String? order,
+    int limit = 500,
+  }) async {
+    try {
+      final base = client.from(table).select(columns).eq(column, value);
+      final dynamic res = order != null
+          ? await base.order(order, ascending: false).limit(limit)
+          : await base.limit(limit);
+      return (res as List<dynamic>).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (e, st) {
+      debugPrint('loadInteractionCounts $table on $column: $e\n$st');
+      return const [];
+    }
+  }
+
+  final iLikedRows = await safeSelect('likes', 'liked_user_id, created_at', 'user_id', myUserId);
+  final likedMeRows = await safeSelect('likes', 'user_id, created_at', 'liked_user_id', myUserId);
+  final iViewedRows = await safeSelect(
+    'profile_views',
+    'viewed_user_id, created_at',
+    'viewer_user_id',
+    myUserId,
+    order: 'created_at',
+  );
+  final viewedMeRows = await safeSelect(
+    'profile_views',
+    'viewer_user_id, created_at',
+    'viewed_user_id',
+    myUserId,
+    order: 'created_at',
+  );
+
+  final iLikedSet = <String>{};
+  for (final r in iLikedRows) {
+    final id = r['liked_user_id']?.toString();
+    if (id != null && id.isNotEmpty) iLikedSet.add(id);
+  }
+  final likedMeAt = <String, DateTime>{};
+  for (final r in likedMeRows) {
+    final id = r['user_id']?.toString();
+    final at = _parseTs(r['created_at']);
+    if (id == null || id.isEmpty) continue;
+    final prev = likedMeAt[id];
+    if (at != null && (prev == null || at.isAfter(prev))) {
+      likedMeAt[id] = at;
+    } else {
+      likedMeAt.putIfAbsent(id, () => at ?? DateTime.now());
+    }
+  }
+  final iViewedSet = <String>{};
+  for (final r in iViewedRows) {
+    final id = r['viewed_user_id']?.toString();
+    if (id != null && id.isNotEmpty) iViewedSet.add(id);
+  }
+  final viewedMeAt = <String, DateTime>{};
+  for (final r in viewedMeRows) {
+    final id = r['viewer_user_id']?.toString();
+    final at = _parseTs(r['created_at']);
+    if (id == null || id.isEmpty) continue;
+    final prev = viewedMeAt[id];
+    if (at != null && (prev == null || at.isAfter(prev))) {
+      viewedMeAt[id] = at;
+    } else {
+      viewedMeAt.putIfAbsent(id, () => at ?? DateTime.now());
+    }
+  }
+
+  final mutualSet = iLikedSet.intersection(likedMeAt.keys.toSet());
+
+  final iLikedIds = iLikedSet.toList();
+  final likedMeIds = likedMeAt.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  final iViewedIds = iViewedSet.toList();
+  final viewedMeIds = viewedMeAt.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+
+  return InteractionCounts(
+    iLiked: iLikedSet.length,
+    likedMe: likedMeAt.length,
+    mutual: mutualSet.length,
+    iLikedIds: iLikedIds,
+    likedMeIds: likedMeIds.map((e) => e.key).toList(),
+    iViewedIds: iViewedIds,
+    viewedMeIds: viewedMeIds.map((e) => e.key).toList(),
+    viewedMeAt: viewedMeAt,
+    likedMeAt: likedMeAt,
+  );
+}
+
+/// Resolves a user-id (full UUID, case-insensitive) to a [MatchPreview]-friendly
+/// row. Used by the dashboard sidebar quick-search-by-ID. Returns null when the
+/// row doesn't exist or the user isn't allowed to read it.
+Future<({String userId, String name, int? age})?> resolveUserById(
+  SupabaseClient client,
+  String idLike,
+) async {
+  final id = idLike.trim();
+  if (id.isEmpty) return null;
+  try {
+    final r = await client
+        .from('personal_details')
+        .select('user_id, name, age')
+        .eq('user_id', id)
+        .maybeSingle();
+    if (r == null) return null;
+    final m = Map<String, dynamic>.from(r as Map);
+    return (
+      userId: m['user_id']?.toString() ?? id,
+      name: m['name']?.toString().trim().isNotEmpty == true ? m['name'].toString() : 'Member',
+      age: m['age'] != null ? (m['age'] as num).round() : null,
+    );
+  } catch (e, st) {
+    debugPrint('resolveUserById: $e\n$st');
+    return null;
+  }
+}
+
 /// Push a fullscreen profile preview — closest analogue to web
 /// `/dashboard/browse?userId=`.
 Future<void> pushMemberProfileFullscreen(BuildContext context, String targetUserId) async {

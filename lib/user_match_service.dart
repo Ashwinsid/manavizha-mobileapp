@@ -311,3 +311,163 @@ Future<UserMatchSets> loadUserMatchSections(SupabaseClient client, String userId
     newMatches: fresh,
   );
 }
+
+/// Builds a list of [MatchPreview]s for an arbitrary set of `userId`s.
+///
+/// Used by activity carousels (Who Viewed Me / Profiles I Viewed / Interest
+/// Received) and by the sidebar "search by ID" tile, which only know the
+/// target ids and need the same card shape as the other dashboard sections.
+///
+/// Order of [orderedIds] is preserved in the result. Missing/RLS-restricted
+/// rows are silently skipped.
+Future<List<MatchPreview>> loadMatchPreviewsByIds(
+  SupabaseClient client,
+  List<String> orderedIds,
+) async {
+  final ids = orderedIds.where((s) => s.trim().isNotEmpty).toSet().toList();
+  if (ids.isEmpty) return const [];
+
+  Future<List<dynamic>> safeIn(String table, String columns, String column) async {
+    try {
+      final r = await client.from(table).select(columns).inFilter(column, ids);
+      return (r as List<dynamic>? ?? []);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  final personalRes = await safeIn(
+    'personal_details',
+    'user_id, name, age, sex, marital_status',
+    'user_id',
+  );
+  final personalRows =
+      personalRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  if (personalRows.isEmpty) return const [];
+
+  final photoRes = await safeIn('photos', 'user_id, user_photos', 'user_id');
+  final contactRes = await safeIn('contact_details', 'user_id, current_district, current_state', 'user_id');
+  final settingsRes = await safeIn('user_settings', 'user_id, is_premium', 'user_id');
+  final eduRes = await safeIn('education_details', 'user_id, education', 'user_id');
+  final empRes = await safeIn('profession_employee', 'user_id, designation, company', 'user_id');
+  final busRes = await safeIn('profession_business', 'user_id, designation, business_name', 'user_id');
+  final stuRes = await safeIn('profession_student', 'user_id, course, institution', 'user_id');
+  final interestsRes = await safeIn('interests', 'user_id, interests', 'user_id');
+  final activityRes = await safeIn('users', 'id, last_active_at', 'id');
+
+  final photoRows = photoRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final contactRows = contactRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final settingsRows = settingsRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final eduRows = eduRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final empRows = empRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final busRows = busRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final stuRows = stuRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final interestRows = interestsRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final activityRows = activityRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+
+  final lastActiveByUser = <String, DateTime?>{
+    for (final r in activityRows)
+      if (r['id'] != null) r['id'].toString(): parseLastActive(r['last_active_at']),
+  };
+
+  final eduByUser = <String, List<String>>{};
+  for (final row in eduRows) {
+    final uid = row['user_id']?.toString();
+    final ed = row['education']?.toString().trim() ?? '';
+    if (uid == null || ed.isEmpty) continue;
+    eduByUser.putIfAbsent(uid, () => []).add(ed);
+  }
+  String? lastEducationFor(String uid) =>
+      eduByUser[uid]?.isNotEmpty == true ? eduByUser[uid]!.last : null;
+
+  Map<String, dynamic>? findFor(String uid, List<Map<String, dynamic>> rows) {
+    for (final r in rows) {
+      if (r['user_id']?.toString() == uid) return r;
+    }
+    return null;
+  }
+
+  String? jobLineFor(String uid) {
+    final emp = findFor(uid, empRows);
+    if (emp != null) {
+      final d = emp['designation']?.toString().trim() ?? '';
+      final c = emp['company']?.toString().trim() ?? '';
+      if (d.isNotEmpty) return d;
+      if (c.isNotEmpty) return c;
+    }
+    final bus = findFor(uid, busRows);
+    if (bus != null) {
+      final d = bus['designation']?.toString().trim() ?? '';
+      final n = bus['business_name']?.toString().trim() ?? '';
+      if (d.isNotEmpty) return d;
+      if (n.isNotEmpty) return n;
+    }
+    final stu = findFor(uid, stuRows);
+    if (stu != null) {
+      final co = stu['course']?.toString().trim() ?? '';
+      final ins = stu['institution']?.toString().trim() ?? '';
+      if (co.isNotEmpty) return co;
+      if (ins.isNotEmpty) return ins;
+    }
+    return null;
+  }
+
+  List<String> interestsFor(String uid) {
+    for (final r in interestRows) {
+      if (r['user_id']?.toString() == uid) {
+        return parseInterestsTableArrayColumn(r['interests']);
+      }
+    }
+    return const [];
+  }
+
+  Future<MatchPreview?> buildOne(String uid) async {
+    final p = findFor(uid, personalRows);
+    if (p == null) return null;
+
+    final ph = findFor(uid, photoRows);
+    final photos = ph != null ? parseUserPhotosList(ph['user_photos']) : <dynamic>[];
+    String? url;
+    for (final raw in photos) {
+      final u = await signUserProfilePhoto(client, uid, raw.toString());
+      if (u != null && u.isNotEmpty) {
+        url = u;
+        break;
+      }
+    }
+
+    final c = findFor(uid, contactRows);
+    final d = c?['current_district']?.toString() ?? '';
+    final s = c?['current_state']?.toString() ?? '';
+    var loc = '—';
+    if (d.isNotEmpty) {
+      loc = s.isNotEmpty ? '$d, $s' : d;
+    } else if (s.isNotEmpty) {
+      loc = s;
+    }
+
+    var premium = false;
+    final st = findFor(uid, settingsRows);
+    if (st != null && st['is_premium'] == true) premium = true;
+
+    return MatchPreview(
+      userId: uid,
+      name: p['name']?.toString().trim().isNotEmpty == true ? p['name'].toString() : 'Member',
+      age: p['age'] != null ? (p['age'] as num).round() : null,
+      location: loc,
+      photoUrl: url,
+      isPremium: premium,
+      educationDegree: lastEducationFor(uid),
+      jobTitle: jobLineFor(uid),
+      interestTags: interestsFor(uid),
+      lastActiveAt: lastActiveByUser[uid],
+    );
+  }
+
+  final ordered = <MatchPreview>[];
+  for (final id in orderedIds) {
+    final p = await buildOne(id);
+    if (p != null) ordered.add(p);
+  }
+  return ordered;
+}
