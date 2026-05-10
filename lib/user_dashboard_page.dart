@@ -264,28 +264,47 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
     }
   }
 
+  /// Mirrors `manavizha/components/married-confirmation-dialog.tsx` +
+  /// `app/api/settings` POST: marks the profile married AND deactivates the
+  /// account for 10 years (matches web's `is_deactivated` + `deactivated_until`).
+  /// Auto-reactivation is already wired in [UserHomeScreen._maybeReactivateAccount]
+  /// when the user signs back in.
   Future<void> _confirmMarried() async {
     final uid = Supabase.instance.client.auth.currentUser?.id;
     if (uid == null) return;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Mark as married?'),
-        content: const Text(
-          'Your profile will be hidden from search. You can update this later from the website if needed.',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Confirm')),
-        ],
-      ),
+      barrierDismissible: false,
+      builder: (context) => const _MarriedConfirmDialog(),
     );
     if (ok != true || !mounted) return;
     try {
-      await Supabase.instance.client.from('personal_details').update({'marital_status': 'Married'}).eq('user_id', uid);
+      final client = Supabase.instance.client;
+      // 1) Flip marital status — drives all "married" UI gating.
+      await client.from('personal_details').update({'marital_status': 'Married'}).eq('user_id', uid);
+
+      // 2) Deactivate for ~10 years (matches the web's POST /api/settings).
+      // We `upsert` so brand-new accounts that don't yet have a settings row
+      // still get one created on confirmation.
+      final tenYears = DateTime.now().toUtc().add(const Duration(days: 365 * 10));
+      try {
+        await client.from('user_settings').upsert({
+          'user_id': uid,
+          'is_deactivated': true,
+          'deactivated_until': tenYears.toIso8601String(),
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        }, onConflict: 'user_id');
+      } catch (e, st) {
+        // RLS / network failure here should not undo the marital_status flip,
+        // but we still want to surface it.
+        debugPrint('mark-married: user_settings upsert failed: $e\n$st');
+      }
+
       await _refresh();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile updated.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile marked married. Account deactivated.')),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not update: $e')));
@@ -713,6 +732,217 @@ class _MatchTile extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MarriedConfirmDialog extends StatefulWidget {
+  const _MarriedConfirmDialog();
+
+  @override
+  State<_MarriedConfirmDialog> createState() => _MarriedConfirmDialogState();
+}
+
+class _MarriedConfirmDialogState extends State<_MarriedConfirmDialog> {
+  bool _busy = false;
+
+  static const _bullets = <String>[
+    'Removed from matching pools.',
+    'Stop new match suggestions.',
+    'Hide from searches globally.',
+    'Mute prospect notifications.',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final green = Colors.green.shade500;
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Colors.green.shade50, Colors.teal.shade50],
+                ),
+                border: Border(bottom: BorderSide(color: Colors.green.shade100)),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.green.shade100, width: 4),
+                      boxShadow: [
+                        BoxShadow(
+                          color: green.withValues(alpha: 0.18),
+                          blurRadius: 14,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Icon(Icons.favorite_rounded, color: green, size: 28),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Congratulations! 🎉',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    "Found your life partner? We're so happy for you! "
+                    'Connect forever and start your journey together.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.4,
+                      color: Colors.black.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Body
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  RichText(
+                    textAlign: TextAlign.center,
+                    text: TextSpan(
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.black.withValues(alpha: 0.65),
+                      ),
+                      children: const [
+                        TextSpan(text: 'Your profile will be permanently marked as '),
+                        TextSpan(
+                          text: 'Married',
+                          style: TextStyle(fontWeight: FontWeight.w900, color: Colors.black),
+                        ),
+                        TextSpan(text: '.'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: _bullets
+                          .map(
+                            (b) => Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(Icons.check_circle_rounded, size: 16, color: green),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      b,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black.withValues(alpha: 0.75),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'This action cannot be undone.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      fontStyle: FontStyle.italic,
+                      color: Colors.red.shade400,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _busy ? null : () => Navigator.of(context).pop(false),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            side: BorderSide(color: Colors.grey.shade300, width: 2),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: const Text(
+                            'Cancel',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: _busy
+                              ? null
+                              : () {
+                                  setState(() => _busy = true);
+                                  Navigator.of(context).pop(true);
+                                },
+                          style: FilledButton.styleFrom(
+                            backgroundColor: green,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: _busy
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.check_circle_rounded, size: 18, color: Colors.white),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'Yes',
+                                      style: TextStyle(fontWeight: FontWeight.w900, color: Colors.white),
+                                    ),
+                                  ],
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

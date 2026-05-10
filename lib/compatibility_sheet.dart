@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 import 'profile_scoring.dart';
+import 'subscription_dialog.dart';
 
 /// Bottom sheet that explains "why we picked them" — a Flutter port of
 /// `manavizha/components/compatibility-sheet.tsx`. Shows the lifestyle and
@@ -205,7 +206,14 @@ class _CompatibilitySheetState extends State<_CompatibilitySheet> {
                     ? _scoreTile('HOROSCOPE PORUTHAM', '—', muted: true)
                     : (widget.isPremium
                         ? _scoreTile('HOROSCOPE PORUTHAM', '${_porutham!.score}/10')
-                        : _scoreTile('HOROSCOPE PORUTHAM', 'PREMIUM', muted: true)),
+                        : InkWell(
+                            borderRadius: BorderRadius.circular(20),
+                            onTap: () => showSubscriptionDialog(
+                              context,
+                              featureName: 'Horoscope matching & compatibility',
+                            ),
+                            child: _scoreTile('HOROSCOPE PORUTHAM', 'PREMIUM', muted: true),
+                          )),
               ),
             ],
           ),
@@ -448,21 +456,39 @@ class _CompatibilitySheetState extends State<_CompatibilitySheet> {
                   .toList(),
             )
           else
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.amber.shade50,
+            Material(
+              color: Colors.amber.shade50,
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.amber.shade200),
-              ),
-              child: Text(
-                'Unlock Premium to see the 10 Porutham breakdown.',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.amber.shade900,
+                onTap: () => showSubscriptionDialog(
+                  context,
+                  featureName: 'Horoscope matching & compatibility',
                 ),
-                textAlign: TextAlign.center,
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.amber.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.workspace_premium_rounded, color: Colors.amber.shade700, size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Unlock Premium to see the 10 Porutham breakdown.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.amber.shade900,
+                          ),
+                        ),
+                      ),
+                      Icon(Icons.chevron_right_rounded, color: Colors.amber.shade700),
+                    ],
+                  ),
+                ),
               ),
             ),
         ],
