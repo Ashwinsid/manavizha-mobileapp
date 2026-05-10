@@ -541,11 +541,35 @@ String? _storageObjectPathForUserPhotosUrl(String url) {
 Future<String?> signUserProfilePhoto(SupabaseClient client, String userId, String photo) async {
   final raw = photo.trim();
   if (raw.isEmpty) return null;
+
+  // Tracks whether any of our re-sign attempts hit a 404 — when that happens
+  // returning the original URL is pointless (it points at the same missing
+  // object), so we collapse to a single null return + one debug line.
+  var sawNotFound = false;
+
+  bool isNotFound(Object e) {
+    if (e is StorageException) {
+      return e.statusCode == '404' || e.error == 'not_found';
+    }
+    final s = e.toString();
+    return s.contains('Object not found') || s.contains('not_found');
+  }
+
   try {
     if (!raw.startsWith('http')) {
       var filePath = raw;
       if (!filePath.contains('/')) filePath = '$userId/$filePath';
-      return await client.storage.from('user-photos').createSignedUrl(filePath, 31536000);
+      try {
+        return await client.storage.from('user-photos').createSignedUrl(filePath, 31536000);
+      } catch (e) {
+        if (isNotFound(e)) {
+          if (kDebugMode) {
+            debugPrint('signUserProfilePhoto missing object ($userId): $filePath');
+          }
+          return null;
+        }
+        rethrow;
+      }
     }
 
     final fromUrl = _storageObjectPathForUserPhotosUrl(raw);
@@ -553,7 +577,9 @@ Future<String?> signUserProfilePhoto(SupabaseClient client, String userId, Strin
       try {
         return await client.storage.from('user-photos').createSignedUrl(fromUrl, 31536000);
       } catch (e) {
-        if (kDebugMode) {
+        if (isNotFound(e)) {
+          sawNotFound = true;
+        } else if (kDebugMode) {
           debugPrint('signUserProfilePhoto re-sign from URL path ($userId): $e');
         }
       }
@@ -568,10 +594,21 @@ Future<String?> signUserProfilePhoto(SupabaseClient client, String userId, Strin
           try {
             return await client.storage.from('user-photos').createSignedUrl(path, 31536000);
           } catch (e) {
-            if (kDebugMode) debugPrint('signUserProfilePhoto legacy split ($userId): $e');
+            if (isNotFound(e)) {
+              sawNotFound = true;
+            } else if (kDebugMode) {
+              debugPrint('signUserProfilePhoto legacy split ($userId): $e');
+            }
           }
         }
       }
+    }
+
+    if (sawNotFound) {
+      if (kDebugMode) {
+        debugPrint('signUserProfilePhoto missing object ($userId): $raw');
+      }
+      return null;
     }
 
     return raw;

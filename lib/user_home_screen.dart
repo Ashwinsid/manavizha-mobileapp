@@ -9,7 +9,6 @@ import 'profile_screen.dart';
 import 'user_activity_tracker.dart';
 import 'user_pages.dart';
 import 'user_profile_completion.dart';
-import 'welcome_screen.dart';
 import 'widgets/radial_menu.dart';
 
 class UserHomeScreen extends StatefulWidget {
@@ -30,11 +29,9 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
   bool _appBarPremium = false;
   bool _appBarProfileLoading = true;
 
-  int _unreadMessages = 0;
   List<DashboardShellNotification> _notifInterests = [];
   List<DashboardShellNotification> _notifViews = [];
   Timer? _shellPollTimer;
-  RealtimeChannel? _messagesRealtimeChannel;
 
   late final List<Widget> _pages;
 
@@ -106,11 +103,9 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
     final uid = c.auth.currentUser?.id;
     if (uid == null || !mounted) return;
     try {
-      final unread = await fetchUnreadMessageCount(c, uid);
       final bundle = await fetchDashboardNotifications(c, uid);
       if (!mounted) return;
       setState(() {
-        _unreadMessages = unread;
         _notifInterests = bundle.interests;
         _notifViews = bundle.views;
       });
@@ -150,31 +145,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
     }
   }
 
-  void _subscribeMessagesRealtime() {
-    final uid = Supabase.instance.client.auth.currentUser?.id;
-    if (uid == null) return;
-    try {
-      final ch = Supabase.instance.client.channel('shell-unread-$uid')
-        ..onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'messages',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'receiver_id',
-            value: uid,
-          ),
-          callback: (_) {
-            if (mounted) unawaited(_refreshShellCounts());
-          },
-        )
-        ..subscribe();
-      _messagesRealtimeChannel = ch;
-    } catch (e, st) {
-      debugPrint('_subscribeMessagesRealtime: $e\n$st');
-    }
-  }
-
   String _relativeShort(DateTime t) {
     final d = DateTime.now().difference(t);
     if (d.inSeconds < 60) return 'Just now';
@@ -182,32 +152,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
     if (d.inHours < 24) return '${d.inHours}h ago';
     if (d.inDays < 7) return '${d.inDays}d ago';
     return '${t.day}/${t.month}/${t.year}';
-  }
-
-  Future<void> _logout() async {
-    await Supabase.instance.client.auth.signOut();
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute<void>(builder: (context) => const WelcomeScreen()),
-      (route) => false,
-    );
-  }
-
-  void _openSettingsFromShell() {
-    Navigator.of(context)
-        .push<void>(MaterialPageRoute<void>(builder: (context) => const ProfileScreen()))
-        .then((_) {
-      _loadAppBarProfile();
-      _refreshShellCounts();
-    });
-  }
-
-  void _goMessagesTab() {
-    setState(() {
-      _currentIndex = 3;
-      _speedDialOpen = false;
-    });
-    _refreshShellCounts();
   }
 
   Future<void> _showNotificationsPopover() async {
@@ -499,7 +443,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
       _refreshShellCounts();
     });
     _shellPollTimer = Timer.periodic(const Duration(seconds: 30), (_) => _refreshShellCounts());
-    _subscribeMessagesRealtime();
     _pages = [
       UserDashboardPage(
         onOpenProfileEditor: _openProfile,
@@ -513,11 +456,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
   @override
   void dispose() {
     _shellPollTimer?.cancel();
-    final ch = _messagesRealtimeChannel;
-    if (ch != null) {
-      Supabase.instance.client.removeChannel(ch);
-      _messagesRealtimeChannel = null;
-    }
     WidgetsBinding.instance.removeObserver(this);
     UserActivityTracker.instance.stop();
     super.dispose();
@@ -956,30 +894,15 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
         elevation: 0,
         actions: [
           _badgeIconButton(
-            icon: Icons.chat_bubble_outline_rounded,
-            tooltip: 'Messages',
-            onPressed: _goMessagesTab,
-            badgeCount: _unreadMessages,
-          ),
-          _badgeIconButton(
             icon: Icons.notifications_none_rounded,
             tooltip: 'Notifications',
             onPressed: () => unawaited(_showNotificationsPopover()),
             badgeCount: _notifInterests.length + _notifViews.length,
             badgeColor: const Color(0xFFE11D48),
           ),
-          IconButton(
-            tooltip: 'Profile settings',
-            icon: Icon(Icons.settings_outlined, color: _brand.withValues(alpha: 0.75)),
-            onPressed: _openSettingsFromShell,
-          ),
-          IconButton(
-            tooltip: 'Log out',
-            icon: Icon(Icons.logout_rounded, color: _brand.withValues(alpha: 0.85)),
-            onPressed: () => unawaited(_logout()),
-          ),
+          const SizedBox(width: 12),
           Padding(
-            padding: const EdgeInsets.only(right: 8.0),
+            padding: const EdgeInsets.only(right: 16.0),
             child: GestureDetector(
               onTap: _openProfile,
               child: Stack(
