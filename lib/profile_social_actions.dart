@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-/// Social actions aligned with manavizha `/api/shortlists`, `/api/likes`, `/api/ignores`.
+/// Social actions aligned with manavizha
+/// `/api/shortlists`, `/api/likes`, `/api/ignores`, `/api/blocks`, `/api/messages`.
 class ProfileSocialActions {
   ProfileSocialActions._();
 
@@ -62,6 +63,75 @@ class ProfileSocialActions {
       return null;
     } on PostgrestException catch (e) {
       if (e.code == '23505') return null;
+      return e.message;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Block — [blocked_profiles] table (manavizha `/api/blocks` POST).
+  /// Permanently hides the target from the current user's feeds.
+  /// Returns `null` on success (or duplicate, treated as success), else error message.
+  static Future<String?> blockProfile({
+    required SupabaseClient client,
+    required String currentUserId,
+    required String targetUserId,
+  }) async {
+    try {
+      await client.from('blocked_profiles').insert({
+        'user_id': currentUserId,
+        'blocked_user_id': targetUserId,
+      });
+      return null;
+    } on PostgrestException catch (e) {
+      // Already-blocked → still a success from the user's perspective.
+      if (e.code == '23505') return null;
+      return e.message;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Unblock — delete from [blocked_profiles] (manavizha `/api/blocks` DELETE).
+  static Future<String?> unblockProfile({
+    required SupabaseClient client,
+    required String currentUserId,
+    required String targetUserId,
+  }) async {
+    try {
+      await client
+          .from('blocked_profiles')
+          .delete()
+          .eq('user_id', currentUserId)
+          .eq('blocked_user_id', targetUserId);
+      return null;
+    } on PostgrestException catch (e) {
+      return e.message;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Send a 1:1 message — [messages] table (manavizha `/api/messages` POST).
+  /// Returns `null` on success, else an error message.
+  /// Mutual-interest and premium checks are bypassed on the server side in the
+  /// web app today, so we mirror that and rely on the UI for premium gating.
+  static Future<String?> sendMessage({
+    required SupabaseClient client,
+    required String senderId,
+    required String receiverId,
+    required String content,
+  }) async {
+    final body = content.trim();
+    if (body.isEmpty) return 'Message cannot be empty.';
+    try {
+      await client.from('messages').insert({
+        'sender_id': senderId,
+        'receiver_id': receiverId,
+        'content': body,
+      });
+      return null;
+    } on PostgrestException catch (e) {
       return e.message;
     } catch (e) {
       return e.toString();

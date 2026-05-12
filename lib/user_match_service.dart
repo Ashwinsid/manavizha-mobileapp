@@ -567,3 +567,21 @@ Future<Set<String>> loadIgnoredProfileIds(SupabaseClient client, String userId) 
     return const {};
   }
 }
+
+/// Return the set of user ids the current user has blocked via the
+/// `blocked_profiles` table (manavizha `/api/blocks` GET). RLS-tolerant.
+Future<Set<String>> loadBlockedProfileIds(SupabaseClient client, String userId) async {
+  try {
+    final r = await client
+        .from('blocked_profiles')
+        .select('blocked_user_id')
+        .eq('user_id', userId)
+        .limit(500);
+    return {
+      for (final row in (r as List<dynamic>))
+        if ((row as Map)['blocked_user_id'] != null) (row['blocked_user_id']).toString(),
+    };
+  } catch (_) {
+    return const {};
+  }
+}

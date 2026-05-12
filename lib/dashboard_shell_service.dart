@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'member_profile_view_screen.dart';
+import 'message_dialog.dart';
+import 'profile_social_actions.dart';
 
 /// One row in the header notifications popover — mirrors the web dashboard
 /// layout (`app/dashboard/layout.tsx`) sections “Interest Received” and
@@ -412,19 +414,163 @@ Future<({String userId, String name, int? age})?> resolveUserById(
 Future<void> pushMemberProfileFullscreen(BuildContext context, String targetUserId) async {
   await Navigator.of(context).push<void>(
     MaterialPageRoute<void>(
-      builder: (context) => Scaffold(
-        backgroundColor: const Color(0xFFF8F9FE),
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-          title: const Text('Profile', style: TextStyle(fontWeight: FontWeight.w800)),
-        ),
-        body: MemberProfileViewScreen(targetUserId: targetUserId),
-      ),
+      builder: (context) => _MemberProfileFullscreenWrapper(targetUserId: targetUserId),
     ),
   );
+}
+
+/// Internal wrapper that lays out the [AppBar] for a fullscreen profile view
+/// and surfaces the per-profile overflow menu (Message + Block) that mirrors
+/// the web's `<DropdownMenu>` on `app/dashboard/profile/[id]/page.tsx`.
+class _MemberProfileFullscreenWrapper extends StatefulWidget {
+  const _MemberProfileFullscreenWrapper({required this.targetUserId});
+
+  final String targetUserId;
+
+  @override
+  State<_MemberProfileFullscreenWrapper> createState() =>
+      _MemberProfileFullscreenWrapperState();
+}
+
+class _MemberProfileFullscreenWrapperState
+    extends State<_MemberProfileFullscreenWrapper> {
+  bool _isCurrentUserPremium = false;
+  String _targetName = '';
+  bool _blocking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMetadata();
+  }
+
+  Future<void> _loadMetadata() async {
+    final client = Supabase.instance.client;
+    final uid = client.auth.currentUser?.id;
+    if (uid == null) return;
+    try {
+      final row = await client
+          .from('user_settings')
+          .select('is_premium')
+          .eq('user_id', uid)
+          .maybeSingle();
+      if (!mounted) return;
+      setState(() {
+        _isCurrentUserPremium = row != null && row['is_premium'] == true;
+      });
+    } catch (_) {/* RLS-tolerant — default to non-premium. */}
+    try {
+      final row = await client
+          .from('users')
+          .select('name')
+          .eq('id', widget.targetUserId)
+          .maybeSingle();
+      final name = (row?['name'] ?? '').toString().trim();
+      if (!mounted) return;
+      if (name.isNotEmpty) setState(() => _targetName = name);
+    } catch (_) {/* fine — fall back to "this profile". */}
+  }
+
+  Future<void> _onMessage() async {
+    await showMessageDialog(
+      context,
+      receiverId: widget.targetUserId,
+      receiverName: _targetName.isEmpty ? 'this member' : _targetName,
+      isPremium: _isCurrentUserPremium,
+    );
+  }
+
+  Future<void> _onBlock() async {
+    if (_blocking) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Block this profile?'),
+        content: Text(
+          'You will no longer see ${_targetName.isEmpty ? "this member" : _targetName} '
+          'anywhere in the app. This cannot be undone from here.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade600),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Block'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final client = Supabase.instance.client;
+    final uid = client.auth.currentUser?.id;
+    if (uid == null) return;
+    setState(() => _blocking = true);
+    final err = await ProfileSocialActions.blockProfile(
+      client: client,
+      currentUserId: uid,
+      targetUserId: widget.targetUserId,
+    );
+    if (!mounted) return;
+    setState(() => _blocking = false);
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(_targetName.isEmpty
+            ? 'Profile has been blocked.'
+            : '$_targetName has been blocked.'),
+      ),
+    );
+    // Match the web flow (`router.push('/dashboard/browse')`) by popping back
+    // to the previous screen, since the row will no longer be visible there.
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FE),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text('Profile', style: TextStyle(fontWeight: FontWeight.w800)),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            icon: const Icon(Icons.more_vert_rounded),
+            onSelected: (v) async {
+              switch (v) {
+                case 'message':
+                  await _onMessage();
+                  break;
+                case 'block':
+                  await _onBlock();
+                  break;
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'message', child: Text('Send message')),
+              PopupMenuItem(
+                value: 'block',
+                child: Text(
+                  'Block member',
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      body: MemberProfileViewScreen(targetUserId: widget.targetUserId),
+    );
+  }
 }

@@ -4,7 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 export 'user_dashboard_page.dart' show UserDashboardPage;
 import 'compatibility_sheet.dart';
 import 'dashboard_shell_service.dart';
-import 'member_profile_view_screen.dart';
+import 'likes_service.dart';
+import 'message_dialog.dart';
 import 'profile_social_actions.dart';
 import 'user_activity_tracker.dart';
 import 'user_match_service.dart';
@@ -102,6 +103,7 @@ class _MatchesPageState extends State<MatchesPage> {
   Set<String> _likedByMe = <String>{};
   Set<String> _viewedByMe = <String>{};
   Set<String> _viewedMe = <String>{};
+  Set<String> _blockedIds = <String>{};
 
   bool _isPremium = false;
   String? _busyAction; // userId currently doing a like/shortlist call.
@@ -140,12 +142,14 @@ class _MatchesPageState extends State<MatchesPage> {
         loadIgnoredProfileIds(client, uid),
         _loadIsPremium(client, uid),
         _loadUserProfileSnapshotSafe(client, uid),
+        loadBlockedProfileIds(client, uid),
       ]);
       final sets = results[0] as UserMatchSets;
       final counts = results[1] as InteractionCounts;
       final shortlists = results[2] as ({Set<String> byMe, Set<String> ofMe});
       final ignored = results[3] as Set<String>;
       final premium = results[4] as bool;
+      final blocked = results[6] as Set<String>;
       if (!mounted) return;
       setState(() {
         _all = sets.allMatches;
@@ -155,6 +159,7 @@ class _MatchesPageState extends State<MatchesPage> {
         _shortlistedByMe = shortlists.byMe;
         _shortlistedMe = shortlists.ofMe;
         _ignoredIds = ignored;
+        _blockedIds = blocked;
         _isPremium = premium;
         _loading = false;
       });
@@ -188,7 +193,9 @@ class _MatchesPageState extends State<MatchesPage> {
   List<MatchPreview> get _visibleProfiles {
     final now = DateTime.now();
     final thirtyDaysAgo = now.subtract(const Duration(days: 30));
-    Iterable<MatchPreview> rows = _all.where((m) => !_ignoredIds.contains(m.userId));
+    Iterable<MatchPreview> rows = _all.where(
+      (m) => !_ignoredIds.contains(m.userId) && !_blockedIds.contains(m.userId),
+    );
 
     switch (_category) {
       case BrowseCategory.allMatches:
@@ -318,6 +325,61 @@ class _MatchesPageState extends State<MatchesPage> {
     );
   }
 
+  /// Open the compose-message dialog. Premium gating is enforced inside
+  /// [showMessageDialog]; we just pass the current user's flag down.
+  Future<void> _openMessage(MatchPreview m) async {
+    await showMessageDialog(
+      context,
+      receiverId: m.userId,
+      receiverName: m.name,
+      isPremium: _isPremium,
+    );
+  }
+
+  /// Permanently block [m] from the current user's feeds. Mirrors the web
+  /// `handleBlock` in `components/browse-profiles.tsx` — confirm, POST to
+  /// `blocked_profiles`, then locally hide the row.
+  Future<void> _block(MatchPreview m) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Block this profile?'),
+        content: Text(
+          'You will no longer see ${m.name} in your matches. This cannot be undone from here.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade600),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Block'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final client = Supabase.instance.client;
+    final uid = client.auth.currentUser?.id;
+    if (uid == null) return;
+    setState(() => _busyAction = m.userId);
+    final err = await ProfileSocialActions.blockProfile(
+      client: client,
+      currentUserId: uid,
+      targetUserId: m.userId,
+    );
+    if (!mounted) return;
+    setState(() {
+      if (err == null) _blockedIds.add(m.userId);
+      _busyAction = null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(err ?? '${m.name} has been blocked.')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final visible = _visibleProfiles;
@@ -418,6 +480,8 @@ class _MatchesPageState extends State<MatchesPage> {
                     onLike: () => _toggleLike(m),
                     onShortlist: () => _toggleShortlist(m),
                     onIgnore: () => _ignore(m),
+                    onMessage: () => _openMessage(m),
+                    onBlock: () => _block(m),
                   ),
                 );
               },
@@ -563,6 +627,8 @@ class _BrowseCard extends StatelessWidget {
     required this.onLike,
     required this.onShortlist,
     required this.onIgnore,
+    required this.onMessage,
+    required this.onBlock,
   });
 
   final MatchPreview m;
@@ -575,6 +641,8 @@ class _BrowseCard extends StatelessWidget {
   final VoidCallback onLike;
   final VoidCallback onShortlist;
   final VoidCallback onIgnore;
+  final VoidCallback onMessage;
+  final VoidCallback onBlock;
 
   static const Color _brand = _MatchesPageState._brand;
 
@@ -757,15 +825,29 @@ class _BrowseCard extends StatelessWidget {
                                 case 'compat':
                                   onLongPress();
                                   break;
+                                case 'message':
+                                  onMessage();
+                                  break;
                                 case 'ignore':
                                   onIgnore();
+                                  break;
+                                case 'block':
+                                  onBlock();
                                   break;
                               }
                             },
                             itemBuilder: (_) => const [
                               PopupMenuItem(value: 'view', child: Text('View profile')),
                               PopupMenuItem(value: 'compat', child: Text('Compatibility')),
+                              PopupMenuItem(value: 'message', child: Text('Send message')),
                               PopupMenuItem(value: 'ignore', child: Text('Ignore')),
+                              PopupMenuItem(
+                                value: 'block',
+                                child: Text(
+                                  'Block',
+                                  style: TextStyle(color: Colors.red),
+                                ),
+                              ),
                             ],
                           ),
                         ],
@@ -810,6 +892,91 @@ class _ActionIcon extends StatelessWidget {
   }
 }
 
+/// Three-section view that the user navigates between on the Likes tab.
+enum LikeSection { mutual, received, sent }
+
+/// Status filter shown for the Received / Sent sections. Mirrors the four
+/// pills in the web sidebar (All / Pending / Accepted / Declined). The
+/// Mutual section ignores this filter — by definition both sides accepted.
+enum LikeStatusFilter { all, pending, accepted, declined }
+
+extension on LikeSection {
+  String get label {
+    switch (this) {
+      case LikeSection.mutual:
+        return 'Mutual';
+      case LikeSection.received:
+        return 'Received';
+      case LikeSection.sent:
+        return 'Sent';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case LikeSection.mutual:
+        return Icons.favorite_rounded;
+      case LikeSection.received:
+        return Icons.inbox_rounded;
+      case LikeSection.sent:
+        return Icons.send_rounded;
+    }
+  }
+}
+
+extension on LikeStatusFilter {
+  String get label {
+    switch (this) {
+      case LikeStatusFilter.all:
+        return 'All';
+      case LikeStatusFilter.pending:
+        return 'Pending';
+      case LikeStatusFilter.accepted:
+        return 'Accepted';
+      case LikeStatusFilter.declined:
+        return 'Declined';
+    }
+  }
+
+  String? get status {
+    switch (this) {
+      case LikeStatusFilter.all:
+        return null;
+      case LikeStatusFilter.pending:
+        return 'pending';
+      case LikeStatusFilter.accepted:
+        return 'accepted';
+      case LikeStatusFilter.declined:
+        return 'declined';
+    }
+  }
+}
+
+/// Resolved row shown in the list — pairs the upstream [LikeRow] with the
+/// other party's [MatchPreview] and the *effective* status (mutual rows are
+/// promoted to `accepted` even if the underlying row is still `pending`,
+/// matching the web's `LikesView::filteredProfiles` rule).
+class _LikeEntry {
+  const _LikeEntry({
+    required this.row,
+    required this.profile,
+    required this.effectiveStatus,
+    required this.isMutual,
+  });
+
+  final LikeRow row;
+  final MatchPreview profile;
+  final String effectiveStatus;
+  final bool isMutual;
+}
+
+/// Likes tab — Flutter port of `manavizha/components/likes-view.tsx`.
+///
+/// Three sections (Mutual / Received / Sent) plus a four-option status filter
+/// (All / Pending / Accepted / Declined) replace the old two-tab "I liked /
+/// Liked me" layout. The card lets the recipient accept or decline a
+/// pending interest, shortlists either party, and opens the full profile via
+/// [pushMemberProfileFullscreen].
 class LikesPage extends StatefulWidget {
   const LikesPage({super.key});
 
@@ -817,38 +984,160 @@ class LikesPage extends StatefulWidget {
   State<LikesPage> createState() => _LikesPageState();
 }
 
-class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
+class _LikesPageState extends State<LikesPage> {
   static const Color _brand = Color(0xFF2FA086);
-  bool _loadingILiked = true;
-  String? _iLikedError;
-  List<MatchPreview> _iLikedProfiles = <MatchPreview>[];
-  bool _loadingLikedMe = true;
-  String? _likedMeError;
-  List<MatchPreview> _likedMeProfiles = <MatchPreview>[];
-  final Set<String> _shortlistedIds = {};
-  final Set<String> _likedUserIds = {};
-  String? _actionBusyForUserId;
+
+  bool _loading = true;
+  String? _error;
+
+  LikeSection _section = LikeSection.received;
+  LikeStatusFilter _status = LikeStatusFilter.all;
+
+  List<LikeRow> _iLiked = const <LikeRow>[];
+  List<LikeRow> _likedMe = const <LikeRow>[];
+  Map<String, MatchPreview> _profiles = const <String, MatchPreview>{};
+  Set<String> _shortlistedIds = <String>{};
+
+  /// Current user's premium flag — controls whether "Send message" actually
+  /// opens [showMessageDialog] in sending mode or falls back to the upgrade
+  /// flow (mirrors web `MessageDialog`'s `isPremium` guard).
+  bool _isCurrentUserPremium = false;
+
+  /// userId currently doing an accept/decline/shortlist call; gates the row's
+  /// busy spinner and disables additional taps.
+  String? _busyUserId;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _loadILikedProfiles();
-    _loadLikedMeProfiles();
+    _refresh();
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
+  Future<void> _refresh() async {
+    final client = Supabase.instance.client;
+    final uid = client.auth.currentUser?.id;
+    if (uid == null) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Not signed in.';
+      });
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data = await loadLikesView(client, uid);
+      Set<String> shortlists = <String>{};
+      try {
+        final res = await client
+            .from('shortlists')
+            .select('shortlisted_user_id')
+            .eq('user_id', uid);
+        shortlists = <String>{
+          for (final r in (res as List<dynamic>? ?? const []))
+            Map<String, dynamic>.from(r as Map)['shortlisted_user_id']
+                ?.toString() ??
+                '',
+        }..removeWhere((s) => s.isEmpty);
+      } catch (e, st) {
+        debugPrint('LikesPage shortlist fetch: $e\n$st');
+      }
+      var premium = false;
+      try {
+        final row = await client
+            .from('user_settings')
+            .select('is_premium')
+            .eq('user_id', uid)
+            .maybeSingle();
+        premium = row != null && row['is_premium'] == true;
+      } catch (e, st) {
+        debugPrint('LikesPage premium fetch: $e\n$st');
+      }
+      if (!mounted) return;
+      setState(() {
+        _iLiked = data.iLiked;
+        _likedMe = data.likedMe;
+        _profiles = data.profiles;
+        _shortlistedIds = shortlists;
+        _isCurrentUserPremium = premium;
+        _loading = false;
+      });
+    } catch (e, st) {
+      debugPrint('LikesPage refresh: $e\n$st');
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Could not load likes. Pull down to retry.';
+      });
+    }
   }
 
-  int? _coerceInt(dynamic v) {
-    if (v == null) return null;
-    if (v is int) return v;
-    if (v is num) return v.round();
-    return int.tryParse(v.toString().trim());
+  /// Show the compose-message dialog for [p]. Wired into the "Send message"
+  /// button shown on mutual / accepted entries (and exposed via the kebab menu
+  /// on every other row).
+  Future<void> _openMessage(MatchPreview p) async {
+    await showMessageDialog(
+      context,
+      receiverId: p.userId,
+      receiverName: p.name,
+      isPremium: _isCurrentUserPremium,
+    );
+  }
+
+  /// Block [p] from this user's feeds. Confirms first, then optimistically
+  /// removes them from the local lists (mirrors web behaviour where the row
+  /// disappears after a successful block).
+  Future<void> _block(MatchPreview p) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Block this profile?'),
+        content: Text(
+          'You will no longer see ${p.name} in your matches or likes. This cannot be undone from here.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade600),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Block'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final client = Supabase.instance.client;
+    final uid = client.auth.currentUser?.id;
+    if (uid == null) return;
+    setState(() => _busyUserId = p.userId);
+    final err = await ProfileSocialActions.blockProfile(
+      client: client,
+      currentUserId: uid,
+      targetUserId: p.userId,
+    );
+    if (!mounted) return;
+    if (err != null) {
+      setState(() => _busyUserId = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(err)),
+      );
+      return;
+    }
+    setState(() {
+      _iLiked = _iLiked.where((r) => r.otherUserId != p.userId).toList();
+      _likedMe = _likedMe.where((r) => r.otherUserId != p.userId).toList();
+      _busyUserId = null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${p.name} has been blocked.')),
+    );
   }
 
   String _educationJobLine(MatchPreview m) {
@@ -860,349 +1149,186 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
     return '';
   }
 
-  Widget _interestsMiniCard(MatchPreview m) {
-    final tags = m.interestTags;
-    final has = tags.isNotEmpty;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Things I have interest in',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.95),
-              fontWeight: FontWeight.w800,
-              fontSize: 11,
-              letterSpacing: 0.2,
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (has)
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final t in tags.take(14))
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.22),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      t,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.98),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 11,
-                        height: 1.2,
-                      ),
-                    ),
-                  ),
-              ],
+  int get _mutualCount {
+    final mine = _iLiked.map((e) => e.otherUserId).toSet();
+    var n = 0;
+    for (final r in _likedMe) {
+      if (mine.contains(r.otherUserId)) n++;
+    }
+    return n;
+  }
+
+  int _statusCount(List<LikeRow> rows, LikeStatusFilter f) {
+    if (f == LikeStatusFilter.all) return rows.length;
+    final want = f.status;
+    return rows.where((r) => r.status == want).length;
+  }
+
+  List<_LikeEntry> get _visible {
+    final mutualIds = {
+      for (final r in _iLiked) r.otherUserId,
+    }.intersection({
+      for (final r in _likedMe) r.otherUserId,
+    });
+
+    Iterable<LikeRow> base;
+    switch (_section) {
+      case LikeSection.mutual:
+        // Order by whichever direction created the connection most recently
+        // (web does the same — `iLikedData` is already DESC by created_at).
+        final mineByOther = {for (final r in _iLiked) r.otherUserId: r};
+        base = _likedMe.where((r) => mutualIds.contains(r.otherUserId)).map(
+              (m) => mineByOther[m.otherUserId]?.createdAt != null &&
+                      m.createdAt != null &&
+                      mineByOther[m.otherUserId]!
+                          .createdAt!
+                          .isAfter(m.createdAt!)
+                  ? mineByOther[m.otherUserId]!
+                  : m,
+            );
+        break;
+      case LikeSection.received:
+        base = _likedMe;
+        break;
+      case LikeSection.sent:
+        base = _iLiked;
+        break;
+    }
+
+    Iterable<LikeRow> filtered = base;
+    if (_section != LikeSection.mutual && _status != LikeStatusFilter.all) {
+      final want = _status.status;
+      filtered = filtered.where((r) => r.status == want);
+    }
+
+    final out = <_LikeEntry>[];
+    for (final row in filtered) {
+      final p = _profiles[row.otherUserId];
+      if (p == null) continue;
+      final isMutual = mutualIds.contains(row.otherUserId);
+      // Web: promote effective status to "accepted" when both directions exist
+      // at status=accepted, otherwise keep the raw status from the upstream row.
+      final raw = row.status;
+      var effective = raw;
+      if (_section != LikeSection.mutual && isMutual) {
+        final mine = _iLiked.firstWhere(
+          (r) => r.otherUserId == row.otherUserId,
+          orElse: () => row,
+        );
+        final theirs = _likedMe.firstWhere(
+          (r) => r.otherUserId == row.otherUserId,
+          orElse: () => row,
+        );
+        if (mine.status == 'accepted' && theirs.status == 'accepted') {
+          effective = 'accepted';
+        }
+      } else if (_section == LikeSection.mutual) {
+        effective = 'accepted';
+      }
+      out.add(_LikeEntry(
+        row: row,
+        profile: p,
+        effectiveStatus: effective,
+        isMutual: isMutual,
+      ));
+    }
+    return out;
+  }
+
+  Future<void> _acceptOrDecline(_LikeEntry entry, String newStatus) async {
+    final client = Supabase.instance.client;
+    final uid = client.auth.currentUser?.id;
+    if (uid == null) return;
+    setState(() => _busyUserId = entry.profile.userId);
+    final err = await updateLikeStatus(
+      client: client,
+      likerUserId: entry.profile.userId,
+      recipientUserId: uid,
+      status: newStatus,
+      reciprocateFor: newStatus == 'accepted' ? uid : null,
+    );
+    if (!mounted) return;
+    setState(() => _busyUserId = null);
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      return;
+    }
+    // Optimistically patch local state so the row moves between status buckets
+    // without waiting for a full refetch.
+    setState(() {
+      _likedMe = [
+        for (final r in _likedMe)
+          if (r.otherUserId == entry.profile.userId)
+            LikeRow(
+              otherUserId: r.otherUserId,
+              status: newStatus,
+              createdAt: r.createdAt,
+              isRead: true,
             )
           else
-            Text(
-              'Mysteriously blank — not a single interest yet. Impressive restraint.',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.88),
-                fontWeight: FontWeight.w500,
-                fontSize: 12,
-                height: 1.35,
-                fontStyle: FontStyle.italic,
-              ),
+            r,
+      ];
+      if (newStatus == 'accepted') {
+        // Reciprocal row may have been inserted; reflect it locally.
+        final already = _iLiked.any((r) => r.otherUserId == entry.profile.userId);
+        if (!already) {
+          _iLiked = [
+            LikeRow(
+              otherUserId: entry.profile.userId,
+              status: 'accepted',
+              createdAt: DateTime.now().toUtc(),
+              isRead: true,
             ),
-        ],
+            ..._iLiked,
+          ];
+        } else {
+          _iLiked = [
+            for (final r in _iLiked)
+              if (r.otherUserId == entry.profile.userId)
+                LikeRow(
+                  otherUserId: r.otherUserId,
+                  status: 'accepted',
+                  createdAt: r.createdAt,
+                  isRead: r.isRead,
+                )
+              else
+                r,
+          ];
+        }
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(newStatus == 'accepted'
+            ? 'Interest accepted'
+            : 'Interest declined'),
       ),
     );
   }
 
-  Future<void> _loadILikedProfiles() async {
-    await _loadLikeProfiles(received: false);
-  }
-
-  Future<void> _loadLikedMeProfiles() async {
-    await _loadLikeProfiles(received: true);
-  }
-
-  Future<void> _loadSocialStatesForProfiles(String myId, List<String> ids) async {
-    final c = Supabase.instance.client;
-    if (ids.isEmpty) {
-      if (!mounted) return;
-      setState(() {
-        _shortlistedIds.clear();
-        _likedUserIds.clear();
-      });
-      return;
-    }
-    final shortsRes = await c.from('shortlists').select('shortlisted_user_id').eq('user_id', myId).inFilter('shortlisted_user_id', ids);
-    final likesRes = await c.from('likes').select('liked_user_id').eq('user_id', myId).inFilter('liked_user_id', ids);
-    final shorts = <String>{};
-    for (final row in (shortsRes as List<dynamic>? ?? [])) {
-      shorts.add(Map<String, dynamic>.from(row as Map)['shortlisted_user_id'].toString());
-    }
-    final likes = <String>{};
-    for (final row in (likesRes as List<dynamic>? ?? [])) {
-      likes.add(Map<String, dynamic>.from(row as Map)['liked_user_id'].toString());
-    }
-    if (!mounted) return;
-    setState(() {
-      _shortlistedIds
-        ..clear()
-        ..addAll(shorts);
-      _likedUserIds
-        ..clear()
-        ..addAll(likes);
-    });
-  }
-
-  Future<void> _loadLikeProfiles({required bool received}) async {
-    final c = Supabase.instance.client;
-    final uid = c.auth.currentUser?.id;
-    if (uid == null) {
-      if (!mounted) return;
-      setState(() {
-        if (received) {
-          _loadingLikedMe = false;
-          _likedMeError = 'Not signed in.';
-        } else {
-          _loadingILiked = false;
-          _iLikedError = 'Not signed in.';
-        }
-      });
-      return;
-    }
-
-    setState(() {
-      if (received) {
-        _loadingLikedMe = true;
-        _likedMeError = null;
-      } else {
-        _loadingILiked = true;
-        _iLikedError = null;
-      }
-    });
-
-    try {
-      final likesRes = received
-          ? await c.from('likes').select('user_id').eq('liked_user_id', uid).order('created_at', ascending: false)
-          : await c.from('likes').select('liked_user_id').eq('user_id', uid).order('created_at', ascending: false);
-      final likedRows = (likesRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-
-      final orderedIds = <String>[];
-      final seen = <String>{};
-      for (final row in likedRows) {
-        final id = (received ? row['user_id'] : row['liked_user_id'])?.toString().trim() ?? '';
-        if (id.isEmpty) continue;
-        if (seen.add(id)) orderedIds.add(id);
-      }
-
-      if (orderedIds.isEmpty) {
-        if (!mounted) return;
-        setState(() {
-          if (received) {
-            _likedMeProfiles = <MatchPreview>[];
-            _loadingLikedMe = false;
-          } else {
-            _iLikedProfiles = <MatchPreview>[];
-            _loadingILiked = false;
-          }
-        });
-        return;
-      }
-
-      final batch = await Future.wait<dynamic>([
-        c.from('personal_details').select('user_id, name, age').inFilter('user_id', orderedIds),
-        c.from('contact_details').select('user_id, current_district, current_state').inFilter('user_id', orderedIds),
-        c.from('photos').select('user_id, user_photos').inFilter('user_id', orderedIds),
-        c.from('education_details').select('user_id, education').inFilter('user_id', orderedIds),
-        c.from('profession_employee').select('user_id, designation, company').inFilter('user_id', orderedIds),
-        c.from('profession_business').select('user_id, designation, business_name').inFilter('user_id', orderedIds),
-        c.from('profession_student').select('user_id, course, institution').inFilter('user_id', orderedIds),
-        c.from('user_settings').select('user_id, is_premium').inFilter('user_id', orderedIds),
-        c.from('interests').select('user_id, interests').inFilter('user_id', orderedIds),
-      ]);
-
-      // Optional 10th query for activity timestamps — `users` may be RLS-restricted
-      // so we tolerate failures and just leave the green dot off.
-      List<dynamic>? activityRaw;
-      try {
-        activityRaw = await c.from('users').select('id, last_active_at').inFilter('id', orderedIds) as List<dynamic>?;
-      } catch (_) {
-        activityRaw = null;
-      }
-
-      List<Map<String, dynamic>> mapsFrom(dynamic value) =>
-          (value as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-
-      final personalRows = mapsFrom(batch[0]);
-      final contactRows = mapsFrom(batch[1]);
-      final photoRows = mapsFrom(batch[2]);
-      final educationRows = mapsFrom(batch[3]);
-      final empRows = mapsFrom(batch[4]);
-      final busRows = mapsFrom(batch[5]);
-      final stuRows = mapsFrom(batch[6]);
-      final settingsRows = mapsFrom(batch[7]);
-      final interestsRows = mapsFrom(batch[8]);
-      final activityRows = (activityRaw ?? const []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-      final Map<String, DateTime?> lastActiveByUser = {
-        for (final r in activityRows)
-          if (r['id'] != null) r['id'].toString(): parseLastActive(r['last_active_at']),
-      };
-
-      Map<String, dynamic>? firstByUser(List<Map<String, dynamic>> rows, String id) {
-        for (final r in rows) {
-          if (r['user_id']?.toString() == id) return r;
-        }
-        return null;
-      }
-
-      String? latestEducation(String id) {
-        String? latest;
-        for (final r in educationRows) {
-          if (r['user_id']?.toString() != id) continue;
-          final v = r['education']?.toString().trim();
-          if (v != null && v.isNotEmpty) latest = v;
-        }
-        return latest;
-      }
-
-      final out = <MatchPreview>[];
-      for (final id in orderedIds) {
-        final personal = firstByUser(personalRows, id);
-        if (personal == null) continue;
-
-        final contact = firstByUser(contactRows, id);
-        final photos = firstByUser(photoRows, id);
-        final emp = firstByUser(empRows, id);
-        final bus = firstByUser(busRows, id);
-        final stu = firstByUser(stuRows, id);
-        final settings = firstByUser(settingsRows, id);
-        final interests = firstByUser(interestsRows, id);
-
-        final district = contact?['current_district']?.toString().trim();
-        final state = contact?['current_state']?.toString().trim();
-        final location = (district != null && district.isNotEmpty)
-            ? ((state != null && state.isNotEmpty) ? '$district, $state' : district)
-            : ((state != null && state.isNotEmpty) ? state : 'Location not shared');
-
-        String? jobTitle;
-        if (emp != null) {
-          final d = emp['designation']?.toString().trim() ?? '';
-          final cName = emp['company']?.toString().trim() ?? '';
-          if (d.isNotEmpty && cName.isNotEmpty) {
-            jobTitle = '$d at $cName';
-          } else if (d.isNotEmpty) {
-            jobTitle = d;
-          }
-        } else if (bus != null) {
-          final d = bus['designation']?.toString().trim() ?? '';
-          final bName = bus['business_name']?.toString().trim() ?? '';
-          if (d.isNotEmpty && bName.isNotEmpty) {
-            jobTitle = '$d at $bName';
-          } else if (d.isNotEmpty) {
-            jobTitle = d;
-          }
-        } else if (stu != null) {
-          final course = stu['course']?.toString().trim() ?? '';
-          final inst = stu['institution']?.toString().trim() ?? '';
-          if (course.isNotEmpty && inst.isNotEmpty) {
-            jobTitle = '$course at $inst';
-          } else if (course.isNotEmpty) {
-            jobTitle = course;
-          }
-        }
-
-        final rawPhotos = parseUserPhotosList(photos?['user_photos']);
-        String? photoUrl;
-        if (rawPhotos.isNotEmpty) {
-          photoUrl = await signUserProfilePhoto(c, id, rawPhotos.first.toString());
-        }
-
-        final interestTags = interests != null ? parseInterestsTableArrayColumn(interests['interests']) : <String>[];
-
-        out.add(
-          MatchPreview(
-            userId: id,
-            name: personal['name']?.toString().trim().isNotEmpty == true ? personal['name'].toString() : 'Member',
-            age: _coerceInt(personal['age']),
-            location: location,
-            photoUrl: photoUrl,
-            isPremium: settings?['is_premium'] == true,
-            educationDegree: latestEducation(id),
-            jobTitle: jobTitle,
-            interestTags: interestTags,
-            lastActiveAt: lastActiveByUser[id],
-          ),
-        );
-      }
-
-      if (!mounted) return;
-      setState(() {
-        if (received) {
-          _likedMeProfiles = out;
-          _loadingLikedMe = false;
-        } else {
-          _iLikedProfiles = out;
-          _loadingILiked = false;
-        }
-      });
-      await _loadSocialStatesForProfiles(uid, orderedIds);
-    } catch (e, st) {
-      debugPrint('LikesPage ${received ? 'Liked Me' : 'I liked'}: $e\n$st');
-      if (!mounted) return;
-      setState(() {
-        if (received) {
-          _loadingLikedMe = false;
-          _likedMeError = 'Could not load liked profiles.';
-        } else {
-          _loadingILiked = false;
-          _iLikedError = 'Could not load liked profiles.';
-        }
-      });
-    }
-  }
-
-  Future<void> _onShortlist(MatchPreview m) async {
-    final uid = Supabase.instance.client.auth.currentUser?.id;
+  Future<void> _toggleShortlist(MatchPreview m) async {
+    final client = Supabase.instance.client;
+    final uid = client.auth.currentUser?.id;
     if (uid == null) return;
-    final target = m.userId;
-    final on = _shortlistedIds.contains(target);
-    setState(() => _actionBusyForUserId = target);
+    final on = _shortlistedIds.contains(m.userId);
+    setState(() => _busyUserId = m.userId);
     final err = await ProfileSocialActions.toggleShortlist(
-      client: Supabase.instance.client,
+      client: client,
       currentUserId: uid,
-      targetUserId: target,
+      targetUserId: m.userId,
       remove: on,
     );
     if (!mounted) return;
-    setState(() => _actionBusyForUserId = null);
+    setState(() => _busyUserId = null);
     if (err != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
       return;
     }
     setState(() {
       if (on) {
-        _shortlistedIds.remove(target);
+        _shortlistedIds.remove(m.userId);
       } else {
-        _shortlistedIds.add(target);
+        _shortlistedIds.add(m.userId);
       }
     });
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1210,582 +1336,580 @@ class _LikesPageState extends State<LikesPage> with SingleTickerProviderStateMix
     );
   }
 
-  Future<void> _onSendInterest(MatchPreview m) async {
-    final uid = Supabase.instance.client.auth.currentUser?.id;
-    if (uid == null) return;
-    final target = m.userId;
-    if (_likedUserIds.contains(target)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You already sent interest to this profile')),
-      );
-      return;
-    }
-    setState(() => _actionBusyForUserId = target);
-    final err = await ProfileSocialActions.sendInterest(
-      client: Supabase.instance.client,
-      currentUserId: uid,
-      targetUserId: target,
-    );
-    if (!mounted) return;
-    setState(() => _actionBusyForUserId = null);
-    if (err != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
-      return;
-    }
-    setState(() => _likedUserIds.add(target));
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Interest sent!')));
+  void _openProfile(String userId) {
+    pushMemberProfileFullscreen(context, userId);
   }
 
-  Future<void> _onSkip(MatchPreview m) async {
-    final uid = Supabase.instance.client.auth.currentUser?.id;
-    if (uid == null) return;
-    final target = m.userId;
-    setState(() => _actionBusyForUserId = target);
-    final err = await ProfileSocialActions.ignoreProfile(
-      client: Supabase.instance.client,
-      currentUserId: uid,
-      targetUserId: target,
-    );
-    if (!mounted) return;
-    setState(() => _actionBusyForUserId = null);
-    if (err != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
-      return;
-    }
-    setState(() {
-      _likedMeProfiles = _likedMeProfiles.where((p) => p.userId != target).toList();
-      _shortlistedIds.remove(target);
-      _likedUserIds.remove(target);
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Profile skipped — we will hide them from your feed.')),
+  void _openCompatibility(MatchPreview m, {required bool isPremium}) {
+    showCompatibilitySheet(
+      context,
+      targetUserId: m.userId,
+      targetName: m.name,
+      isPremium: isPremium,
     );
   }
 
-  Widget _actionButton({
-    required String label,
-    required IconData icon,
-    required Color foreground,
-    required Color background,
-    required VoidCallback? onTap,
-    bool busy = false,
-    bool outline = false,
-  }) {
-    return Material(
-      color: outline ? Colors.transparent : background,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-          decoration: outline
-              ? BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
-                  color: background,
-                )
-              : null,
-          child: busy
-              ? Center(
-                  child: SizedBox(
-                    height: 22,
-                    width: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: foreground,
-                    ),
+  // -- UI helpers ---------------------------------------------------------
+
+  Widget _buildSegmentedTabs() {
+    final counts = {
+      LikeSection.mutual: _mutualCount,
+      LikeSection.received: _likedMe.length,
+      LikeSection.sent: _iLiked.length,
+    };
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: Colors.black.withValues(alpha: 0.08)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Row(
+            children: [
+              for (final s in LikeSection.values)
+                Expanded(
+                  child: _segmentButton(
+                    section: s,
+                    selected: _section == s,
+                    count: counts[s] ?? 0,
                   ),
-                )
-              : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon, size: 20, color: foreground),
-                    const SizedBox(height: 4),
-                    Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: foreground,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 10,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                  ],
                 ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _likedMeActionRow(MatchPreview m) {
-    const interestYellow = Color(0xFFFFD400);
-    const interestSentGreen = Color(0xFF16A34A);
-    final short = _shortlistedIds.contains(m.userId);
-    final liked = _likedUserIds.contains(m.userId);
-    final busy = _actionBusyForUserId == m.userId;
-    return Row(
-      children: [
-        Expanded(
-          child: _actionButton(
-            label: short ? 'Saved' : 'Shortlist',
-            icon: short ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-            foreground: short ? const Color(0xFFFF1493) : Colors.white,
-            background: short ? Colors.white.withValues(alpha: 0.95) : Colors.white.withValues(alpha: 0.18),
-            busy: busy,
-            onTap: busy ? null : () => _onShortlist(m),
+  Widget _segmentButton({
+    required LikeSection section,
+    required bool selected,
+    required int count,
+  }) {
+    return Material(
+      color: selected ? _brand : Colors.transparent,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: () {
+          if (_section == section) return;
+          setState(() {
+            _section = section;
+            _status = LikeStatusFilter.all;
+          });
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                section.icon,
+                size: 16,
+                color: selected ? Colors.white : Colors.black54,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  section.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected ? Colors.white : Colors.black87,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12.5,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? Colors.white.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    color: selected ? Colors.white : Colors.black54,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _actionButton(
-            label: liked ? 'Interest Sent' : 'Interest',
-            icon: Icons.favorite_rounded,
-            foreground: Colors.white,
-            background: liked ? interestSentGreen : interestYellow,
-            busy: busy,
-            onTap: busy ? null : () => _onSendInterest(m),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _actionButton(
-            label: 'Skip',
-            icon: Icons.not_interested_outlined,
-            foreground: Colors.white.withValues(alpha: 0.95),
-            background: Colors.white.withValues(alpha: 0.12),
-            outline: true,
-            busy: busy,
-            onTap: busy ? null : () => _onSkip(m),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
-  Future<void> _openProfilePopup(String userId) async {
-    await showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'Close profile',
-      barrierColor: Colors.black.withValues(alpha: 0.56),
-      transitionDuration: const Duration(milliseconds: 260),
-      pageBuilder: (context, animation, secondaryAnimation) {
-        return SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final wide = constraints.maxWidth >= 760;
-              final popupMaxWidth = wide ? 980.0 : 640.0;
-              final popupHorizontalMargin = wide ? 24.0 : 12.0;
-              final popupVerticalMargin = wide ? 24.0 : 10.0;
-              final card = Material(
-                color: const Color(0xFFFAFAFA),
-                borderRadius: BorderRadius.circular(wide ? 24 : 20),
-                clipBehavior: Clip.antiAlias,
-                child: Column(
-                  children: [
-                    Container(
-                      color: Colors.white,
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                      child: Stack(
-                        alignment: Alignment.center,
+  Widget _buildStatusFilterBar() {
+    if (_section == LikeSection.mutual) return const SizedBox.shrink();
+    final rows = _section == LikeSection.received ? _likedMe : _iLiked;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final f in LikeStatusFilter.values) ...[
+              _statusChip(
+                filter: f,
+                count: _statusCount(rows, f),
+                selected: _status == f,
+              ),
+              const SizedBox(width: 8),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _statusChip({
+    required LikeStatusFilter filter,
+    required int count,
+    required bool selected,
+  }) {
+    return ChoiceChip(
+      label: Text('${filter.label} ($count)'),
+      selected: selected,
+      onSelected: (_) => setState(() => _status = filter),
+      selectedColor: _brand.withValues(alpha: 0.18),
+      backgroundColor: Colors.white,
+      labelStyle: TextStyle(
+        color: selected ? _brand : Colors.black87,
+        fontWeight: FontWeight.w800,
+        fontSize: 11.5,
+        letterSpacing: 0.2,
+      ),
+      side: BorderSide(
+        color: selected
+            ? _brand.withValues(alpha: 0.6)
+            : Colors.black.withValues(alpha: 0.10),
+      ),
+      shape: const StadiumBorder(),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+  }
+
+  Widget _buildEmptyState() {
+    String title;
+    String subtitle;
+    IconData icon;
+    switch (_section) {
+      case LikeSection.mutual:
+        title = 'No mutual matches yet';
+        subtitle = 'When someone you liked likes you back, they show up here.';
+        icon = Icons.favorite_border_rounded;
+        break;
+      case LikeSection.received:
+        title = _status == LikeStatusFilter.all
+            ? 'No interests received yet'
+            : 'Nothing matches "${_status.label}"';
+        subtitle = 'Members who send you interest will appear here.';
+        icon = Icons.inbox_outlined;
+        break;
+      case LikeSection.sent:
+        title = _status == LikeStatusFilter.all
+            ? 'You haven\'t sent any interests'
+            : 'Nothing matches "${_status.label}"';
+        subtitle = 'Open Matches and tap the heart to send interest.';
+        icon = Icons.send_outlined;
+        break;
+    }
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 32,
+              backgroundColor: _brand.withValues(alpha: 0.12),
+              child: Icon(icon, size: 30, color: _brand),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.black.withValues(alpha: 0.55),
+                fontSize: 12.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _statusLineFor(_LikeEntry e) {
+    final s = e.effectiveStatus;
+    switch (_section) {
+      case LikeSection.mutual:
+        return 'Mutual interest';
+      case LikeSection.received:
+        if (s == 'accepted') return 'You accepted their interest';
+        if (s == 'declined') return 'You declined their interest';
+        return 'They sent you an interest';
+      case LikeSection.sent:
+        if (s == 'accepted') return 'They accepted your interest';
+        if (s == 'declined') return 'They declined your interest';
+        return 'Awaiting their response';
+    }
+  }
+
+  Color _statusColorFor(_LikeEntry e) {
+    final s = e.effectiveStatus;
+    if (s == 'accepted' || e.isMutual) return const Color(0xFF16A34A);
+    if (s == 'declined') return Colors.black54;
+    return const Color(0xFFB45309); // amber-700 for pending
+  }
+
+  IconData _statusIconFor(_LikeEntry e) {
+    final s = e.effectiveStatus;
+    if (s == 'accepted' || e.isMutual) return Icons.check_circle_rounded;
+    if (s == 'declined') return Icons.cancel_outlined;
+    return Icons.schedule_rounded;
+  }
+
+  Widget _buildLikeCard(_LikeEntry entry) {
+    final p = entry.profile;
+    final shortlisted = _shortlistedIds.contains(p.userId);
+    final busy = _busyUserId == p.userId;
+    final eduJob = _educationJobLine(p);
+    final showAcceptDecline =
+        _section == LikeSection.received && entry.effectiveStatus == 'pending';
+    final canMessage =
+        _section == LikeSection.mutual || entry.effectiveStatus == 'accepted';
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => _openProfile(p.userId),
+        onLongPress: () => _openCompatibility(p, isPremium: p.isPremium),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: SizedBox(
+                    width: 96,
+                    height: 96,
+                    child: (p.photoUrl != null && p.photoUrl!.isNotEmpty)
+                        ? AdaptiveNetworkPhoto(
+                            imageUrl: p.photoUrl!,
+                            blurSigma: 0,
+                            errorBuilder: (context, error, stackTrace) =>
+                                Container(
+                              color: _brand.withValues(alpha: 0.10),
+                              alignment: Alignment.center,
+                              child: Icon(Icons.person_rounded,
+                                  size: 34,
+                                  color: _brand.withValues(alpha: 0.55)),
+                            ),
+                          )
+                        : Container(
+                            color: _brand.withValues(alpha: 0.10),
+                            alignment: Alignment.center,
+                            child: Icon(Icons.person_rounded,
+                                size: 34, color: _brand.withValues(alpha: 0.55)),
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 42,
-                                height: 4,
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.14),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
+                          Expanded(
+                            child: Text(
+                              p.age != null ? '${p.name}, ${p.age}' : p.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.1,
                               ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Profile details',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  letterSpacing: 0.7,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.black.withValues(alpha: 0.55),
+                            ),
+                          ),
+                          if (p.isPremium)
+                            const Padding(
+                              padding: EdgeInsets.only(left: 6),
+                              child: Icon(Icons.workspace_premium_rounded,
+                                  size: 16, color: Color(0xFFEAB308)),
+                            ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints:
+                                const BoxConstraints(minWidth: 32, minHeight: 32),
+                            tooltip:
+                                shortlisted ? 'Remove from shortlist' : 'Shortlist',
+                            icon: Icon(
+                              shortlisted
+                                  ? Icons.bookmark_rounded
+                                  : Icons.bookmark_outline_rounded,
+                              color: shortlisted ? _brand : Colors.black54,
+                              size: 20,
+                            ),
+                            onPressed: busy ? null : () => _toggleShortlist(p),
+                          ),
+                          PopupMenuButton<String>(
+                            tooltip: 'More',
+                            padding: EdgeInsets.zero,
+                            iconSize: 20,
+                            icon: Icon(
+                              Icons.more_vert_rounded,
+                              size: 20,
+                              color: Colors.black.withValues(alpha: 0.55),
+                            ),
+                            onSelected: (v) async {
+                              switch (v) {
+                                case 'view':
+                                  _openProfile(p.userId);
+                                  break;
+                                case 'message':
+                                  await _openMessage(p);
+                                  break;
+                                case 'block':
+                                  await _block(p);
+                                  break;
+                              }
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                  value: 'view', child: Text('View profile')),
+                              PopupMenuItem(
+                                  value: 'message',
+                                  child: Text('Send message')),
+                              PopupMenuItem(
+                                value: 'block',
+                                child: Text(
+                                  'Block',
+                                  style: TextStyle(color: Colors.red),
                                 ),
                               ),
                             ],
                           ),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: Material(
-                              color: Colors.red.withValues(alpha: 0.12),
-                              shape: const CircleBorder(),
-                              child: InkWell(
-                                customBorder: const CircleBorder(),
-                                onTap: () => Navigator.of(context).pop(),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(8),
-                                  child: Icon(
-                                    Icons.close_rounded,
-                                    size: 18,
-                                    color: Colors.red.withValues(alpha: 0.88),
-                                  ),
-                                ),
+                        ],
+                      ),
+                      Text(
+                        p.location,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: Colors.black.withValues(alpha: 0.55),
+                        ),
+                      ),
+                      if (eduJob.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            eduJob,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: Colors.black.withValues(alpha: 0.55),
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 6),
+                      if (formatActivityTime(p.lastActiveAt).isNotEmpty)
+                        OnlineActivityChip.light(p.lastActiveAt),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(_statusIconFor(entry),
+                              size: 14, color: _statusColorFor(entry)),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              _statusLineFor(entry),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: _statusColorFor(entry),
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11.5,
+                                letterSpacing: 0.2,
                               ),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    Divider(height: 1, color: Colors.black.withValues(alpha: 0.06)),
-                    Expanded(child: MemberProfileViewScreen(targetUserId: userId)),
-                  ],
-                ),
-              );
-              return Center(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    popupHorizontalMargin,
-                    popupVerticalMargin,
-                    popupHorizontalMargin,
-                    popupVerticalMargin,
-                  ),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: popupMaxWidth,
-                      maxHeight: constraints.maxHeight - (popupVerticalMargin * 2),
-                    ),
-                    child: SizedBox(width: double.infinity, child: card),
-                  ),
-                ),
-              );
-            },
-          ),
-        );
-      },
-      transitionBuilder: (context, animation, secondaryAnimation, child) {
-        final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
-        return FadeTransition(
-          opacity: curved,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
-            child: child,
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _iLikedTab() {
-    if (_loadingILiked) {
-      return const Center(child: CircularProgressIndicator(color: _brand));
-    }
-    if (_iLikedError != null) {
-      return Center(child: Text(_iLikedError!, textAlign: TextAlign.center));
-    }
-    if (_iLikedProfiles.isEmpty) {
-      return Center(
-        child: Text(
-          'No profiles yet',
-          style: TextStyle(color: Colors.black.withValues(alpha: 0.45), fontWeight: FontWeight.w600),
-        ),
-      );
-    }
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 1,
-        mainAxisSpacing: 12,
-        childAspectRatio: 0.62,
-      ),
-      itemCount: _iLikedProfiles.length,
-      itemBuilder: (context, i) {
-        final m = _iLikedProfiles[i];
-        final image = m.photoUrl;
-        final eduJob = _educationJobLine(m);
-        return Material(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(22),
-          clipBehavior: Clip.antiAlias,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (image != null && image.isNotEmpty)
-                Positioned.fill(
-                  child: AdaptiveNetworkPhoto(
-                    imageUrl: image,
-                    blurSigma: 22,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      color: _brand.withValues(alpha: 0.08),
-                      child: Icon(Icons.person_rounded, size: 54, color: _brand.withValues(alpha: 0.35)),
-                    ),
-                  ),
-                )
-              else
-                Container(
-                  color: _brand.withValues(alpha: 0.08),
-                  child: Icon(Icons.person_rounded, size: 54, color: _brand.withValues(alpha: 0.35)),
-                ),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Colors.black.withValues(alpha: 0.03), Colors.black.withValues(alpha: 0.78)],
-                    stops: const [0.32, 1],
-                  ),
-                ),
-              ),
-              if (m.isPremium)
-                Positioned(
-                  top: 10,
-                  right: 10,
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(color: const Color(0xFFFFD66B), borderRadius: BorderRadius.circular(999)),
-                    child: const Icon(Icons.workspace_premium_rounded, size: 15, color: Color(0xFF7A4B00)),
-                  ),
-                ),
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () => _openProfilePopup(m.userId),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Spacer(),
-                        if (formatActivityTime(m.lastActiveAt).isNotEmpty) ...[
-                          OnlineActivityChip.dark(m.lastActiveAt),
-                          const SizedBox(height: 6),
-                        ],
-                        Text(
-                          '${m.name}, ${m.age ?? '—'}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18, height: 1.1),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          m.location,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: Colors.white.withValues(alpha: 0.95), fontWeight: FontWeight.w600, fontSize: 13),
-                        ),
-                        if (eduJob.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            eduJob,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.92),
-                              fontWeight: FontWeight.w600,
-                              fontSize: 12.5,
-                              height: 1.25,
+                      const SizedBox(height: 10),
+                      if (showAcceptDecline)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed: busy
+                                    ? null
+                                    : () => _acceptOrDecline(entry, 'accepted'),
+                                icon: const Icon(Icons.check_rounded, size: 16),
+                                label: const Text('Accept'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFF16A34A),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 8),
+                                  textStyle: const TextStyle(
+                                      fontSize: 12, fontWeight: FontWeight.w900),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: busy
+                                    ? null
+                                    : () => _acceptOrDecline(entry, 'declined'),
+                                icon: const Icon(Icons.close_rounded, size: 16),
+                                label: const Text('Decline'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.red.shade700,
+                                  side: BorderSide(color: Colors.red.shade200),
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 8),
+                                  textStyle: const TextStyle(
+                                      fontSize: 12, fontWeight: FontWeight.w900),
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      else if (canMessage)
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: busy ? null : () => _openMessage(p),
+                            icon: const Icon(Icons.chat_bubble_outline_rounded,
+                                size: 16),
+                            label: const Text('Send message'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: _brand,
+                              foregroundColor: Colors.white,
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 8),
+                              textStyle: const TextStyle(
+                                  fontSize: 12, fontWeight: FontWeight.w900),
                             ),
                           ),
-                        ],
-                        const SizedBox(height: 10),
-                        _interestsMiniCard(m),
-                        const SizedBox(height: 10),
-                        _likedMeActionRow(m),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _likedMeTab() {
-    if (_loadingLikedMe) {
-      return const Center(child: CircularProgressIndicator(color: _brand));
-    }
-    if (_likedMeError != null) {
-      return Center(child: Text(_likedMeError!, textAlign: TextAlign.center));
-    }
-    if (_likedMeProfiles.isEmpty) {
-      return Center(
-        child: Text(
-          'No profiles yet',
-          style: TextStyle(color: Colors.black.withValues(alpha: 0.45), fontWeight: FontWeight.w600),
-        ),
-      );
-    }
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 1,
-        mainAxisSpacing: 12,
-        childAspectRatio: 0.62,
-      ),
-      itemCount: _likedMeProfiles.length,
-      itemBuilder: (context, i) {
-        final m = _likedMeProfiles[i];
-        final image = m.photoUrl;
-        final eduJob = _educationJobLine(m);
-        return Material(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(22),
-          clipBehavior: Clip.antiAlias,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (image != null && image.isNotEmpty)
-                Positioned.fill(
-                  child: AdaptiveNetworkPhoto(
-                    imageUrl: image,
-                    blurSigma: 22,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      color: _brand.withValues(alpha: 0.08),
-                      child: Icon(Icons.person_rounded, size: 54, color: _brand.withValues(alpha: 0.35)),
-                    ),
-                  ),
-                )
-              else
-                Container(
-                  color: _brand.withValues(alpha: 0.08),
-                  child: Icon(Icons.person_rounded, size: 54, color: _brand.withValues(alpha: 0.35)),
-                ),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Colors.black.withValues(alpha: 0.03), Colors.black.withValues(alpha: 0.78)],
-                    stops: const [0.32, 1],
-                  ),
-                ),
-              ),
-              if (m.isPremium)
-                Positioned(
-                  top: 10,
-                  right: 10,
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(color: const Color(0xFFFFD66B), borderRadius: BorderRadius.circular(999)),
-                    child: const Icon(Icons.workspace_premium_rounded, size: 15, color: Color(0xFF7A4B00)),
-                  ),
-                ),
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () => _openProfilePopup(m.userId),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Spacer(),
-                        if (formatActivityTime(m.lastActiveAt).isNotEmpty) ...[
-                          OnlineActivityChip.dark(m.lastActiveAt),
-                          const SizedBox(height: 6),
-                        ],
-                        Text(
-                          '${m.name}, ${m.age ?? '—'}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18, height: 1.1),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          m.location,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: Colors.white.withValues(alpha: 0.95), fontWeight: FontWeight.w600, fontSize: 13),
-                        ),
-                        if (eduJob.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            eduJob,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.92),
-                              fontWeight: FontWeight.w600,
-                              fontSize: 12.5,
-                              height: 1.25,
+                        )
+                      else
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () => _openProfile(p.userId),
+                            icon: const Icon(Icons.arrow_forward_rounded,
+                                size: 16),
+                            label: const Text('View profile'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.black87,
+                              side: BorderSide(
+                                  color: Colors.black.withValues(alpha: 0.12)),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 8),
+                              textStyle: const TextStyle(
+                                  fontSize: 12, fontWeight: FontWeight.w900),
                             ),
                           ),
-                        ],
-                        const SizedBox(height: 10),
-                        _interestsMiniCard(m),
-                        const SizedBox(height: 10),
-                        _likedMeActionRow(m),
-                      ],
-                    ),
+                        ),
+                    ],
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 360),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: Colors.black.withValues(alpha: 0.08)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.06),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: TabBar(
-                    controller: _tabController,
-                    dividerColor: Colors.transparent,
-                    labelColor: Colors.white,
-                    unselectedLabelColor: Colors.black54,
-                    labelStyle: const TextStyle(fontWeight: FontWeight.w700),
-                    indicatorSize: TabBarIndicatorSize.tab,
-                    indicator: BoxDecoration(
-                      color: const Color(0xFF2FA086),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    tabs: const [
-                      Tab(text: 'I liked'),
-                      Tab(text: 'Liked Me'),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+    final visible = _visible;
+    return RefreshIndicator(
+      color: _brand,
+      onRefresh: _refresh,
+      child: Column(
+        children: [
+          _buildSegmentedTabs(),
+          _buildStatusFilterBar(),
+          Expanded(
+            child: _loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: _brand))
+                : (_error != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(_error!, textAlign: TextAlign.center),
+                        ),
+                      )
+                    : (visible.isEmpty
+                        ? ListView(
+                            // ListView so RefreshIndicator can still pull when empty.
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: [
+                              SizedBox(
+                                height: MediaQuery.of(context).size.height *
+                                    0.55,
+                                child: _buildEmptyState(),
+                              ),
+                            ],
+                          )
+                        : ListView.separated(
+                            padding:
+                                const EdgeInsets.fromLTRB(12, 4, 12, 24),
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            itemCount: visible.length,
+                            separatorBuilder: (context, index) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (context, i) =>
+                                _buildLikeCard(visible[i]),
+                          ))),
           ),
-        ),
-        Expanded(
-          child: TabBarView(
-            controller: _tabController,
-            children: [
-              _iLikedTab(),
-              _likedMeTab(),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
