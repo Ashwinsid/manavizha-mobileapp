@@ -3,10 +3,26 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 
-/// Edits the signed-in user's row in [referral_partners] (same data as the web
-/// ReferralPartnerProfileForm — text fields; document uploads remain on the site).
+/// Edits a row in [referral_partners] using the same fields as the web
+/// `ReferralPartnerProfileForm` (text columns only; document uploads remain
+/// on the website).
+///
+/// By default this screen edits the **currently signed-in user's** row, but
+/// admins can pass [userId] to edit any partner's row from the Accounts
+/// screen. When [userId] is provided, the app bar shows the partner's name
+/// (via [heading]) and writes go to that user_id instead.
 class ReferralPartnerProfileEditScreen extends StatefulWidget {
-  const ReferralPartnerProfileEditScreen({super.key});
+  const ReferralPartnerProfileEditScreen({
+    super.key,
+    this.userId,
+    this.heading,
+  });
+
+  /// Optional Supabase auth user-id to edit. Defaults to the signed-in user.
+  final String? userId;
+
+  /// Optional partner name to display in the app bar (admin context).
+  final String? heading;
 
   @override
   State<ReferralPartnerProfileEditScreen> createState() => _ReferralPartnerProfileEditScreenState();
@@ -105,7 +121,7 @@ class _ReferralPartnerProfileEditScreenState extends State<ReferralPartnerProfil
   }
 
   Future<void> _load() async {
-    final uid = Supabase.instance.client.auth.currentUser?.id;
+    final uid = widget.userId ?? Supabase.instance.client.auth.currentUser?.id;
     if (uid == null) {
       setState(() {
         _loading = false;
@@ -167,15 +183,13 @@ class _ReferralPartnerProfileEditScreenState extends State<ReferralPartnerProfil
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    final uid = Supabase.instance.client.auth.currentUser?.id;
-    final email = Supabase.instance.client.auth.currentUser?.email ?? '';
+    final uid = widget.userId ?? Supabase.instance.client.auth.currentUser?.id;
     if (uid == null) return;
 
     setState(() => _saving = true);
     try {
       // Update only these columns so document URLs and admin fields stay intact.
-      await Supabase.instance.client.from('referral_partners').update({
-        'email': email,
+      final updates = <String, dynamic>{
         'name': _name.text.trim(),
         'phone': _phoneWithPrefix(_phone.text),
         'whatsapp_number': _phoneWithPrefix(_whatsapp.text),
@@ -196,7 +210,15 @@ class _ReferralPartnerProfileEditScreenState extends State<ReferralPartnerProfil
         'account_holder_name': _accountHolder.text.trim(),
         'ifsc_code': _ifsc.text.trim(),
         'branch_name': _branch.text.trim(),
-      }).eq('user_id', uid);
+      };
+      // The signed-in partner also keeps their email column in sync with auth.
+      // Admins editing somebody else's row must not overwrite the partner's
+      // email with their own.
+      if (widget.userId == null) {
+        final email = Supabase.instance.client.auth.currentUser?.email ?? '';
+        if (email.isNotEmpty) updates['email'] = email;
+      }
+      await Supabase.instance.client.from('referral_partners').update(updates).eq('user_id', uid);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Partner profile saved'), behavior: SnackBarBehavior.floating),
@@ -231,9 +253,11 @@ class _ReferralPartnerProfileEditScreenState extends State<ReferralPartnerProfil
         backgroundColor: _pageBg,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        title: const Text(
-          'Edit partner profile',
-          style: TextStyle(fontWeight: FontWeight.w800, color: _brandPurple, letterSpacing: -0.3),
+        title: Text(
+          widget.heading != null && widget.heading!.trim().isNotEmpty
+              ? 'Edit: ${widget.heading!.trim()}'
+              : 'Edit partner profile',
+          style: const TextStyle(fontWeight: FontWeight.w800, color: _brandPurple, letterSpacing: -0.3),
         ),
         iconTheme: const IconThemeData(color: _brandPurple),
       ),

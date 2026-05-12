@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'admin_accounts_screen.dart';
+import 'admin_email_screen.dart';
 import 'admin_identity_verification_screen.dart';
 import 'admin_manage_profiles_screen.dart';
 import 'admin_profiles_screen.dart';
@@ -90,14 +91,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         });
       }
     }
-  }
-
-  void _openFeature(BuildContext context, String title, String message) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (context) => AdminPlaceholderScreen(title: title, message: message),
-      ),
-    );
   }
 
   @override
@@ -385,12 +378,14 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                           iconBg: const Color(0xFFDB2777).withValues(alpha: 0.1),
                           iconColor: const Color(0xFFDB2777),
                           title: 'Email',
-                          subtitle: 'Manage email templates, campaigns, and communications',
-                          onTap: () => _openFeature(
-                            context,
-                            'Email',
-                            'Email tools will be available in a future update.',
-                          ),
+                          subtitle: 'Compose and send bulk emails to filtered members',
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (context) => const AdminEmailScreen(),
+                              ),
+                            );
+                          },
                         ),
                         const SizedBox(height: 10),
                         _ActionTile(

@@ -7,24 +7,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 import 'app_config.dart';
+import 'referral_partner_profile_edit_screen.dart';
 
 const _kIndiaDialCode = '+91';
-
-/// National digits only for editing (no country prefix in the controller).
-String _nationalMobileDigits(String? stored) {
-  if (stored == null || stored.isEmpty) return '';
-  final digits = stored.replaceAll(RegExp(r'\D'), '');
-  if (digits.length >= 12 && digits.startsWith('91')) {
-    return digits.substring(2);
-  }
-  if (digits.length == 11 && digits.startsWith('0')) {
-    return digits.substring(1);
-  }
-  if (digits.length > 10) {
-    return digits.substring(digits.length - 10);
-  }
-  return digits;
-}
 
 String _withIndiaCountryCode(String nationalDigits) {
   final d = nationalDigits.replaceAll(RegExp(r'\D'), '');
@@ -118,6 +103,11 @@ class _AdminAccountsScreenState extends State<AdminAccountsScreen> with SingleTi
 
   bool _loading = true;
   String? _loadError;
+  /// Last failure seen from `/api/admin/accounts` — kept so the banner shows a
+  /// specific reason ("Admin API not found (404)…") instead of the generic
+  /// "configure WEB_APP_BASE_URL" hint, which is dead text when the default
+  /// base URL is already correct.
+  String? _lastApiError;
   List<_AdminVm> _admins = [];
   List<_PartnerVm> _partners = [];
   final Map<String, TextEditingController> _partnerPctControllers = {};
@@ -280,39 +270,77 @@ class _AdminAccountsScreenState extends State<AdminAccountsScreen> with SingleTi
 
   Future<String?> _postAccountsApi(Map<String, dynamic> body) async {
     if (!AppConfig.hasWebAppForAdminApi) {
-      return 'Configure WEB_APP_BASE_URL when building the app to create accounts or change roles from mobile.';
+      const msg = 'WEB_APP_BASE_URL is empty for this build, so creating '
+          'accounts and changing roles is disabled. Rebuild the Flutter app '
+          'with --dart-define=WEB_APP_BASE_URL=https://your-site.tld';
+      if (mounted) setState(() => _lastApiError = msg);
+      return msg;
     }
     final token = Supabase.instance.client.auth.currentSession?.accessToken;
     if (token == null) return 'Not signed in.';
     final base = AppConfig.webAppBaseUrl.trim().replaceAll(RegExp(r'/$'), '');
     final uri = Uri.parse('$base/api/admin/accounts');
     try {
-      final res = await http.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode(body),
-      );
+      final res = await http
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 30));
 
       if (res.statusCode == 404) {
-        return 'Admin API not found (404). Redeploy the Manavizha Next.js site so '
-            'app/api/admin/accounts/route.ts is live at $uri';
+        final msg = 'Admin API not found (404). Redeploy the Manavizha Next.js '
+            'site so app/api/admin/accounts/route.ts is live at $uri';
+        if (mounted) setState(() => _lastApiError = msg);
+        return msg;
       }
 
       Map<String, dynamic> map;
       try {
         map = jsonDecode(res.body) as Map<String, dynamic>;
       } catch (_) {
-        return 'Unexpected response (HTTP ${res.statusCode}). '
-            'If the web app was not redeployed after adding the admin API, redeploy and try again.';
+        final msg = 'Unexpected response (HTTP ${res.statusCode}). If the web '
+            'app was not redeployed after adding the admin API, redeploy and '
+            'try again.\n\nRaw response:\n${res.body}';
+        if (mounted) setState(() => _lastApiError = msg);
+        return msg;
       }
-      if (res.statusCode >= 200 && res.statusCode < 300 && map['success'] == true) return null;
-      return map['error']?.toString() ?? 'Request failed (${res.statusCode})';
+      if (res.statusCode >= 200 && res.statusCode < 300 && map['success'] == true) {
+        if (mounted && _lastApiError != null) setState(() => _lastApiError = null);
+        return null;
+      }
+      final err = map['error']?.toString() ?? 'Request failed (${res.statusCode})';
+      if (mounted) setState(() => _lastApiError = err);
+      return err;
     } catch (e) {
-      return e.toString();
+      final msg = '$e\n\nCheck network connectivity and that '
+          '${AppConfig.webAppBaseUrl}/api/admin/accounts is reachable.';
+      if (mounted) setState(() => _lastApiError = msg);
+      return msg;
     }
+  }
+
+  Future<void> _showErrorDialog(String title, String message) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 320, maxWidth: 480),
+          child: SingleChildScrollView(
+            child: SelectableText(message, style: const TextStyle(fontSize: 13, height: 1.4)),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Close')),
+        ],
+      ),
+    );
   }
 
   Future<void> _updatePartnerPct(_PartnerVm p, String text) async {
@@ -351,7 +379,7 @@ class _AdminAccountsScreenState extends State<AdminAccountsScreen> with SingleTi
   }
 
   Future<void> _openAddAdminDialog() async {
-    final result = await showModalBottomSheet<_AddAdminSheetResult?>(
+    final created = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -362,24 +390,20 @@ class _AdminAccountsScreenState extends State<AdminAccountsScreen> with SingleTi
       ),
       builder: (ctx) => Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: const _AddAdminBottomSheet(),
+        child: _AddAdminBottomSheet(
+          onSubmit: (data) => _postAccountsApi({
+            'action': 'createAdmin',
+            'name': data.name,
+            'email': data.email,
+            'phone': _withIndiaCountryCode(data.phoneNationalDigits),
+            'password': data.password,
+            'role': data.role,
+          }),
+        ),
       ),
     );
 
-    if (result == null) return;
-
-    final err = await _postAccountsApi({
-      'action': 'createAdmin',
-      'name': result.name,
-      'email': result.email,
-      'phone': _withIndiaCountryCode(result.phoneNationalDigits),
-      'password': result.password,
-      'role': result.role,
-    });
-
-    if (err != null) {
-      _showSnack(err);
-    } else {
+    if (created == true) {
       _showSnack('Admin account created');
       await _loadData();
     }
@@ -388,34 +412,71 @@ class _AdminAccountsScreenState extends State<AdminAccountsScreen> with SingleTi
   Future<void> _openEditRoleDialog(_AdminVm a) async {
     var role = a.rawRole;
     if (role == 'super_admin') role = 'editor';
+    var submitting = false;
+    String? localError;
 
-    final ok = await showDialog<bool>(
+    final saved = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setModal) {
           return AlertDialog(
             title: Text('Edit role — ${a.name}'),
-            content: InputDecorator(
-              decoration: const InputDecoration(labelText: 'Role', border: OutlineInputBorder()),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  isExpanded: true,
-                  value: role,
-                  items: const [
-                    DropdownMenuItem(value: 'super_admin', child: Text('Super Admin')),
-                    DropdownMenuItem(value: 'editor', child: Text('Editor')),
-                    DropdownMenuItem(value: 'viewer', child: Text('Viewer')),
-                  ],
-                  onChanged: (v) => setModal(() => role = v ?? role),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                InputDecorator(
+                  decoration: const InputDecoration(labelText: 'Role', border: OutlineInputBorder()),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      value: role,
+                      items: const [
+                        DropdownMenuItem(value: 'super_admin', child: Text('Super Admin (full access)')),
+                        DropdownMenuItem(value: 'editor', child: Text('Editor (edit + manage users)')),
+                        DropdownMenuItem(value: 'viewer', child: Text('Viewer (read-only)')),
+                      ],
+                      onChanged: submitting ? null : (v) => setModal(() => role = v ?? role),
+                    ),
+                  ),
                 ),
-              ),
+                if (localError != null) ...[
+                  const SizedBox(height: 12),
+                  Text(localError!, style: TextStyle(color: Colors.red.shade700, fontSize: 12)),
+                ],
+              ],
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              TextButton(
+                onPressed: submitting ? null : () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
               FilledButton(
                 style: FilledButton.styleFrom(backgroundColor: _brand),
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Save'),
+                onPressed: submitting
+                    ? null
+                    : () async {
+                        setModal(() {
+                          submitting = true;
+                          localError = null;
+                        });
+                        final err = await _postAccountsApi({
+                          'action': 'updateAdminRole',
+                          'userId': a.userId,
+                          'role': role,
+                        });
+                        if (err == null) {
+                          if (ctx.mounted) Navigator.pop(ctx, true);
+                        } else {
+                          setModal(() {
+                            submitting = false;
+                            localError = err;
+                          });
+                        }
+                      },
+                child: submitting
+                    ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text('Save'),
               ),
             ],
           );
@@ -423,46 +484,75 @@ class _AdminAccountsScreenState extends State<AdminAccountsScreen> with SingleTi
       ),
     );
 
-    if (ok != true) return;
-
-    final err = await _postAccountsApi({'action': 'updateAdminRole', 'userId': a.userId, 'role': role});
-    if (err != null) {
-      _showSnack(err);
-    } else {
+    if (saved == true) {
       _showSnack('Role updated');
       await _loadData();
     }
   }
 
   Future<void> _confirmRevokeAdmin(_AdminVm a) async {
-    final ok = await showDialog<bool>(
+    var submitting = false;
+    String? localError;
+    final done = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Revoke admin access?'),
-        content: Text('Remove access for ${a.name} (${a.email})? This cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Revoke'),
-          ),
-        ],
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModal) {
+          return AlertDialog(
+            title: const Text('Revoke admin access?'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Remove access for ${a.name} (${a.email})? This cannot be undone.'),
+                if (localError != null) ...[
+                  const SizedBox(height: 12),
+                  Text(localError!, style: TextStyle(color: Colors.red.shade700, fontSize: 12)),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: submitting ? null : () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+                onPressed: submitting
+                    ? null
+                    : () async {
+                        setModal(() {
+                          submitting = true;
+                          localError = null;
+                        });
+                        final err = await _postAccountsApi({'action': 'revokeAdmin', 'userId': a.userId});
+                        if (err == null) {
+                          if (ctx.mounted) Navigator.pop(ctx, true);
+                        } else {
+                          setModal(() {
+                            submitting = false;
+                            localError = err;
+                          });
+                        }
+                      },
+                child: submitting
+                    ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('Revoke'),
+              ),
+            ],
+          );
+        },
       ),
     );
-    if (ok != true) return;
 
-    final err = await _postAccountsApi({'action': 'revokeAdmin', 'userId': a.userId});
-    if (err != null) {
-      _showSnack(err);
-    } else {
+    if (done == true) {
       _showSnack('Access revoked');
       await _loadData();
     }
   }
 
   Future<void> _openAddPartnerDialog() async {
-    final result = await showModalBottomSheet<_AddPartnerSheetResult?>(
+    final created = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -473,65 +563,33 @@ class _AdminAccountsScreenState extends State<AdminAccountsScreen> with SingleTi
       ),
       builder: (ctx) => Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: const _AddPartnerBottomSheet(),
+        child: _AddPartnerBottomSheet(
+          onSubmit: (data) => _postAccountsApi({
+            'action': 'createPartner',
+            'name': data.name,
+            'email': data.email,
+            'phone': _withIndiaCountryCode(data.phoneNationalDigits),
+            'password': data.password,
+          }),
+        ),
       ),
     );
 
-    if (result == null) return;
-
-    final err = await _postAccountsApi({
-      'action': 'createPartner',
-      'name': result.name,
-      'email': result.email,
-      'phone': _withIndiaCountryCode(result.phoneNationalDigits),
-      'password': result.password,
-    });
-
-    if (err != null) {
-      _showSnack(err);
-    } else {
+    if (created == true) {
       _showSnack('Referral partner created');
       await _loadData();
     }
   }
 
   Future<void> _openPartnerProfileSheet(_PartnerVm p) async {
-    Map<String, dynamic>? row;
-    try {
-      final r = await Supabase.instance.client
-          .from('referral_partners')
-          .select('*')
-          .eq('user_id', p.userId)
-          .maybeSingle();
-      row = r != null ? Map<String, dynamic>.from(r as Map) : null;
-    } catch (_) {}
-
-    final initialName = row?['name'] as String? ?? p.name;
-    final initialPhone = _nationalMobileDigits(row?['phone'] as String? ?? p.phone);
-    final initialArea = row?['area'] as String? ?? p.area;
-    final initialCompany = row?['company_name'] as String? ?? '';
-
-    if (!mounted) return;
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      useRootNavigator: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: _EditPartnerBottomSheet(
-          titleName: p.name,
-          userId: p.userId,
-          initialName: initialName,
-          initialPhoneNationalDigits: initialPhone,
-          initialArea: initialArea,
-          initialCompany: initialCompany,
-        ),
+    // Admin path uses the full referral_partner_profile_edit_screen with an
+    // explicit userId, so admins get every field the web ReferralPartnerProfileForm
+    // exposes (address, bank, etc.) instead of the previous 4-field summary.
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => ReferralPartnerProfileEditScreen(userId: p.userId, heading: p.name),
       ),
     );
-
     if (saved == true) {
       _showSnack('Partner profile updated');
       await _loadData();
@@ -591,24 +649,49 @@ class _AdminAccountsScreenState extends State<AdminAccountsScreen> with SingleTi
               ),
             ),
           ),
-          if (!AppConfig.hasWebAppForAdminApi)
+          if (!AppConfig.hasWebAppForAdminApi || _lastApiError != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
               child: Material(
-                color: _brand.withValues(alpha: 0.08),
+                color: _lastApiError != null
+                    ? Colors.red.shade50
+                    : _brand.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(12),
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.info_outline_rounded, color: _brand.withValues(alpha: 0.9), size: 20),
+                      Icon(
+                        _lastApiError != null ? Icons.error_outline_rounded : Icons.info_outline_rounded,
+                        color: _lastApiError != null
+                            ? Colors.red.shade700
+                            : _brand.withValues(alpha: 0.9),
+                        size: 20,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Add admin / partner and role changes need WEB_APP_BASE_URL at build time.',
-                          style: TextStyle(fontSize: 12, height: 1.35, color: Colors.black.withValues(alpha: 0.65)),
+                          _lastApiError ??
+                              'Add admin / partner and role changes need WEB_APP_BASE_URL at build time.',
+                          style: TextStyle(fontSize: 12, height: 1.35, color: Colors.black.withValues(alpha: 0.75)),
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      if (_lastApiError != null) ...[
+                        const SizedBox(width: 4),
+                        IconButton(
+                          tooltip: 'Show details',
+                          icon: const Icon(Icons.open_in_full_rounded, size: 18),
+                          onPressed: () => _showErrorDialog('Admin API error', _lastApiError!),
+                        ),
+                        IconButton(
+                          tooltip: 'Dismiss',
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          onPressed: () => setState(() => _lastApiError = null),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -956,8 +1039,14 @@ class _AddAdminSheetResult {
 
 /// Owns [TextEditingController]s so disposal matches the sheet route (fixes
 /// `'_dependents.isEmpty'` when swiping the modal closed).
+///
+/// [onSubmit] runs the actual `/api/admin/accounts` call. It returns `null`
+/// on success (sheet pops with `true`) or a non-null error message which the
+/// sheet renders inline so the form state and inputs are preserved for retry.
 class _AddAdminBottomSheet extends StatefulWidget {
-  const _AddAdminBottomSheet();
+  const _AddAdminBottomSheet({required this.onSubmit});
+
+  final Future<String?> Function(_AddAdminSheetResult) onSubmit;
 
   @override
   State<_AddAdminBottomSheet> createState() => _AddAdminBottomSheetState();
@@ -973,6 +1062,8 @@ class _AddAdminBottomSheetState extends State<_AddAdminBottomSheet> {
   late final ScrollController _scrollCtrl;
 
   bool _obscure = true;
+  bool _submitting = false;
+  String? _submitError;
   String? _role;
 
   String? _errName;
@@ -1020,7 +1111,8 @@ class _AddAdminBottomSheetState extends State<_AddAdminBottomSheet> {
     );
   }
 
-  void _submit() {
+  Future<void> _submit() async {
+    if (_submitting) return;
     final name = _nameCtrl.text.trim();
     final email = _emailCtrl.text.trim();
     final phone = _phoneCtrl.text.trim();
@@ -1042,7 +1134,12 @@ class _AddAdminBottomSheetState extends State<_AddAdminBottomSheet> {
       return;
     }
 
-    Navigator.of(context).pop(
+    setState(() {
+      _submitting = true;
+      _submitError = null;
+    });
+
+    final err = await widget.onSubmit(
       _AddAdminSheetResult(
         name: name,
         email: email,
@@ -1051,6 +1148,15 @@ class _AddAdminBottomSheetState extends State<_AddAdminBottomSheet> {
         role: _role!,
       ),
     );
+    if (!mounted) return;
+    if (err == null) {
+      Navigator.of(context).pop(true);
+    } else {
+      setState(() {
+        _submitting = false;
+        _submitError = err;
+      });
+    }
   }
 
   @override
@@ -1086,12 +1192,14 @@ class _AddAdminBottomSheetState extends State<_AddAdminBottomSheet> {
           const SizedBox(height: 20),
           TextField(
             controller: _nameCtrl,
+            enabled: !_submitting,
             onChanged: (_) => setState(() => _errName = null),
             decoration: _fieldDeco(label: 'Name', requiredField: true, errorText: _errName),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _emailCtrl,
+            enabled: !_submitting,
             keyboardType: TextInputType.emailAddress,
             onChanged: (_) => setState(() => _errEmail = null),
             decoration: _fieldDeco(label: 'Email', requiredField: true, errorText: _errEmail),
@@ -1099,6 +1207,7 @@ class _AddAdminBottomSheetState extends State<_AddAdminBottomSheet> {
           const SizedBox(height: 12),
           TextField(
             controller: _phoneCtrl,
+            enabled: !_submitting,
             keyboardType: TextInputType.number,
             inputFormatters: [
               FilteringTextInputFormatter.digitsOnly,
@@ -1116,6 +1225,7 @@ class _AddAdminBottomSheetState extends State<_AddAdminBottomSheet> {
           const SizedBox(height: 12),
           TextField(
             controller: _passCtrl,
+            enabled: !_submitting,
             obscureText: _obscure,
             onChanged: (_) => setState(() => _errPass = null),
             decoration: _fieldDeco(
@@ -1143,24 +1253,52 @@ class _AddAdminBottomSheetState extends State<_AddAdminBottomSheet> {
                   DropdownMenuItem(value: 'editor', child: Text('Editor')),
                   DropdownMenuItem(value: 'viewer', child: Text('Viewer')),
                 ],
-                onChanged: (v) => setState(() {
-                  _role = v;
-                  _errRole = null;
-                }),
+                onChanged: _submitting
+                    ? null
+                    : (v) => setState(() {
+                          _role = v;
+                          _errRole = null;
+                        }),
               ),
             ),
           ),
+          if (_submitError != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.error_outline_rounded, color: Colors.red.shade700, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: SelectableText(
+                      _submitError!,
+                      style: TextStyle(fontSize: 12, color: Colors.red.shade900, height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: _brand,
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
-            onPressed: _submit,
-            child: const Text('Create'),
+            onPressed: _submitting ? null : _submit,
+            child: _submitting
+                ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Text('Create'),
           ),
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: _submitting ? null : () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
           ),
         ],
@@ -1184,7 +1322,9 @@ class _AddPartnerSheetResult {
 }
 
 class _AddPartnerBottomSheet extends StatefulWidget {
-  const _AddPartnerBottomSheet();
+  const _AddPartnerBottomSheet({required this.onSubmit});
+
+  final Future<String?> Function(_AddPartnerSheetResult) onSubmit;
 
   @override
   State<_AddPartnerBottomSheet> createState() => _AddPartnerBottomSheetState();
@@ -1200,6 +1340,8 @@ class _AddPartnerBottomSheetState extends State<_AddPartnerBottomSheet> {
   late final ScrollController _scrollCtrl;
 
   bool _obscure = true;
+  bool _submitting = false;
+  String? _submitError;
 
   String? _errName;
   String? _errEmail;
@@ -1245,7 +1387,8 @@ class _AddPartnerBottomSheetState extends State<_AddPartnerBottomSheet> {
     );
   }
 
-  void _submit() {
+  Future<void> _submit() async {
+    if (_submitting) return;
     final name = _nameCtrl.text.trim();
     final email = _emailCtrl.text.trim();
     final phone = _phoneCtrl.text.trim();
@@ -1266,7 +1409,12 @@ class _AddPartnerBottomSheetState extends State<_AddPartnerBottomSheet> {
       return;
     }
 
-    Navigator.of(context).pop(
+    setState(() {
+      _submitting = true;
+      _submitError = null;
+    });
+
+    final err = await widget.onSubmit(
       _AddPartnerSheetResult(
         name: name,
         email: email,
@@ -1274,6 +1422,15 @@ class _AddPartnerBottomSheetState extends State<_AddPartnerBottomSheet> {
         password: pass,
       ),
     );
+    if (!mounted) return;
+    if (err == null) {
+      Navigator.of(context).pop(true);
+    } else {
+      setState(() {
+        _submitting = false;
+        _submitError = err;
+      });
+    }
   }
 
   @override
@@ -1309,12 +1466,14 @@ class _AddPartnerBottomSheetState extends State<_AddPartnerBottomSheet> {
           const SizedBox(height: 20),
           TextField(
             controller: _nameCtrl,
+            enabled: !_submitting,
             onChanged: (_) => setState(() => _errName = null),
             decoration: _fieldDeco(label: 'Name', requiredField: true, errorText: _errName),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _emailCtrl,
+            enabled: !_submitting,
             keyboardType: TextInputType.emailAddress,
             onChanged: (_) => setState(() => _errEmail = null),
             decoration: _fieldDeco(label: 'Email', requiredField: true, errorText: _errEmail),
@@ -1322,6 +1481,7 @@ class _AddPartnerBottomSheetState extends State<_AddPartnerBottomSheet> {
           const SizedBox(height: 12),
           TextField(
             controller: _phoneCtrl,
+            enabled: !_submitting,
             keyboardType: TextInputType.number,
             inputFormatters: [
               FilteringTextInputFormatter.digitsOnly,
@@ -1339,6 +1499,7 @@ class _AddPartnerBottomSheetState extends State<_AddPartnerBottomSheet> {
           const SizedBox(height: 12),
           TextField(
             controller: _passCtrl,
+            enabled: !_submitting,
             obscureText: _obscure,
             onChanged: (_) => setState(() => _errPass = null),
             decoration: _fieldDeco(
@@ -1351,166 +1512,43 @@ class _AddPartnerBottomSheetState extends State<_AddPartnerBottomSheet> {
               ),
             ),
           ),
-          const SizedBox(height: 24),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: _brand,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
-            onPressed: _submit,
-            child: const Text('Create'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EditPartnerBottomSheet extends StatefulWidget {
-  const _EditPartnerBottomSheet({
-    required this.titleName,
-    required this.userId,
-    required this.initialName,
-    required this.initialPhoneNationalDigits,
-    required this.initialArea,
-    required this.initialCompany,
-  });
-
-  final String titleName;
-  final String userId;
-  final String initialName;
-  final String initialPhoneNationalDigits;
-  final String initialArea;
-  final String initialCompany;
-
-  @override
-  State<_EditPartnerBottomSheet> createState() => _EditPartnerBottomSheetState();
-}
-
-class _EditPartnerBottomSheetState extends State<_EditPartnerBottomSheet> {
-  static const Color _brand = AdminHomeScreen.brandPurple;
-
-  late final TextEditingController _nameCtrl;
-  late final TextEditingController _phoneCtrl;
-  late final TextEditingController _areaCtrl;
-  late final TextEditingController _companyCtrl;
-  late final ScrollController _scrollCtrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _nameCtrl = TextEditingController(text: widget.initialName);
-    _phoneCtrl = TextEditingController(text: widget.initialPhoneNationalDigits);
-    _areaCtrl = TextEditingController(text: widget.initialArea);
-    _companyCtrl = TextEditingController(text: widget.initialCompany);
-    _scrollCtrl = ScrollController();
-  }
-
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _phoneCtrl.dispose();
-    _areaCtrl.dispose();
-    _companyCtrl.dispose();
-    _scrollCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    final supabase = Supabase.instance.client;
-    try {
-      await supabase.from('referral_partners').update({
-        'name': _nameCtrl.text.trim(),
-        'phone': _withIndiaCountryCode(_phoneCtrl.text.trim()),
-        'area': _areaCtrl.text.trim(),
-        'company_name': _companyCtrl.text.trim(),
-      }).eq('user_id', widget.userId);
-      if (!mounted) return;
-      Navigator.of(context).pop(true);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e')));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      primary: false,
-      controller: _scrollCtrl,
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
+          if (_submitError != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.black12,
-                borderRadius: BorderRadius.circular(2),
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.error_outline_rounded, color: Colors.red.shade700, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: SelectableText(
+                      _submitError!,
+                      style: TextStyle(fontSize: 12, color: Colors.red.shade900, height: 1.4),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Edit partner: ${widget.titleName}',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Document uploads and full address use the web dashboard.',
-            style: TextStyle(fontSize: 13, color: Colors.black.withValues(alpha: 0.5)),
-          ),
-          const SizedBox(height: 20),
-          TextField(
-            controller: _nameCtrl,
-            decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _phoneCtrl,
-            keyboardType: TextInputType.number,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(10),
-            ],
-            decoration: InputDecoration(
-              labelText: 'Phone',
-              border: const OutlineInputBorder(),
-              prefixText: '$_kIndiaDialCode ',
-              prefixStyle: const TextStyle(
-                color: Color(0xFF1E1E1E),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _areaCtrl,
-            decoration: const InputDecoration(labelText: 'Area', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _companyCtrl,
-            decoration: const InputDecoration(labelText: 'Company name', border: OutlineInputBorder()),
-          ),
+          ],
           const SizedBox(height: 24),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: _brand,
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
-            onPressed: _save,
-            child: const Text('Save'),
+            onPressed: _submitting ? null : _submit,
+            child: _submitting
+                ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Text('Create'),
           ),
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: _submitting ? null : () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
           ),
         ],
@@ -1518,3 +1556,4 @@ class _EditPartnerBottomSheetState extends State<_EditPartnerBottomSheet> {
     );
   }
 }
+
