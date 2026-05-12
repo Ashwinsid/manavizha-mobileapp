@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
+import 'parent_home_screen.dart';
 import 'partner_home_screen.dart';
 import 'user_home_screen.dart';
 
-/// Routes the signed-in user to the correct home based on [admins] / [referral_partners].
+/// Routes the signed-in user to the correct home based on the role tables
+/// (`admins` → `referral_partners` → `parents`, falling back to the regular
+/// member home). Order mirrors `manavizha/lib/auth.ts#getUserDashboard`.
 /// Clears the stack (same as [LoginScreen] after successful sign-in).
 Future<void> navigateToRoleHome(BuildContext context, String userId) async {
   final nav = Navigator.of(context);
@@ -47,6 +50,25 @@ Future<void> navigateToRoleHome(BuildContext context, String userId) async {
     }
   } catch (e, st) {
     debugPrint('navigateToRoleHome referral_partners: $e\n$st');
+  }
+
+  try {
+    final parentData = await client
+        .from('parents')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
+
+    if (!context.mounted) return;
+    if (parentData != null) {
+      nav.pushAndRemoveUntil(
+        MaterialPageRoute<void>(builder: (context) => const ParentHomeScreen()),
+        (route) => false,
+      );
+      return;
+    }
+  } catch (e, st) {
+    debugPrint('navigateToRoleHome parents: $e\n$st');
   }
 
   if (!context.mounted) return;

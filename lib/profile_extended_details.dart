@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'app_config.dart';
 import 'horoscope_location_options.dart';
+import 'horoscope_screen.dart';
 import 'user_profile_completion.dart';
 
 const _brand = Color(0xFF2FA086);
@@ -1844,40 +1845,65 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
     });
   }
 
-  Future<void> _openWebHoroscope() async {
+  /// Push the in-app horoscope generator. When the user taps "Save" inside
+  /// the result toolbar we receive a [HoroscopeSaveResult] and write the
+  /// star / rashi / lagnam back into this form (the equivalent of the web
+  /// dashboard saving its computed values into `horoscope_details`).
+  Future<void> _openWebHoroscope({String? preferredMethod}) async {
     final dob = widget.dateOfBirth;
-    if (dob == null || dob.trim().isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter Date of Birth in Personal Details first.')),
-        );
+    DateTime? parsedDob;
+    if (dob != null && dob.trim().isNotEmpty) {
+      try {
+        parsedDob = DateTime.parse(dob.trim());
+      } catch (_) {
+        parsedDob = null;
       }
-      return;
     }
+    final city = _cityCtrl.text.trim().isEmpty ? null : _cityCtrl.text.trim();
+    final result = await openHoroscope(
+      context,
+      dob: parsedDob,
+      tob: _tob,
+      city: city,
+      state: _birthState,
+      country: _birthCountry,
+      allowSaveToProfile: true,
+    );
+    if (!mounted || result == null) return;
+
+    setState(() {
+      _h['star'] = result.star;
+      _h['zodiac_sign'] = result.rashi;
+      _h['lagnam'] = result.lagnam;
+      if (result.timeOfBirth.isNotEmpty) {
+        _tob = _parseTimeOfBirth(result.timeOfBirth) ?? _tob;
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Applied ${preferredMethod ?? result.method}: '
+          'star=${result.star}, rasi=${result.rashi}, lagnam=${result.lagnam}',
+        ),
+      ),
+    );
+  }
+
+  /// Legacy fallback that still opens the website horoscope page. Kept
+  /// available for power users who want the high-precision sidereal output
+  /// from the web's `vedic-astro`. Not currently wired to any button.
+  // ignore: unused_element
+  Future<void> _openWebHoroscopeLegacy() async {
+    final dob = widget.dateOfBirth;
+    if (dob == null || dob.trim().isEmpty) return;
     final tob = _tob != null ? _formatTimeOfBirth(_tob!) : '';
     final city = _cityCtrl.text.trim();
-    if (tob.isEmpty || city.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please fill Time of Birth and Place (city) to open the calculator.')),
-        );
-      }
-      return;
-    }
+    if (tob.isEmpty || city.isEmpty) return;
     final base = AppConfig.webAppBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
     final uri = Uri.parse('$base/dashboard/horoscope').replace(
-      queryParameters: {
-        'dob': dob,
-        'tob': tob,
-        'city': city,
-      },
+      queryParameters: {'dob': dob, 'tob': tob, 'city': city},
     );
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open browser')),
-      );
-    }
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   Future<void> _save() async {
@@ -2157,7 +2183,8 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Opens the web calculator with your birth details',
+                                'Opens the in-app horoscope generator and fills in your '
+                                'star, rasi & lagnam when you tap Save.',
                                 style: TextStyle(fontSize: 11, color: Colors.amber.shade900.withValues(alpha: 0.55)),
                               ),
                             ],
@@ -2171,17 +2198,21 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
                       runSpacing: 8,
                       children: [
                         OutlinedButton.icon(
-                          onPressed: _saving ? null : _openWebHoroscope,
+                          onPressed: _saving
+                              ? null
+                              : () => _openWebHoroscope(preferredMethod: 'thirukanitham'),
                           icon: const Icon(Icons.visibility_outlined, size: 18),
                           label: const Text('Thirukanitham'),
                         ),
                         OutlinedButton.icon(
-                          onPressed: _saving ? null : _openWebHoroscope,
+                          onPressed: _saving
+                              ? null
+                              : () => _openWebHoroscope(preferredMethod: 'vakkiyam'),
                           icon: const Icon(Icons.visibility_outlined, size: 18),
                           label: const Text('Vakkiyam'),
                         ),
                         FilledButton.icon(
-                          onPressed: _saving ? null : _openWebHoroscope,
+                          onPressed: _saving ? null : () => _openWebHoroscope(),
                           style: FilledButton.styleFrom(
                             backgroundColor: Colors.amber.shade600,
                             foregroundColor: Colors.white,

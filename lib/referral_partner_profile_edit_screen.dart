@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 
 /// Edits a row in [referral_partners] using the same fields as the web
-/// `ReferralPartnerProfileForm` (text columns only; document uploads remain
-/// on the website).
+/// `ReferralPartnerProfileForm` — text columns plus KYC uploads to the
+/// `referral-partners` storage bucket (partner photo, Aadhaar front/back,
+/// PAN front/back), mirroring `components/referral-partner-profile-form.tsx`.
 ///
 /// By default this screen edits the **currently signed-in user's** row, but
 /// admins can pass [userId] to edit any partner's row from the Accounts
@@ -59,6 +61,19 @@ class _ReferralPartnerProfileEditScreenState extends State<ReferralPartnerProfil
   late final TextEditingController _branch;
 
   bool _saving = false;
+
+  static const String _storageBucket = 'referral-partners';
+  static const int _maxUploadBytes = 5 * 1024 * 1024;
+
+  final Map<String, String> _docUrls = {
+    'partner_photo': '',
+    'aadhar_front': '',
+    'aadhar_back': '',
+    'pancard_front': '',
+    'pancard_back': '',
+  };
+  final Map<String, String?> _signedPreview = {};
+  String? _uploadingDocKey;
 
   @override
   void initState() {
@@ -170,7 +185,12 @@ class _ReferralPartnerProfileEditScreenState extends State<ReferralPartnerProfil
       _accountHolder.text = (m['account_holder_name'] as String?)?.trim() ?? '';
       _ifsc.text = (m['ifsc_code'] as String?)?.trim() ?? '';
       _branch.text = (m['branch_name'] as String?)?.trim() ?? '';
+      for (final k in _docUrls.keys) {
+        _docUrls[k] = (m[k] as String?)?.trim() ?? '';
+      }
+      _signedPreview.clear();
       setState(() => _loading = false);
+      await _hydrateSignedPreviews();
     } catch (e, st) {
       debugPrint('ReferralPartnerProfileEdit load: $e\n$st');
       if (!mounted) return;
@@ -185,6 +205,22 @@ class _ReferralPartnerProfileEditScreenState extends State<ReferralPartnerProfil
     if (!_formKey.currentState!.validate()) return;
     final uid = widget.userId ?? Supabase.instance.client.auth.currentUser?.id;
     if (uid == null) return;
+
+    final missingDocs = <String>[];
+    if (_docUrls['partner_photo']!.trim().isEmpty) missingDocs.add('Partner photo');
+    if (_docUrls['aadhar_front']!.trim().isEmpty) missingDocs.add('Aadhaar front');
+    if (_docUrls['aadhar_back']!.trim().isEmpty) missingDocs.add('Aadhaar back');
+    if (_docUrls['pancard_front']!.trim().isEmpty) missingDocs.add('PAN front');
+    if (_docUrls['pancard_back']!.trim().isEmpty) missingDocs.add('PAN back');
+    if (missingDocs.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please upload: ${missingDocs.join(', ')}'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     setState(() => _saving = true);
     try {
@@ -210,6 +246,11 @@ class _ReferralPartnerProfileEditScreenState extends State<ReferralPartnerProfil
         'account_holder_name': _accountHolder.text.trim(),
         'ifsc_code': _ifsc.text.trim(),
         'branch_name': _branch.text.trim(),
+        'partner_photo': _docUrls['partner_photo']!.trim(),
+        'aadhar_front': _docUrls['aadhar_front']!.trim(),
+        'aadhar_back': _docUrls['aadhar_back']!.trim(),
+        'pancard_front': _docUrls['pancard_front']!.trim(),
+        'pancard_back': _docUrls['pancard_back']!.trim(),
       };
       // The signed-in partner also keeps their email column in sync with auth.
       // Admins editing somebody else's row must not overwrite the partner's
@@ -233,6 +274,235 @@ class _ReferralPartnerProfileEditScreenState extends State<ReferralPartnerProfil
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  static String? _storagePathFromPublicUrl(String url) {
+    final m = RegExp(r'/storage/v1/object/public/referral-partners/(.+)$').firstMatch(url);
+    return m?.group(1);
+  }
+
+  static String _mimeForExt(String ext) {
+    switch (ext) {
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'gif':
+        return 'image/gif';
+      case 'heic':
+      case 'heif':
+        return 'image/heic';
+      default:
+        return 'image/jpeg';
+    }
+  }
+
+  Future<void> _hydrateSignedPreviews() async {
+    final client = Supabase.instance.client;
+    for (final k in _docUrls.keys) {
+      final url = _docUrls[k] ?? '';
+      if (url.isEmpty || !url.startsWith('http')) continue;
+      final path = _storagePathFromPublicUrl(url);
+      if (path == null) {
+        if (mounted) setState(() => _signedPreview[k] = url);
+        continue;
+      }
+      try {
+        final signed = await client.storage.from(_storageBucket).createSignedUrl(path, 3600);
+        if (mounted) setState(() => _signedPreview[k] = signed);
+      } catch (e) {
+        debugPrint('Signed URL for $k: $e');
+        if (mounted) setState(() => _signedPreview[k] = url);
+      }
+    }
+  }
+
+  Future<void> _refreshOneSigned(String key) async {
+    final url = _docUrls[key] ?? '';
+    if (url.isEmpty) {
+      if (mounted) setState(() => _signedPreview.remove(key));
+      return;
+    }
+    if (!url.startsWith('http')) return;
+    final path = _storagePathFromPublicUrl(url);
+    final client = Supabase.instance.client;
+    if (path == null) {
+      if (mounted) setState(() => _signedPreview[key] = url);
+      return;
+    }
+    try {
+      final signed = await client.storage.from(_storageBucket).createSignedUrl(path, 3600);
+      if (mounted) setState(() => _signedPreview[key] = signed);
+    } catch (_) {
+      if (mounted) setState(() => _signedPreview[key] = url);
+    }
+  }
+
+  Future<void> _pickAndUpload(String key) async {
+    final uid = widget.userId ?? Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+    final client = Supabase.instance.client;
+
+    final x = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 2400,
+      imageQuality: 85,
+    );
+    if (x == null) return;
+
+    var ext = x.path.contains('.') ? x.path.split('.').last.toLowerCase() : 'jpg';
+    if (ext.length > 5) ext = 'jpg';
+    const allowed = {'jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif'};
+    if (!allowed.contains(ext)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please choose an image file (JPG, PNG, WebP, HEIC).')),
+      );
+      return;
+    }
+
+    final bytes = await x.readAsBytes();
+    if (bytes.length > _maxUploadBytes) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('File size must be less than 5MB')),
+      );
+      return;
+    }
+
+    setState(() => _uploadingDocKey = key);
+    try {
+      final oldUrl = _docUrls[key] ?? '';
+      final oldPath = oldUrl.startsWith('http') ? _storagePathFromPublicUrl(oldUrl) : null;
+      if (oldPath != null && oldPath.isNotEmpty) {
+        try {
+          await client.storage.from(_storageBucket).remove([oldPath]);
+        } catch (_) {}
+      }
+
+      final path = '$uid/${key}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      await client.storage.from(_storageBucket).uploadBinary(
+        path,
+        bytes,
+        fileOptions: FileOptions(upsert: false, contentType: _mimeForExt(ext == 'jpeg' ? 'jpg' : ext)),
+      );
+
+      final publicUrl = client.storage.from(_storageBucket).getPublicUrl(path);
+      if (!mounted) return;
+      setState(() {
+        _docUrls[key] = publicUrl;
+        _uploadingDocKey = null;
+      });
+      await _refreshOneSigned(key);
+    } catch (e, st) {
+      debugPrint('Partner doc upload: $e\n$st');
+      if (!mounted) return;
+      setState(() => _uploadingDocKey = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Upload failed: $e'), behavior: SnackBarBehavior.floating),
+      );
+    }
+  }
+
+  void _clearDoc(String key) {
+    setState(() {
+      _docUrls[key] = '';
+      _signedPreview.remove(key);
+    });
+  }
+
+  Widget _buildDocumentRow({
+    required String storageKey,
+    required String title,
+    required String subtitle,
+  }) {
+    final busy = _uploadingDocKey == storageKey;
+    final url = _docUrls[storageKey] ?? '';
+    final preview = _signedPreview[storageKey] ?? url;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+              const SizedBox(height: 2),
+              Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.black.withValues(alpha: 0.5))),
+              const SizedBox(height: 10),
+              if (preview.isNotEmpty)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.network(
+                    preview,
+                    height: 140,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      height: 100,
+                      alignment: Alignment.center,
+                      color: Colors.grey.shade200,
+                      child: const Text('Could not load preview'),
+                    ),
+                  ),
+                )
+              else
+                Container(
+                  height: 88,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3F4F6),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.black.withValues(alpha: 0.08)),
+                  ),
+                  child: Text('No file yet', style: TextStyle(color: Colors.black.withValues(alpha: 0.45))),
+                ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.tonal(
+                    onPressed: busy ? null : () => _pickAndUpload(storageKey),
+                    child: busy
+                        ? const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                              SizedBox(width: 10),
+                              Text('Uploading…'),
+                            ],
+                          )
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.upload_rounded, size: 18),
+                              const SizedBox(width: 8),
+                              Text(url.isEmpty ? 'Upload' : 'Replace'),
+                            ],
+                          ),
+                  ),
+                  if (url.isNotEmpty)
+                    OutlinedButton.icon(
+                      onPressed: busy ? null : () => _clearDoc(storageKey),
+                      icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                      label: const Text('Remove'),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   InputDecoration _dec(String label, {String? hint}) {
@@ -392,10 +662,46 @@ class _ReferralPartnerProfileEditScreenState extends State<ReferralPartnerProfil
                         controller: _branch,
                         decoration: _dec('Branch name'),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 28),
                       Text(
-                        'Photo and document uploads match the website profile form; you can complete them there if needed.',
+                        'KYC & documents',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.1,
+                          color: Colors.black.withValues(alpha: 0.45),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Upload clear photos (max 5MB each). Same storage bucket and public URLs as the website (`referral-partners`). All five are required before save.',
                         style: TextStyle(fontSize: 12, height: 1.35, color: Colors.black.withValues(alpha: 0.45)),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildDocumentRow(
+                        storageKey: 'partner_photo',
+                        title: 'Partner photo *',
+                        subtitle: 'A recent portrait for your partner profile.',
+                      ),
+                      _buildDocumentRow(
+                        storageKey: 'aadhar_front',
+                        title: 'Aadhaar front *',
+                        subtitle: 'Front side of your Aadhaar card.',
+                      ),
+                      _buildDocumentRow(
+                        storageKey: 'aadhar_back',
+                        title: 'Aadhaar back *',
+                        subtitle: 'Back side of your Aadhaar card.',
+                      ),
+                      _buildDocumentRow(
+                        storageKey: 'pancard_front',
+                        title: 'PAN card front *',
+                        subtitle: 'Front of your PAN card.',
+                      ),
+                      _buildDocumentRow(
+                        storageKey: 'pancard_back',
+                        title: 'PAN card back *',
+                        subtitle: 'Back of your PAN card.',
                       ),
                       const SizedBox(height: 24),
                       FilledButton(

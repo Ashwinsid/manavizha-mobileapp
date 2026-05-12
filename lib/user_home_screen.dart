@@ -5,7 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'dashboard_shell_service.dart';
+import 'horoscope_screen.dart';
+import 'manage_parents_screen.dart';
 import 'member_settings_screen.dart';
+import 'parent_selections_screen.dart';
 import 'pricing_screen.dart';
 import 'profile_screen.dart';
 import 'user_activity_tracker.dart';
@@ -646,6 +649,54 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
     _openPricing();
   }
 
+  void _openManageParents() {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => const ManageParentsScreen()),
+    );
+  }
+
+  void _dismissMenuAndOpenManageParents(BuildContext menuContext) {
+    Navigator.of(menuContext).pop();
+    _openManageParents();
+  }
+
+  void _speedDialOpenManageParents() {
+    setState(() => _speedDialOpen = false);
+    _openManageParents();
+  }
+
+  void _openParentSelections() {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => const ParentSelectionsScreen()),
+    );
+  }
+
+  void _dismissMenuAndOpenParentSelections(BuildContext menuContext) {
+    Navigator.of(menuContext).pop();
+    _openParentSelections();
+  }
+
+  void _speedDialOpenParentSelections() {
+    setState(() => _speedDialOpen = false);
+    _openParentSelections();
+  }
+
+  void _openHoroscope() {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => const HoroscopeScreen()),
+    );
+  }
+
+  void _dismissMenuAndOpenHoroscope(BuildContext menuContext) {
+    Navigator.of(menuContext).pop();
+    _openHoroscope();
+  }
+
+  void _speedDialOpenHoroscope() {
+    setState(() => _speedDialOpen = false);
+    _openHoroscope();
+  }
+
   void _closeSpeedDial() {
     if (_speedDialOpen) setState(() => _speedDialOpen = false);
   }
@@ -702,7 +753,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
       ListTile(
         leading: const Icon(Icons.auto_awesome, color: Color(0xFF2FA086)),
         title: const Text('Generate Horoscope', style: TextStyle(fontWeight: FontWeight.w600)),
-        onTap: () => _dismissMenuAndSnack(menuContext, 'Horoscope tools are on the website dashboard for now.'),
+        subtitle: const Text('Rasi & Navamsa charts, Panchang, Dasa periods, PDF download'),
+        onTap: () => _dismissMenuAndOpenHoroscope(menuContext),
       ),
       const Divider(height: 32),
       const Padding(
@@ -720,12 +772,14 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
       ListTile(
         leading: const Icon(Icons.check_circle_outline, color: Colors.blueGrey),
         title: const Text('Selections', style: TextStyle(fontWeight: FontWeight.w600)),
-        onTap: () => _dismissMenuAndSnack(menuContext, 'Parent selections: use the website dashboard.'),
+        subtitle: const Text('Profiles your parents picked for you'),
+        onTap: () => _dismissMenuAndOpenParentSelections(menuContext),
       ),
       ListTile(
         leading: const Icon(Icons.supervisor_account, color: Colors.blueGrey),
         title: const Text('Parents', style: TextStyle(fontWeight: FontWeight.w600)),
-        onTap: () => _dismissMenuAndSnack(menuContext, 'Manage parents on the website dashboard.'),
+        subtitle: const Text('Create / remove parent logins linked to your profile'),
+        onTap: () => _dismissMenuAndOpenManageParents(menuContext),
       ),
       const Divider(height: 32),
       const Padding(
@@ -813,19 +867,19 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
         icon: Icons.auto_awesome_rounded,
         tip: 'Generate Horoscope',
         pageName: 'Horoscope',
-        onTap: () => _speedDialSnack('Horoscope tools are on the website dashboard for now.'),
+        onTap: _speedDialOpenHoroscope,
       ),
       (
         icon: Icons.check_circle_outline_rounded,
         tip: 'Selections',
         pageName: 'Selections',
-        onTap: () => _speedDialSnack('Parent selections: use the website dashboard.'),
+        onTap: _speedDialOpenParentSelections,
       ),
       (
         icon: Icons.supervisor_account_rounded,
         tip: 'Parents',
         pageName: 'Parents',
-        onTap: () => _speedDialSnack('Manage parents on the website dashboard.'),
+        onTap: _speedDialOpenManageParents,
       ),
       (
         icon: Icons.settings_rounded,

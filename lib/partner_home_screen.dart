@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'admin_home_screen.dart';
+import 'admin_profile_detail_screen.dart';
 import 'legal_pages.dart';
 import 'partner_referred_profiles_screen.dart';
 import 'referral_partner_profile_edit_screen.dart';
@@ -1224,6 +1225,99 @@ class _PartnerReferralProfileTab extends StatelessWidget {
             'Updates your referral partner record (same as the website partner profile).',
             style: TextStyle(fontSize: 13, color: Colors.black.withValues(alpha: 0.45), height: 1.35),
           ),
+          const SizedBox(height: 28),
+          Text(
+            'My matrimony profile',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.1,
+              color: Colors.black.withValues(alpha: 0.45),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            child: InkWell(
+              onTap: () async {
+                final uid = Supabase.instance.client.auth.currentUser?.id;
+                if (uid == null) return;
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => AdminProfileDetailScreen(
+                      userId: uid,
+                      canEdit: canEditProfiles,
+                      accessBadge: _PartnerMyProfileBadge(canEdit: canEditProfiles),
+                    ),
+                  ),
+                );
+                await onRefresh();
+              },
+              borderRadius: BorderRadius.circular(18),
+              child: Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _brandPurple.withValues(alpha: 0.06),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: _brandPurple.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(Icons.favorite_rounded, color: _brandPurple, size: 24),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'View / edit my matrimony profile',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF1E1E1E),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            canEditProfiles
+                                ? 'Personal, contact, family, horoscope and social details.'
+                                : 'Read-only — contact admin to enable edits on member profiles.',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: Colors.black.withValues(alpha: 0.55),
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right_rounded, color: _brandPurple.withValues(alpha: 0.7)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            canEditProfiles
+                ? "Mirrors the website's My Profile page — your matrimony record (linked to this same email)."
+                : "Same view as the website's My Profile page. Editing is gated by your partner permissions.",
+            style: TextStyle(fontSize: 13, color: Colors.black.withValues(alpha: 0.45), height: 1.35),
+          ),
         ],
       ),
     );
@@ -1368,6 +1462,51 @@ class _PartnerStatCard extends StatelessWidget {
                 ],
               ),
         ),
+      ),
+    );
+  }
+}
+
+/// Green "Edit enabled" / amber "View only" chip that the partner My-Profile
+/// flow surfaces in the [AdminProfileDetailScreen] app bar so the partner
+/// can tell at a glance whether the screen accepts edits — same pattern as
+/// the web `my-profile` and referred-profile detail pages.
+class _PartnerMyProfileBadge extends StatelessWidget {
+  const _PartnerMyProfileBadge({required this.canEdit});
+
+  final bool canEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = canEdit ? const Color(0xFF15803D) : const Color(0xFFB45309);
+    final bg = canEdit ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7);
+    final border = canEdit ? const Color(0xFFBBF7D0) : const Color(0xFFFDE68A);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: bg,
+        border: Border.all(color: border, width: 1),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            canEdit ? Icons.edit_rounded : Icons.lock_outline_rounded,
+            size: 9,
+            color: color,
+          ),
+          const SizedBox(width: 3),
+          Text(
+            canEdit ? 'Edit enabled' : 'View only',
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w900,
+              color: color,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
       ),
     );
   }

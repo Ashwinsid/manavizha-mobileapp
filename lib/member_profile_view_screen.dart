@@ -201,10 +201,21 @@ int? _coerceInt(dynamic v) {
 }
 
 /// Read-only member profile for browsing (mirrors web [ProfileDetailView] essentials).
+///
+/// When [hideVisitorActions] is `true`, the bottom Send Interest / Shortlist
+/// / Message bar is suppressed. This is used by the Parent dashboard
+/// (`ParentHomeScreen`) so a parent viewer cannot accidentally like or
+/// message profiles as themselves — the web mirrors this by gating those
+/// actions on `parentViewer?.isParent` in `components/browse-profiles.tsx`.
 class MemberProfileViewScreen extends StatefulWidget {
-  const MemberProfileViewScreen({super.key, required this.targetUserId});
+  const MemberProfileViewScreen({
+    super.key,
+    required this.targetUserId,
+    this.hideVisitorActions = false,
+  });
 
   final String targetUserId;
+  final bool hideVisitorActions;
 
   @override
   State<MemberProfileViewScreen> createState() => _MemberProfileViewScreenState();
@@ -696,7 +707,10 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
     return rows;
   }
 
-  bool get _showVisitorChrome => _viewerId != null && _viewerId != widget.targetUserId;
+  bool get _showVisitorChrome =>
+      !widget.hideVisitorActions &&
+      _viewerId != null &&
+      _viewerId != widget.targetUserId;
 
   Widget _targetPremiumBadge() {
     final plan = (_targetPremiumPlan ?? '').replaceAll('_', ' ').trim();

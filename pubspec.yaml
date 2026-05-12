@@ -38,6 +38,10 @@ dependencies:
   image_picker: ^1.2.1
   http: ^1.2.1
   url_launcher: ^6.3.2
+  # In-app horoscope download / print (mirrors the web `app/horoscope` page's
+  # "Download PDF" + browser print path with a real PDF instead).
+  printing: ^5.14.0
+  pdf: ^3.11.3
 
 dev_dependencies:
   flutter_test:
