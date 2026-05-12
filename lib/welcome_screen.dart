@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'login_screen.dart';
+import 'partner_landing_screen.dart';
 import 'signup_screen.dart';
 
 /// Brand teal — keep in sync with [splash_screen.dart] and [main.dart].
@@ -240,7 +241,31 @@ class WelcomeScreen extends StatelessWidget {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 14),
+                        TextButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    const PartnerLandingScreen(),
+                              ),
+                            );
+                          },
+                          icon: const Icon(
+                            Icons.handshake_rounded,
+                            color: Color(0xFF4B0082),
+                          ),
+                          label: const Text(
+                            'Become a referral partner',
+                            style: TextStyle(
+                              color: Color(0xFF4B0082),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
                       ],
                     ),
                   ],

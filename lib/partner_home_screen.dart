@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'admin_home_screen.dart';
 import 'legal_pages.dart';
+import 'partner_referred_profiles_screen.dart';
 import 'referral_partner_profile_edit_screen.dart';
 import 'welcome_screen.dart';
 
@@ -161,6 +162,17 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  Future<void> _openReferredProfiles({String? gender}) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PartnerReferredProfilesScreen(genderPrefilter: gender),
+      ),
+    );
+    if (mounted) {
+      await _load();
+    }
   }
 
   @override
@@ -342,6 +354,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     value: _totalReferrals,
                     icon: Icons.groups_rounded,
                     accent: _brandPurple,
+                    onTap: () => _openReferredProfiles(),
                   ),
                   const SizedBox(height: 10),
                   Row(
@@ -353,6 +366,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                           icon: Icons.person_rounded,
                           accent: const Color(0xFF2563EB),
                           compact: true,
+                          onTap: () => _openReferredProfiles(gender: 'Male'),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -363,6 +377,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                           icon: Icons.person_rounded,
                           accent: const Color(0xFFDB2777),
                           compact: true,
+                          onTap: () => _openReferredProfiles(gender: 'Female'),
                         ),
                       ),
                     ],
@@ -1238,6 +1253,7 @@ class _PartnerStatCard extends StatelessWidget {
     required this.icon,
     required this.accent,
     this.compact = false,
+    this.onTap,
   });
 
   final String label;
@@ -1245,6 +1261,7 @@ class _PartnerStatCard extends StatelessWidget {
   final IconData icon;
   final Color accent;
   final bool compact;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1253,7 +1270,12 @@ class _PartnerStatCard extends StatelessWidget {
       elevation: 0,
       shadowColor: Colors.transparent,
       borderRadius: BorderRadius.circular(18),
-      child: Container(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        splashColor: accent.withValues(alpha: 0.08),
+        highlightColor: accent.withValues(alpha: 0.04),
+        child: Container(
         padding: EdgeInsets.symmetric(
           horizontal: compact ? 14 : 18,
           vertical: compact ? 14 : 18,
@@ -1345,6 +1367,7 @@ class _PartnerStatCard extends StatelessWidget {
                   ),
                 ],
               ),
+        ),
       ),
     );
   }

@@ -4,11 +4,25 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 
-/// Admin view/edit for one user — mirrors web `admin/dashboard/profiles/[userId]`.
+/// Admin / partner view/edit for one user — mirrors web
+/// `admin/dashboard/profiles/[userId]` and `referral-partner/profiles/[userId]`.
+///
+/// Pass [canEdit] = false to render the screen in **view-only** mode (no
+/// Edit / Save / Cancel buttons on any section). Optional [accessBadge]
+/// is shown next to the email subtitle (used by the partner flow to
+/// surface a "View only" or "Edit enabled" pill that matches the web
+/// page).
 class AdminProfileDetailScreen extends StatefulWidget {
-  const AdminProfileDetailScreen({super.key, required this.userId});
+  const AdminProfileDetailScreen({
+    super.key,
+    required this.userId,
+    this.canEdit = true,
+    this.accessBadge,
+  });
 
   final String userId;
+  final bool canEdit;
+  final Widget? accessBadge;
 
   @override
   State<AdminProfileDetailScreen> createState() =>
@@ -301,6 +315,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
   }
 
   void _beginEdit(String section, Map<String, dynamic> current) {
+    if (!widget.canEdit) return;
     _snapshots[section] = Map<String, dynamic>.from(current);
     setState(() => _editing[section] = true);
   }
@@ -387,6 +402,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
             ? const Text('Profile', style: TextStyle(color: _brandPurple))
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     title,
@@ -396,12 +412,24 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
                       fontSize: 17,
                     ),
                   ),
-                  Text(
-                    _userRow['email']?.toString() ?? '',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.black.withValues(alpha: 0.45),
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          _userRow['email']?.toString() ?? '',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.black.withValues(alpha: 0.45),
+                          ),
+                        ),
+                      ),
+                      if (widget.accessBadge != null) ...[
+                        const SizedBox(width: 6),
+                        widget.accessBadge!,
+                      ],
+                    ],
                   ),
                 ],
               ),
@@ -445,6 +473,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
     return _SectionCard(
       title: 'Account',
       brandPurple: _brandPurple,
+      canEdit: widget.canEdit,
       editing: ed,
       saving: sv,
       onEdit: () => _beginEdit('account', _userRow),
@@ -477,6 +506,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
     return _SectionCard(
       title: 'Personal details',
       brandPurple: _brandPurple,
+      canEdit: widget.canEdit,
       editing: ed,
       saving: sv,
       onEdit: () => _beginEdit('personal', _personal),
@@ -526,6 +556,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
     return _SectionCard(
       title: 'Contact details',
       brandPurple: _brandPurple,
+      canEdit: widget.canEdit,
       editing: ed,
       saving: sv,
       onEdit: () => _beginEdit('contact', _contact),
@@ -673,6 +704,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
     return _SectionCard(
       title: 'Family details',
       brandPurple: _brandPurple,
+      canEdit: widget.canEdit,
       editing: ed,
       saving: sv,
       onEdit: () => _beginEdit('family', _family),
@@ -719,6 +751,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
     return _SectionCard(
       title: 'Horoscope details',
       brandPurple: _brandPurple,
+      canEdit: widget.canEdit,
       editing: ed,
       saving: sv,
       onEdit: () => _beginEdit('horoscope', _horoscope),
@@ -789,6 +822,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
     return _SectionCard(
       title: 'Social habits',
       brandPurple: _brandPurple,
+      canEdit: widget.canEdit,
       editing: ed,
       saving: sv,
       onEdit: () => _beginEdit('social', _social),
@@ -1033,6 +1067,7 @@ class _SectionCard extends StatelessWidget {
     required this.onCancel,
     required this.onSave,
     required this.children,
+    this.canEdit = true,
   });
 
   final String title;
@@ -1043,6 +1078,7 @@ class _SectionCard extends StatelessWidget {
   final VoidCallback onCancel;
   final VoidCallback onSave;
   final List<Widget> children;
+  final bool canEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -1066,7 +1102,9 @@ class _SectionCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (editing)
+                if (!canEdit)
+                  const SizedBox.shrink()
+                else if (editing)
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
