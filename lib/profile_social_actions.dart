@@ -94,6 +94,26 @@ class ProfileSocialActions {
     }
   }
 
+  /// Un-ignore — delete from [ignored_profiles] (manavizha `/api/ignores` DELETE).
+  static Future<String?> unignoreProfile({
+    required SupabaseClient client,
+    required String currentUserId,
+    required String targetUserId,
+  }) async {
+    try {
+      await client
+          .from('ignored_profiles')
+          .delete()
+          .eq('user_id', currentUserId)
+          .eq('ignored_user_id', targetUserId);
+      return null;
+    } on PostgrestException catch (e) {
+      return e.message;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
   /// Block — [blocked_profiles] table (manavizha `/api/blocks` POST).
   /// Permanently hides the target from the current user's feeds.
   /// Returns `null` on success (or duplicate, treated as success), else error message.

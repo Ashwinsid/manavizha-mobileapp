@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'dashboard_shell_service.dart';
+import 'member_settings_screen.dart';
 import 'profile_screen.dart';
 import 'user_activity_tracker.dart';
 import 'user_pages.dart';
@@ -484,10 +485,20 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
 
   void _dismissMenuAndMarriedHint(BuildContext menuContext) {
     Navigator.of(menuContext).pop();
-    setState(() => _currentIndex = 0);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Open the Home tab and use “Mark” under Found your partner?')),
+    _openSettings(initialTab: 'deactivate');
+  }
+
+  void _openSettings({String? initialTab}) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => MemberSettingsScreen(initialTab: initialTab),
+      ),
     );
+  }
+
+  void _dismissMenuAndOpenSettings(BuildContext menuContext, {String? initialTab}) {
+    Navigator.of(menuContext).pop();
+    _openSettings(initialTab: initialTab);
   }
 
   void _closeSpeedDial() {
@@ -507,13 +518,13 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
   }
 
   void _speedDialMarriedHint() {
-    setState(() {
-      _speedDialOpen = false;
-      _currentIndex = 0;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Open the Home tab and use “Mark” under Found your partner?')),
-    );
+    setState(() => _speedDialOpen = false);
+    _openSettings(initialTab: 'deactivate');
+  }
+
+  void _speedDialOpenSettings({String? initialTab}) {
+    setState(() => _speedDialOpen = false);
+    _openSettings(initialTab: initialTab);
   }
 
   /// Same entries as the navigation drawer; [menuContext] is the drawer or sheet route to pop.
@@ -578,6 +589,12 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
             letterSpacing: 1.2,
           ),
         ),
+      ),
+      ListTile(
+        leading: const Icon(Icons.settings_rounded, color: Color(0xFF2FA086)),
+        title: const Text('Settings', style: TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: const Text('Alerts · Privacy · Password · Blocked · Deactivate'),
+        onTap: () => _dismissMenuAndOpenSettings(menuContext),
       ),
       ListTile(
         leading: const Icon(Icons.celebration, color: Colors.green),
@@ -653,6 +670,12 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
         tip: 'Parents',
         pageName: 'Parents',
         onTap: () => _speedDialSnack('Manage parents on the website dashboard.'),
+      ),
+      (
+        icon: Icons.settings_rounded,
+        tip: 'Settings',
+        pageName: 'Settings',
+        onTap: () => _speedDialOpenSettings(),
       ),
       (
         icon: Icons.celebration_rounded,
