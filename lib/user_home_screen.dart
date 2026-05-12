@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'dashboard_shell_service.dart';
 import 'member_settings_screen.dart';
+import 'pricing_screen.dart';
 import 'profile_screen.dart';
 import 'user_activity_tracker.dart';
 import 'user_pages.dart';
@@ -634,6 +635,17 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
     _openSettings(initialTab: initialTab);
   }
 
+  void _openPricing() {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => const PricingScreen()),
+    );
+  }
+
+  void _dismissMenuAndOpenPricing(BuildContext menuContext) {
+    Navigator.of(menuContext).pop();
+    _openPricing();
+  }
+
   void _closeSpeedDial() {
     if (_speedDialOpen) setState(() => _speedDialOpen = false);
   }
@@ -658,6 +670,11 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
   void _speedDialOpenSettings({String? initialTab}) {
     setState(() => _speedDialOpen = false);
     _openSettings(initialTab: initialTab);
+  }
+
+  void _speedDialOpenPricing() {
+    setState(() => _speedDialOpen = false);
+    _openPricing();
   }
 
   /// Same entries as the navigation drawer; [menuContext] is the drawer or sheet route to pop.
@@ -728,6 +745,12 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
         title: const Text('Settings', style: TextStyle(fontWeight: FontWeight.w600)),
         subtitle: const Text('Alerts · Privacy · Password · Blocked · Deactivate'),
         onTap: () => _dismissMenuAndOpenSettings(menuContext),
+      ),
+      ListTile(
+        leading: const Icon(Icons.workspace_premium_rounded, color: Color(0xFFD97706)),
+        title: const Text('Pricing', style: TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: const Text('Prime · Prime Gold · Elite · Till You Marry'),
+        onTap: () => _dismissMenuAndOpenPricing(menuContext),
       ),
       ListTile(
         leading: const Icon(Icons.celebration, color: Colors.green),
@@ -809,6 +832,12 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
         tip: 'Settings',
         pageName: 'Settings',
         onTap: () => _speedDialOpenSettings(),
+      ),
+      (
+        icon: Icons.workspace_premium_rounded,
+        tip: 'Pricing',
+        pageName: 'Pricing',
+        onTap: _speedDialOpenPricing,
       ),
       (
         icon: Icons.celebration_rounded,

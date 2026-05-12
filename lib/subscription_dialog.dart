@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'admin_home_screen.dart';
+import 'pricing_screen.dart';
 
 /// Premium upsell dialog — Flutter port of
 /// `manavizha/components/subscription-dialog.tsx`.
@@ -166,7 +167,12 @@ class SubscriptionDialog extends StatelessWidget {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: () => Navigator.of(context).pop(),
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          Navigator.of(context).push<void>(
+                            MaterialPageRoute<void>(builder: (_) => const PricingScreen()),
+                          );
+                        },
                         style: FilledButton.styleFrom(
                           backgroundColor: _brand,
                           padding: const EdgeInsets.symmetric(vertical: 16),
