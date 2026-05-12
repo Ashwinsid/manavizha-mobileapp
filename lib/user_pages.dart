@@ -5,6 +5,7 @@ export 'user_dashboard_page.dart' show UserDashboardPage;
 import 'compatibility_sheet.dart';
 import 'dashboard_shell_service.dart';
 import 'likes_service.dart';
+export 'messages_inbox_page.dart' show MessagesPage;
 import 'message_dialog.dart';
 import 'mutual_match_sheet.dart';
 import 'profile_social_actions.dart';
@@ -1958,21 +1959,3 @@ class _LikesPageState extends State<LikesPage> {
   }
 }
 
-class MessagesPage extends StatelessWidget {
-  const MessagesPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.chat_bubble_outline, size: 80, color: Color(0xFF2FA086)),
-          SizedBox(height: 16),
-          Text('Messages', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          Text('Your conversations — coming soon', style: TextStyle(color: Colors.black54)),
-        ],
-      ),
-    );
-  }
-}
