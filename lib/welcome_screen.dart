@@ -1,16 +1,26 @@
 import 'package:flutter/material.dart';
+import 'legal_pages.dart';
 import 'login_screen.dart';
 import 'partner_landing_screen.dart';
 import 'signup_screen.dart';
+import 'widgets/landing_sections.dart';
 
 /// Brand teal — keep in sync with [splash_screen.dart] and [main.dart].
 const Color _kBrand = Color(0xFF2FA086);
 
+/// Flutter port of the web home page (`manavizha/app/page.tsx`). The
+/// original composes a `Navbar`, `HeroSection`, `FeaturesSection`,
+/// `TestimonialsSection` and `CTASection` in that order; on Flutter we
+/// keep the existing brand-teal hero + auth CTAs and add scrollable
+/// Features and Testimonials sections beneath them, followed by the
+/// footer links (referral partner + contact us) — same vertical
+/// composition the web home uses, adapted to a single mobile column.
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
     return Scaffold(
       backgroundColor: const Color(0xFFF5FBF9),
       body: Container(
@@ -60,213 +70,115 @@ class WelcomeScreen extends StatelessWidget {
             ),
 
             SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const SizedBox(height: 10),
-
-                    // Top section — logo + interlocking rings + headline.
-                    Column(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: ConstrainedBox(
+                  // Make the hero comfortable on tall phones without forcing
+                  // marketing sections off-screen on short ones.
+                  constraints: BoxConstraints(
+                    minHeight: mq.size.height - mq.padding.top - mq.padding.bottom,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                    child: Column(
                       children: [
-                        Container(
-                          width: 160,
-                          height: 160,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.55),
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: _kBrand.withValues(alpha: 0.18),
-                                blurRadius: 28,
-                                offset: const Offset(0, 12),
-                              ),
-                            ],
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(18.0),
-                            child: Image.asset(
-                              'assets/images/logo.png',
-                              fit: BoxFit.contain,
-                              filterQuality: FilterQuality.high,
-                            ),
-                          ),
-                        ),
+                        const SizedBox(height: 10),
+                        _Hero(),
+                        const SizedBox(height: 32),
+                        _AuthActions(),
+                        const SizedBox(height: 48),
 
-                        const SizedBox(height: 40),
+                        // ── Marketing sections (ports of
+                        //    `components/features-section.tsx` and
+                        //    `components/testimonials-section.tsx`) ──
+                        const FeaturesSection(),
+                        const SizedBox(height: 48),
+                        const TestimonialsSection(),
+                        const SizedBox(height: 36),
 
-                        // Interlocking rings symbolizing marriage.
-                        Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            Transform.translate(
-                              offset: const Offset(-18, 0),
-                              child: Container(
-                                width: 55,
-                                height: 55,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: const Color(0xFFFFD700),
-                                    width: 4,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(0xFFFFD700)
-                                          .withValues(alpha: 0.30),
-                                      blurRadius: 10,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            Transform.translate(
-                              offset: const Offset(18, 0),
-                              child: Container(
-                                width: 55,
-                                height: 55,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: const Color(0xFFF39C12),
-                                    width: 4,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(0xFFF39C12)
-                                          .withValues(alpha: 0.30),
-                                      blurRadius: 10,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-
+                        _FooterLinks(),
                         const SizedBox(height: 24),
-
-                        const Text(
-                          "Find Your Soulmate",
-                          style: TextStyle(
-                            fontSize: 30,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF1E1E1E),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          "Join Manavizha to discover your perfect match and begin a beautifully blessed journey together.",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.black54,
-                            height: 1.5,
-                          ),
-                        ),
                       ],
                     ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
-                    // Bottom section — action buttons.
-                    Column(
-                      children: [
-                        SizedBox(
-                          width: double.infinity,
-                          height: 56,
-                          child: ElevatedButton(
-                            onPressed: () async {
-                              final email =
-                                  await Navigator.of(context).push<String>(
-                                MaterialPageRoute(
-                                  builder: (context) => const SignupScreen(),
-                                ),
-                              );
-                              if (!context.mounted) return;
-                              await Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      LoginScreen(initialEmail: email),
-                                ),
-                              );
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _kBrand,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              elevation: 4,
-                              shadowColor: _kBrand.withValues(alpha: 0.4),
-                            ),
-                            child: const Text(
-                              'Create an Account',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 56,
-                          child: OutlinedButton(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => const LoginScreen(),
-                                ),
-                              );
-                            },
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: _kBrand,
-                              backgroundColor:
-                                  Colors.white.withValues(alpha: 0.55),
-                              side: const BorderSide(
-                                color: _kBrand,
-                                width: 2,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                            child: const Text(
-                              'Log In to Existing Account',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        TextButton.icon(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    const PartnerLandingScreen(),
-                              ),
-                            );
-                          },
-                          icon: const Icon(
-                            Icons.handshake_rounded,
-                            color: Color(0xFF4B0082),
-                          ),
-                          label: const Text(
-                            'Become a referral partner',
-                            style: TextStyle(
-                              color: Color(0xFF4B0082),
-                              fontWeight: FontWeight.w800,
-                              fontSize: 15,
-                              decoration: TextDecoration.underline,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
+class _Hero extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          width: 160,
+          height: 160,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.55),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: _kBrand.withValues(alpha: 0.18),
+                blurRadius: 28,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(18.0),
+            child: Image.asset(
+              'assets/images/logo.png',
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+            ),
+          ),
+        ),
+        const SizedBox(height: 40),
+        // Interlocking rings symbolizing marriage.
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            Transform.translate(
+              offset: const Offset(-18, 0),
+              child: Container(
+                width: 55,
+                height: 55,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: const Color(0xFFFFD700),
+                    width: 4,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFFFD700).withValues(alpha: 0.30),
+                      blurRadius: 10,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Transform.translate(
+              offset: const Offset(18, 0),
+              child: Container(
+                width: 55,
+                height: 55,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: const Color(0xFFF39C12),
+                    width: 4,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFF39C12).withValues(alpha: 0.30),
+                      blurRadius: 10,
                     ),
                   ],
                 ),
@@ -274,7 +186,137 @@ class WelcomeScreen extends StatelessWidget {
             ),
           ],
         ),
-      ),
+        const SizedBox(height: 24),
+        const Text(
+          'Find Your Soulmate',
+          style: TextStyle(
+            fontSize: 30,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF1E1E1E),
+          ),
+        ),
+        const SizedBox(height: 16),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 8),
+          child: Text(
+            'Join Manavizha to discover your perfect match and begin a beautifully blessed journey together.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 16, color: Colors.black54, height: 1.5),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AuthActions extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: ElevatedButton(
+            onPressed: () async {
+              final email = await Navigator.of(context).push<String>(
+                MaterialPageRoute(builder: (context) => const SignupScreen()),
+              );
+              if (!context.mounted) return;
+              await Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => LoginScreen(initialEmail: email),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _kBrand,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              elevation: 4,
+              shadowColor: _kBrand.withValues(alpha: 0.4),
+            ),
+            child: const Text(
+              'Create an Account',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: OutlinedButton(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const LoginScreen()),
+              );
+            },
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _kBrand,
+              backgroundColor: Colors.white.withValues(alpha: 0.55),
+              side: const BorderSide(color: _kBrand, width: 2),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            child: const Text(
+              'Log In to Existing Account',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FooterLinks extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        TextButton.icon(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => const PartnerLandingScreen(),
+              ),
+            );
+          },
+          icon: const Icon(Icons.handshake_rounded, color: Color(0xFF4B0082)),
+          label: const Text(
+            'Become a referral partner',
+            style: TextStyle(
+              color: Color(0xFF4B0082),
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+              decoration: TextDecoration.underline,
+            ),
+          ),
+        ),
+        TextButton.icon(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (context) => const ContactScreen()),
+            );
+          },
+          icon: Icon(
+            Icons.mail_outline_rounded,
+            color: Colors.black.withValues(alpha: 0.55),
+          ),
+          label: Text(
+            'Contact us',
+            style: TextStyle(
+              color: Colors.black.withValues(alpha: 0.65),
+              fontWeight: FontWeight.w700,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

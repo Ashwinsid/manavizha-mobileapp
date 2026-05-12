@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart' as pw_color;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 import 'astrology.dart' as astro;
 import 'horoscope_location_options.dart';
+import 'profile_extended_details.dart' show ProfileExtendedRepository;
 import 'widgets/south_indian_chart.dart';
 
 /// Flutter port of [manavizha/app/horoscope/page.tsx] — Vedic horoscope
@@ -29,6 +31,7 @@ class HoroscopeScreen extends StatefulWidget {
     this.initialCountry,
     this.onSaveToProfile,
     this.allowSaveToProfile = false,
+    this.memberMode = false,
   });
 
   final String? initialName;
@@ -43,6 +46,15 @@ class HoroscopeScreen extends StatefulWidget {
   /// can write star/rashi/lagnam back into `horoscope_details`.
   final void Function(HoroscopeSaveResult result)? onSaveToProfile;
   final bool allowSaveToProfile;
+
+  /// Mirrors the web `app/dashboard/horoscope/page.tsx`: when `true` the
+  /// screen auto-loads the signed-in user's `personal_details` (name, DOB)
+  /// and `horoscope_details` (TOB, place + state + country) on mount, and
+  /// the result toolbar exposes a **Save Thirukanitham/Vakkiyam to Profile**
+  /// button that upserts a full payload (`star`, `zodiac_sign`, `lagnam`,
+  /// `time_of_birth`, `place_of_birth`, `birth_state`, `birth_country`,
+  /// `manual_grid`, `dhosham`) directly to `horoscope_details`.
+  final bool memberMode;
 
   @override
   State<HoroscopeScreen> createState() => _HoroscopeScreenState();
@@ -94,6 +106,10 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
   late Map<String, Set<int>> _manual;
   String _activeManualPlanet = 'ல';
 
+  bool _memberLoading = false;
+  bool _memberSaving = false;
+  String? _memberUserId;
+
   @override
   void initState() {
     super.initState();
@@ -110,6 +126,85 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
     _dob = widget.initialDob;
     _tob = widget.initialTob ?? const TimeOfDay(hour: 12, minute: 0);
     _manual = {for (final p in astro.planets) p.abbr: <int>{}};
+    if (widget.memberMode) {
+      _memberLoading = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadFromCurrentMember());
+    }
+  }
+
+  /// Direct Dart equivalent of `getProfile()` in
+  /// `app/dashboard/horoscope/page.tsx` — reads name + DOB from
+  /// `personal_details` and TOB + place fields from `horoscope_details`.
+  /// We skip the Nominatim geocode the web does for lat/lon because that
+  /// step is not user-visible (the result PoB string just carries forward
+  /// what we already saved).
+  Future<void> _loadFromCurrentMember() async {
+    final client = Supabase.instance.client;
+    final uid = client.auth.currentUser?.id;
+    if (uid == null) {
+      if (mounted) setState(() => _memberLoading = false);
+      return;
+    }
+    _memberUserId = uid;
+    try {
+      final personal = await client
+          .from('personal_details')
+          .select('name, date_of_birth')
+          .eq('user_id', uid)
+          .maybeSingle();
+      final horo = await client
+          .from('horoscope_details')
+          .select('time_of_birth, place_of_birth, birth_state, birth_country')
+          .eq('user_id', uid)
+          .maybeSingle();
+
+      DateTime? dob;
+      final dobStr = personal?['date_of_birth']?.toString();
+      if (dobStr != null && dobStr.trim().isNotEmpty) {
+        try {
+          dob = DateTime.parse(dobStr.trim());
+        } catch (_) {}
+      }
+
+      TimeOfDay? tob;
+      final tobStr = horo?['time_of_birth']?.toString();
+      if (tobStr != null && tobStr.trim().isNotEmpty) {
+        final parts = tobStr.trim().split(':');
+        if (parts.length >= 2) {
+          final h = int.tryParse(parts[0]);
+          final m = int.tryParse(parts[1]);
+          if (h != null && m != null) {
+            tob = TimeOfDay(hour: h.clamp(0, 23), minute: m.clamp(0, 59));
+          }
+        }
+      }
+
+      // `place_of_birth` is composed as "City, State, Country" by the edit
+      // sheet — split off the leading city segment for the form input.
+      String? city;
+      final pob = horo?['place_of_birth']?.toString();
+      if (pob != null && pob.trim().isNotEmpty) {
+        city = pob.split(',').first.trim();
+      }
+      final birthState = _matchOption(horo?['birth_state']?.toString(), kIndianStatesAndUTs);
+      final birthCountry = _matchOption(horo?['birth_country']?.toString(), kWorldCountries);
+
+      if (!mounted) return;
+      setState(() {
+        if (personal?['name']?.toString().trim().isNotEmpty == true) {
+          _name.text = personal!['name'].toString().trim();
+        }
+        if (dob != null) _dob = dob;
+        if (tob != null) _tob = tob;
+        if (city != null && city.isNotEmpty) _city.text = city;
+        if (birthState != null) _state = birthState;
+        if (birthCountry != null) _country = birthCountry;
+        _memberLoading = false;
+      });
+    } catch (e, st) {
+      debugPrint('Horoscope member-mode load failed: $e\n$st');
+      if (mounted) setState(() => _memberLoading = false);
+    }
   }
 
   @override
@@ -306,6 +401,61 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
     }
   }
 
+  /// Dart equivalent of `handleSave()` in `dashboard/horoscope/page.tsx`:
+  /// builds the full `horoscope_details` payload (including `manual_grid`
+  /// and derived `dhosham`) and upserts via the shared repository.
+  Future<void> _saveFullMemberHoroscope() async {
+    final result = _active;
+    final uid = _memberUserId ?? Supabase.instance.client.auth.currentUser?.id;
+    if (result == null || uid == null) return;
+    if (_memberSaving) return;
+    setState(() => _memberSaving = true);
+
+    final isAutoMode = !result.isManual;
+    final manualGrid = <String, List<int>>{
+      for (final entry in _manual.entries) entry.key: entry.value.toList()..sort(),
+    };
+    String? dhosham;
+    final pp = result.papaPulligal;
+    if (pp != null) {
+      final parts = <String>[];
+      if (pp.sevvaiDosham == 'தோஷம் உள்ளது') parts.add('செவ்வாய் தோஷம்');
+      if (pp.rahuDosham == 'தோஷம் உள்ளது') parts.add('ராகு தோஷம்');
+      dhosham = parts.isEmpty ? 'தோஷம் இல்லை' : parts.join(', ');
+    }
+
+    final payload = <String, dynamic>{
+      'star': result.star,
+      'zodiac_sign': result.rashi,
+      'lagnam': result.lagnam,
+      'time_of_birth': isAutoMode && _tob != null ? _formatTob(_tob!) : null,
+      'place_of_birth': isAutoMode ? _placeLine() : 'Manual Entry',
+      'birth_state': isAutoMode ? _state : null,
+      'birth_country': isAutoMode ? _country : null,
+      'manual_grid': manualGrid,
+      'dhosham': dhosham,
+    };
+
+    try {
+      await ProfileExtendedRepository.saveHoroscope(uid, payload);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Saved ${_method == 'vakkiyam' ? 'Vakkiyam' : 'Thirukanitham'} to your profile.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Save failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _memberSaving = false);
+    }
+  }
+
   Future<void> _downloadPdf() async {
     final result = _active;
     if (result == null) return;
@@ -325,9 +475,9 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
         backgroundColor: _pageBg,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        title: const Text(
-          'Generate horoscope',
-          style: TextStyle(
+        title: Text(
+          widget.memberMode ? 'My horoscope' : 'Generate horoscope',
+          style: const TextStyle(
             fontWeight: FontWeight.w800,
             color: _brand,
             letterSpacing: -0.3,
@@ -339,6 +489,10 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
           _headerCard(),
+          if (_memberLoading) ...[
+            const SizedBox(height: 12),
+            _memberLoadingBanner(),
+          ],
           const SizedBox(height: 16),
           _modeToggle(),
           const SizedBox(height: 14),
@@ -406,6 +560,36 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
                   style: TextStyle(fontSize: 12, color: Color(0xFF6B6B6B)),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _memberLoadingBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: _brand.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2, color: _brand),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Loading your saved birth details…',
+              style: TextStyle(
+                fontSize: 12,
+                color: _brand.withValues(alpha: 0.85),
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -746,7 +930,30 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
           runSpacing: 8,
           alignment: WrapAlignment.end,
           children: [
-            if (widget.allowSaveToProfile && widget.onSaveToProfile != null && !r.isManual)
+            if (widget.memberMode)
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: _brand,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: _memberSaving ? null : _saveFullMemberHoroscope,
+                icon: _memberSaving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.cloud_upload_rounded, size: 18),
+                label: Text(
+                  _memberSaving
+                      ? 'Saving…'
+                      : 'Save ${_method == 'vakkiyam' ? 'Vakkiyam' : 'Thirukanitham'} to Profile',
+                ),
+              )
+            else if (widget.allowSaveToProfile && widget.onSaveToProfile != null && !r.isManual)
               FilledButton.tonalIcon(
                 onPressed: _saving ? null : _saveToProfile,
                 icon: _saving

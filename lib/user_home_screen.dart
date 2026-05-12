@@ -683,7 +683,9 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
 
   void _openHoroscope() {
     Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(builder: (_) => const HoroscopeScreen()),
+      MaterialPageRoute<void>(
+        builder: (_) => const HoroscopeScreen(memberMode: true),
+      ),
     );
   }
 
@@ -753,7 +755,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
       ListTile(
         leading: const Icon(Icons.auto_awesome, color: Color(0xFF2FA086)),
         title: const Text('Generate Horoscope', style: TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: const Text('Rasi & Navamsa charts, Panchang, Dasa periods, PDF download'),
+        subtitle: const Text('Pre-fills from your profile · save Thirukanitham/Vakkiyam · PDF download'),
         onTap: () => _dismissMenuAndOpenHoroscope(menuContext),
       ),
       const Divider(height: 32),

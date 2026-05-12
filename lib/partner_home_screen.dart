@@ -5,8 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'package:url_launcher/url_launcher.dart';
-
 import 'admin_home_screen.dart';
 import 'admin_profile_detail_screen.dart';
 import 'legal_pages.dart';
@@ -628,9 +626,6 @@ class _PartnerSettingsTab extends StatefulWidget {
   final Future<void> Function() onRefresh;
   final VoidCallback onSignOut;
 
-  static const String adminEmail = 'arjun.rksaravanan@gmail.com';
-  static const String adminPhone = '+918072734996';
-
   @override
   State<_PartnerSettingsTab> createState() => _PartnerSettingsTabState();
 }
@@ -653,15 +648,6 @@ class _PartnerSettingsTabState extends State<_PartnerSettingsTab> {
   void _toast(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
-  Future<void> _launchUri(Uri uri) async {
-    try {
-      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!ok) _toast('Could not open ${uri.toString()}.');
-    } catch (_) {
-      _toast('Could not open ${uri.toString()}.');
-    }
   }
 
   Future<void> _onGeneratePartnerId() async {
@@ -777,64 +763,12 @@ class _PartnerSettingsTabState extends State<_PartnerSettingsTab> {
   }
 
   Future<void> _onContactAdmin() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (sheetCtx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-          child: Material(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'CONTACT ADMIN',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.6,
-                      color: _brandPurple,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Need help with your partner account or ID? Reach out:',
-                    style: TextStyle(fontSize: 13, color: Colors.black.withValues(alpha: 0.6)),
-                  ),
-                  const SizedBox(height: 12),
-                  ListTile(
-                    leading: const Icon(Icons.email_outlined, color: _brandPurple),
-                    title: const Text(_PartnerSettingsTab.adminEmail, style: TextStyle(fontWeight: FontWeight.w700)),
-                    subtitle: const Text('Tap to email the admin'),
-                    onTap: () {
-                      Navigator.of(sheetCtx).pop();
-                      unawaited(_launchUri(Uri(
-                        scheme: 'mailto',
-                        path: _PartnerSettingsTab.adminEmail,
-                        queryParameters: {'subject': 'Manavizha partner support'},
-                      )));
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.phone_outlined, color: _brandPurple),
-                    title: const Text(_PartnerSettingsTab.adminPhone, style: TextStyle(fontWeight: FontWeight.w700)),
-                    subtitle: const Text('Tap to call the admin'),
-                    onTap: () {
-                      Navigator.of(sheetCtx).pop();
-                      unawaited(_launchUri(Uri(scheme: 'tel', path: _PartnerSettingsTab.adminPhone)));
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+    // The richer Contact Us screen (port of `app/contact/page.tsx`) replaces
+    // the previous quick-pick bottom sheet — it surfaces the same admin
+    // email and phone with tap-to-launch, plus business hours and a
+    // mailto-backed message form.
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => const ContactScreen()),
     );
   }
 

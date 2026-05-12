@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'admin_home_screen.dart';
+import 'app_config.dart';
 
 /// Flutter ports of `manavizha/app/privacy-policy/page.tsx` and
 /// `manavizha/app/terms-of-service/page.tsx`. Plain text content so the
@@ -205,6 +209,492 @@ class TermsOfServiceScreen extends StatelessWidget {
       title: 'Terms of service',
       accent: _brand,
       sections: _sections,
+    );
+  }
+}
+
+/// Port of `manavizha/app/contact/page.tsx` — public Contact Us page with
+/// the same three contact cards (email · phone · location), business
+/// hours, and a "Send us a Message" form. The web form is a setTimeout
+/// mock; on Flutter we hand off to the user's default mail client via
+/// `mailto:` with a pre-filled body so the message actually delivers.
+class ContactScreen extends StatefulWidget {
+  const ContactScreen({super.key});
+
+  @override
+  State<ContactScreen> createState() => _ContactScreenState();
+}
+
+class _ContactScreenState extends State<ContactScreen> {
+  static const Color _brand = AdminHomeScreen.brandPurple;
+
+  final _formKey = GlobalKey<FormState>();
+  final _name = TextEditingController();
+  final _email = TextEditingController();
+  final _phone = TextEditingController();
+  final _subject = TextEditingController();
+  final _message = TextEditingController();
+  bool _submitting = false;
+  String? _statusMessage;
+  bool _statusSuccess = false;
+  Timer? _statusTimer;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _email.dispose();
+    _phone.dispose();
+    _subject.dispose();
+    _message.dispose();
+    _statusTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _launchUri(Uri uri) async {
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open ${uri.scheme}: link')),
+      );
+    }
+  }
+
+  Future<void> _submit() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    setState(() {
+      _submitting = true;
+      _statusMessage = null;
+    });
+    try {
+      final to = AppConfig.adminEmail;
+      final subject = _subject.text.trim().isEmpty
+          ? 'Manavizha contact: enquiry'
+          : 'Manavizha contact: ${_subject.text.trim()}';
+      final bodyLines = <String>[
+        'Name: ${_name.text.trim()}',
+        if (_email.text.trim().isNotEmpty) 'Email: ${_email.text.trim()}',
+        if (_phone.text.trim().isNotEmpty) 'Phone: ${_phone.text.trim()}',
+        '',
+        _message.text.trim(),
+      ];
+      // `mailto:` parameters must be application/x-www-form-urlencoded,
+      // which is what `Uri(queryParameters: ...)` produces by default.
+      final mail = Uri(
+        scheme: 'mailto',
+        path: to,
+        queryParameters: {
+          'subject': subject,
+          'body': bodyLines.join('\n'),
+        },
+      );
+      await _launchUri(mail);
+      if (!mounted) return;
+      setState(() {
+        _statusSuccess = true;
+        _statusMessage =
+            'Thanks! Your mail client should now be open with the message ready to send.';
+      });
+      _name.clear();
+      _email.clear();
+      _phone.clear();
+      _subject.clear();
+      _message.clear();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _statusSuccess = false;
+        _statusMessage = 'Something went wrong. Please try again later.';
+      });
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+      _statusTimer?.cancel();
+      _statusTimer = Timer(const Duration(seconds: 6), () {
+        if (mounted) setState(() => _statusMessage = null);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FE),
+      appBar: AppBar(
+        title: const Text('Contact us'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.black87,
+        elevation: 0,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+        children: [
+          const Text(
+            'Contact Us',
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: -0.4),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "We'd love to hear from you. Get in touch with us using the form below "
+            'or contact information provided.',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.black.withValues(alpha: 0.6),
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 24),
+          _contactCard(),
+          const SizedBox(height: 16),
+          _businessHoursCard(),
+          const SizedBox(height: 16),
+          _messageForm(),
+        ],
+      ),
+    );
+  }
+
+  Widget _contactCard() {
+    return _section(
+      title: 'Get in Touch',
+      child: Column(
+        children: [
+          _contactRow(
+            icon: Icons.mail_outline_rounded,
+            label: 'Email',
+            value: AppConfig.adminEmail,
+            onTap: () => _launchUri(Uri(scheme: 'mailto', path: AppConfig.adminEmail)),
+          ),
+          const SizedBox(height: 14),
+          _contactRow(
+            icon: Icons.call_rounded,
+            label: 'Phone',
+            value: AppConfig.adminPhone,
+            onTap: () => _launchUri(Uri(
+              scheme: 'tel',
+              path: AppConfig.adminPhone.replaceAll(' ', ''),
+            )),
+          ),
+          const SizedBox(height: 14),
+          _contactRow(
+            icon: Icons.place_rounded,
+            label: 'Location',
+            value: 'India',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _businessHoursCard() {
+    return _section(
+      title: 'Business Hours',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          _HoursRow(label: 'Monday – Friday', value: '9:00 AM – 6:00 PM'),
+          SizedBox(height: 6),
+          _HoursRow(label: 'Saturday', value: '10:00 AM – 4:00 PM'),
+          SizedBox(height: 6),
+          _HoursRow(label: 'Sunday', value: 'Closed'),
+        ],
+      ),
+    );
+  }
+
+  Widget _messageForm() {
+    return _section(
+      title: 'Send us a Message',
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _field(
+              controller: _name,
+              label: 'Name *',
+              hint: 'Your name',
+              validator: (v) => (v == null || v.trim().isEmpty)
+                  ? 'Please enter your name'
+                  : null,
+            ),
+            const SizedBox(height: 12),
+            _field(
+              controller: _email,
+              label: 'Email *',
+              hint: 'your.email@example.com',
+              keyboardType: TextInputType.emailAddress,
+              validator: (v) {
+                final t = v?.trim() ?? '';
+                if (t.isEmpty) return 'Please enter your email';
+                final ok = RegExp(r'^[\w.\-+]+@[\w\-]+(\.[\w\-]+)+$').hasMatch(t);
+                return ok ? null : 'Please enter a valid email address';
+              },
+            ),
+            const SizedBox(height: 12),
+            _field(
+              controller: _phone,
+              label: 'Phone',
+              hint: '+91 1234567890',
+              keyboardType: TextInputType.phone,
+            ),
+            const SizedBox(height: 12),
+            _field(
+              controller: _subject,
+              label: 'Subject *',
+              hint: 'What is this regarding?',
+              validator: (v) => (v == null || v.trim().isEmpty)
+                  ? 'Please enter a subject'
+                  : null,
+            ),
+            const SizedBox(height: 12),
+            _field(
+              controller: _message,
+              label: 'Message *',
+              hint: 'Tell us how we can help…',
+              minLines: 5,
+              maxLines: 8,
+              validator: (v) => (v == null || v.trim().isEmpty)
+                  ? 'Please enter a message'
+                  : null,
+            ),
+            if (_statusMessage != null) ...[
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _statusSuccess
+                      ? const Color(0xFFE6F8EE)
+                      : const Color(0xFFFDECEC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _statusSuccess
+                        ? const Color(0xFFB7E7C9)
+                        : const Color(0xFFF5C2C2),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      _statusSuccess
+                          ? Icons.check_circle_rounded
+                          : Icons.error_outline_rounded,
+                      color: _statusSuccess
+                          ? const Color(0xFF16A34A)
+                          : const Color(0xFFB91C1C),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _statusMessage!,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: _statusSuccess
+                              ? const Color(0xFF166534)
+                              : const Color(0xFF991B1B),
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 18),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: _brand,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: _submitting ? null : _submit,
+                icon: _submitting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.send_rounded, size: 18),
+                label: Text(
+                  _submitting ? 'Sending…' : 'Send Message',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _section({required String title, required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+        boxShadow: [
+          BoxShadow(
+            color: _brand.withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.2,
+              color: Color(0xFF1E1E1E),
+            ),
+          ),
+          const SizedBox(height: 14),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _contactRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    VoidCallback? onTap,
+  }) {
+    final inner = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: _brand.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: _brand, size: 20),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF1E1E1E),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  color: onTap != null ? _brand : Colors.black.withValues(alpha: 0.65),
+                  fontWeight: FontWeight.w600,
+                  decoration: onTap != null ? TextDecoration.underline : null,
+                  decorationColor: _brand.withValues(alpha: 0.4),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+    if (onTap == null) return inner;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: inner),
+    );
+  }
+
+  Widget _field({
+    required TextEditingController controller,
+    required String label,
+    String? hint,
+    TextInputType? keyboardType,
+    int minLines = 1,
+    int maxLines = 1,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      minLines: minLines,
+      maxLines: maxLines,
+      validator: validator,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        isDense: true,
+        filled: true,
+        fillColor: const Color(0xFFFAFAFD),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.black.withValues(alpha: 0.12)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.black.withValues(alpha: 0.12)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: _brand, width: 1.4),
+        ),
+      ),
+    );
+  }
+}
+
+class _HoursRow extends StatelessWidget {
+  const _HoursRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF1E1E1E),
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.black.withValues(alpha: 0.62),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }
