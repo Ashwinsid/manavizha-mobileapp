@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:url_launcher/url_launcher.dart';
+
 import 'admin_home_screen.dart';
+import 'legal_pages.dart';
 import 'referral_partner_profile_edit_screen.dart';
 import 'welcome_screen.dart';
 
@@ -539,7 +543,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         index: _currentIndex,
         children: [
           _buildHomeTab(),
-          _PartnerSettingsTab(onSignOut: _signOut),
+          _PartnerSettingsTab(
+            partnerRow: _partnerRow,
+            loading: _loading,
+            onRefresh: _load,
+            onSignOut: _signOut,
+          ),
           _PartnerReferralProfileTab(
             partnerRow: _partnerRow,
             loading: _loading,
@@ -577,107 +586,458 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 }
 
-class _PartnerSettingsTab extends StatelessWidget {
-  const _PartnerSettingsTab({required this.onSignOut});
+/// Settings tab for referral partners — mirrors the web partner area
+/// (`manavizha/app/referral-partner/settings/page.tsx` plus the
+/// privacy / terms / contact entries from the partner dashboard footer).
+///
+/// Sections:
+///   - **Partner ID**: shows the generated `referral_partners.partner_id`
+///     or a generator button using the same algorithm as the web settings
+///     page. The web algorithm: first-2-letters-of-name + last-2 phone
+///     digits + last-2 pincode digits + first/last letter of company name
+///     + zero-padded 3-digit serial (creation order across non-null partner
+///     rows). Disabled once an ID exists; admins reset via support.
+///   - **Account**: change password (Supabase reset email), Privacy
+///     policy, Terms of service, Contact admin (mailto), Log out.
+class _PartnerSettingsTab extends StatefulWidget {
+  const _PartnerSettingsTab({
+    required this.partnerRow,
+    required this.loading,
+    required this.onRefresh,
+    required this.onSignOut,
+  });
 
+  final Map<String, dynamic>? partnerRow;
+  final bool loading;
+  final Future<void> Function() onRefresh;
   final VoidCallback onSignOut;
 
+  static const String adminEmail = 'arjun.rksaravanan@gmail.com';
+  static const String adminPhone = '+918072734996';
+
+  @override
+  State<_PartnerSettingsTab> createState() => _PartnerSettingsTabState();
+}
+
+class _PartnerSettingsTabState extends State<_PartnerSettingsTab> {
   static const Color _brandPurple = AdminHomeScreen.brandPurple;
+
+  bool _generating = false;
+  bool _sendingReset = false;
+  String? _localPartnerId;
+
+  String? get _partnerIdValue {
+    final fromState = _localPartnerId?.trim();
+    if (fromState != null && fromState.isNotEmpty) return fromState;
+    final fromProps = widget.partnerRow?['partner_id']?.toString().trim();
+    if (fromProps == null || fromProps.isEmpty) return null;
+    return fromProps;
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _launchUri(Uri uri) async {
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok) _toast('Could not open ${uri.toString()}.');
+    } catch (_) {
+      _toast('Could not open ${uri.toString()}.');
+    }
+  }
+
+  Future<void> _onGeneratePartnerId() async {
+    if (_generating) return;
+    final row = widget.partnerRow;
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+    if (row == null || user == null) {
+      _toast('Partner data not loaded. Please refresh.');
+      return;
+    }
+    if (_partnerIdValue != null) {
+      _toast('A Partner ID is already generated.');
+      return;
+    }
+
+    final name = (row['name'] as String?)?.trim() ?? '';
+    final phone = (row['phone'] as String?)?.trim() ?? '';
+    final pincode = (row['pincode'] as String?)?.trim() ?? '';
+    final company = (row['company_name'] as String?)?.trim() ?? '';
+
+    if (name.length < 2) {
+      _toast('Save your name (at least 2 characters) in the partner profile first.');
+      return;
+    }
+    if (phone.length < 2) {
+      _toast('Save your phone number in the partner profile first.');
+      return;
+    }
+    if (pincode.length < 2) {
+      _toast('Save your pincode in the partner profile first.');
+      return;
+    }
+    if (company.isEmpty) {
+      _toast('Save your company name in the partner profile first.');
+      return;
+    }
+
+    setState(() => _generating = true);
+    try {
+      final namePart = name.substring(0, 2).toUpperCase();
+      final phoneDigits = phone.replaceFirst(RegExp(r'^\+91'), '').replaceAll(RegExp(r'\D'), '');
+      final phonePart = phoneDigits.length >= 2 ? phoneDigits.substring(phoneDigits.length - 2) : phoneDigits.padLeft(2, '0');
+      final pincodePart = pincode.substring(pincode.length - 2);
+      final companyFirst = company.substring(0, 1).toUpperCase();
+      final companyLast = company.substring(company.length - 1).toUpperCase();
+
+      final allPartners = await client
+          .from('referral_partners')
+          .select('id, created_at')
+          .not('name', 'is', null)
+          .not('phone', 'is', null)
+          .not('pincode', 'is', null)
+          .not('company_name', 'is', null)
+          .order('created_at', ascending: true);
+      final all = (allPartners as List<dynamic>).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      final myId = row['id']?.toString();
+      var serial = all.length + 1;
+      if (myId != null) {
+        final idx = all.indexWhere((m) => m['id']?.toString() == myId);
+        if (idx >= 0) serial = idx + 1;
+      }
+      final serialPart = serial.toString().padLeft(3, '0');
+      final newId = '$namePart$phonePart$pincodePart$companyFirst$companyLast$serialPart';
+
+      await client
+          .from('referral_partners')
+          .update({'partner_id': newId})
+          .eq('user_id', user.id);
+
+      if (!mounted) return;
+      setState(() {
+        _generating = false;
+        _localPartnerId = newId;
+      });
+      _toast('Partner ID generated.');
+      unawaited(widget.onRefresh());
+    } catch (e) {
+      debugPrint('Partner ID generation: $e');
+      if (!mounted) return;
+      setState(() => _generating = false);
+      _toast('Failed to generate Partner ID. Please try again.');
+    }
+  }
+
+  Future<void> _onCopyPartnerId() async {
+    final id = _partnerIdValue;
+    if (id == null) return;
+    await Clipboard.setData(ClipboardData(text: id));
+    _toast('Partner ID copied.');
+  }
+
+  Future<void> _onSendPasswordReset() async {
+    final client = Supabase.instance.client;
+    final email = (widget.partnerRow?['email'] as String?)?.trim().isNotEmpty == true
+        ? (widget.partnerRow!['email'] as String).trim()
+        : (client.auth.currentUser?.email?.trim() ?? '');
+    if (email.isEmpty) {
+      _toast('We could not find a verified email on this account.');
+      return;
+    }
+    setState(() => _sendingReset = true);
+    try {
+      await client.auth.resetPasswordForEmail(email);
+      _toast('A password reset link has been sent to $email.');
+    } on AuthException catch (e) {
+      _toast(e.message);
+    } catch (_) {
+      _toast('Failed to send the reset email.');
+    } finally {
+      if (mounted) setState(() => _sendingReset = false);
+    }
+  }
+
+  Future<void> _onContactAdmin() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+          child: Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'CONTACT ADMIN',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.6,
+                      color: _brandPurple,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Need help with your partner account or ID? Reach out:',
+                    style: TextStyle(fontSize: 13, color: Colors.black.withValues(alpha: 0.6)),
+                  ),
+                  const SizedBox(height: 12),
+                  ListTile(
+                    leading: const Icon(Icons.email_outlined, color: _brandPurple),
+                    title: const Text(_PartnerSettingsTab.adminEmail, style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: const Text('Tap to email the admin'),
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      unawaited(_launchUri(Uri(
+                        scheme: 'mailto',
+                        path: _PartnerSettingsTab.adminEmail,
+                        queryParameters: {'subject': 'Manavizha partner support'},
+                      )));
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.phone_outlined, color: _brandPurple),
+                    title: const Text(_PartnerSettingsTab.adminPhone, style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: const Text('Tap to call the admin'),
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      unawaited(_launchUri(Uri(scheme: 'tel', path: _PartnerSettingsTab.adminPhone)));
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
-      children: [
-        Text(
-          'Preferences',
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.1,
-            color: Colors.black.withValues(alpha: 0.45),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Material(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
-              boxShadow: [
-                BoxShadow(
-                  color: _brandPurple.withValues(alpha: 0.06),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
+    if (widget.loading) {
+      return const Center(child: CircularProgressIndicator(color: _brandPurple));
+    }
+    final partnerId = _partnerIdValue;
+    return RefreshIndicator(
+      color: _brandPurple,
+      onRefresh: widget.onRefresh,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+        children: [
+          _sectionLabel('Partner ID'),
+          const SizedBox(height: 12),
+          _cardWrap(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    partnerId ?? 'Not generated yet',
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: partnerId == null ? 14 : 22,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: partnerId == null ? 0 : 1.2,
+                      color: partnerId == null
+                          ? Colors.black.withValues(alpha: 0.4)
+                          : const Color(0xFF1E1E1E),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (partnerId == null) ...[
+                    Text(
+                      'Your Partner ID is generated from your name, phone, pincode and company. Complete those fields in the Profile tab first.',
+                      style: TextStyle(fontSize: 12, height: 1.45, color: Colors.black.withValues(alpha: 0.55)),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: _generating ? null : _onGeneratePartnerId,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _brandPurple,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        icon: _generating
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.bolt_rounded),
+                        label: Text(_generating ? 'Generating…' : 'Generate Partner ID'),
+                      ),
+                    ),
+                  ] else ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _onCopyPartnerId,
+                            icon: const Icon(Icons.copy_rounded, size: 18),
+                            label: const Text('Copy'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: _brandPurple,
+                              side: BorderSide(color: _brandPurple.withValues(alpha: 0.5)),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _onContactAdmin,
+                            icon: const Icon(Icons.support_agent_rounded, size: 18),
+                            label: const Text('Reset (admin)'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: _brandPurple,
+                              side: BorderSide(color: _brandPurple.withValues(alpha: 0.5)),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.amber.shade100),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.info_outline_rounded, size: 18, color: Colors.amber.shade900),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Your Partner ID is permanent. If there is a problem, contact the admin to reset it.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.amber.shade900,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
+          ),
+          const SizedBox(height: 28),
+          _sectionLabel('Account'),
+          const SizedBox(height: 12),
+          _cardWrap(
             child: Column(
               children: [
-                SwitchListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  title: const Text('Push notifications', style: TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text(
-                    'Coming soon',
-                    style: TextStyle(fontSize: 13, color: Colors.black.withValues(alpha: 0.45)),
-                  ),
-                  value: false,
-                  onChanged: null,
-                  activeThumbColor: _brandPurple,
-                ),
-                const Divider(height: 1),
                 ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  leading: const Icon(Icons.key_rounded, color: _brandPurple),
+                  title: const Text('Change password', style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text('Send a reset link to your verified email'),
+                  trailing: _sendingReset
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: _brandPurple),
+                        )
+                      : const Icon(Icons.chevron_right_rounded),
+                  onTap: _sendingReset ? null : _onSendPasswordReset,
+                ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                   leading: Icon(Icons.privacy_tip_outlined, color: _brandPurple.withValues(alpha: 0.85)),
-                  title: const Text('Privacy', style: TextStyle(fontWeight: FontWeight.w600)),
+                  title: const Text('Privacy policy', style: TextStyle(fontWeight: FontWeight.w600)),
                   trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Open privacy policy from the website.')),
-                    );
-                  },
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const PrivacyPolicyScreen()),
+                  ),
+                ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  leading: Icon(Icons.gavel_rounded, color: _brandPurple.withValues(alpha: 0.85)),
+                  title: const Text('Terms of service', style: TextStyle(fontWeight: FontWeight.w600)),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const TermsOfServiceScreen()),
+                  ),
+                ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  leading: Icon(Icons.support_agent_rounded, color: _brandPurple.withValues(alpha: 0.85)),
+                  title: const Text('Contact admin', style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text('Email or phone the Manavizha team'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: _onContactAdmin,
+                ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  leading: const Icon(Icons.logout_rounded, color: Colors.redAccent),
+                  title: const Text('Log out', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.redAccent)),
+                  onTap: widget.onSignOut,
                 ),
               ],
             ),
           ),
-        ),
-        const SizedBox(height: 28),
-        Text(
-          'Account',
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.1,
-            color: Colors.black.withValues(alpha: 0.45),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Material(
-          color: Colors.white,
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionLabel(String text) {
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 1.1,
+        color: Colors.black.withValues(alpha: 0.45),
+      ),
+    );
+  }
+
+  Widget _cardWrap({required Widget child}) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
-              boxShadow: [
-                BoxShadow(
-                  color: _brandPurple.withValues(alpha: 0.06),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
+          border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+          boxShadow: [
+            BoxShadow(
+              color: _brandPurple.withValues(alpha: 0.06),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
             ),
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              leading: const Icon(Icons.logout_rounded, color: Colors.redAccent),
-              title: const Text('Log out', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.redAccent)),
-              onTap: onSignOut,
-            ),
-          ),
+          ],
         ),
-      ],
+        child: child,
+      ),
     );
   }
 }
