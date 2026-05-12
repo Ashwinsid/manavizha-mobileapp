@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'member_profile_view_screen.dart';
 import 'message_dialog.dart';
+import 'mutual_match_sheet.dart';
 import 'profile_social_actions.dart';
 
 /// One row in the header notifications popover — mirrors the web dashboard
@@ -437,6 +438,10 @@ class _MemberProfileFullscreenWrapperState
   bool _isCurrentUserPremium = false;
   String _targetName = '';
   bool _blocking = false;
+  /// True when the current user and `widget.targetUserId` have both liked
+  /// each other (rows in both directions in `likes`). Drives the "Contact
+  /// details" entry in the AppBar overflow menu.
+  bool _isMutual = false;
 
   @override
   void initState() {
@@ -469,6 +474,30 @@ class _MemberProfileFullscreenWrapperState
       if (!mounted) return;
       if (name.isNotEmpty) setState(() => _targetName = name);
     } catch (_) {/* fine — fall back to "this profile". */}
+    try {
+      final sent = await client
+          .from('likes')
+          .select('user_id')
+          .eq('user_id', uid)
+          .eq('liked_user_id', widget.targetUserId)
+          .maybeSingle();
+      final received = await client
+          .from('likes')
+          .select('user_id')
+          .eq('user_id', widget.targetUserId)
+          .eq('liked_user_id', uid)
+          .maybeSingle();
+      if (!mounted) return;
+      setState(() => _isMutual = sent != null && received != null);
+    } catch (_) {/* tolerate RLS / missing tables */}
+  }
+
+  Future<void> _onMutualDetails() async {
+    await showMutualMatchSheet(
+      context,
+      targetUserId: widget.targetUserId,
+      targetName: _targetName.isEmpty ? 'this member' : _targetName,
+    );
   }
 
   Future<void> _onMessage() async {
@@ -549,6 +578,9 @@ class _MemberProfileFullscreenWrapperState
             icon: const Icon(Icons.more_vert_rounded),
             onSelected: (v) async {
               switch (v) {
+                case 'mutual':
+                  await _onMutualDetails();
+                  break;
                 case 'message':
                   await _onMessage();
                   break;
@@ -557,9 +589,12 @@ class _MemberProfileFullscreenWrapperState
                   break;
               }
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'message', child: Text('Send message')),
-              PopupMenuItem(
+            itemBuilder: (_) => <PopupMenuEntry<String>>[
+              if (_isMutual)
+                const PopupMenuItem(
+                    value: 'mutual', child: Text('Contact details')),
+              const PopupMenuItem(value: 'message', child: Text('Send message')),
+              const PopupMenuItem(
                 value: 'block',
                 child: Text(
                   'Block member',

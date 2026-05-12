@@ -6,6 +6,7 @@ import 'compatibility_sheet.dart';
 import 'dashboard_shell_service.dart';
 import 'likes_service.dart';
 import 'message_dialog.dart';
+import 'mutual_match_sheet.dart';
 import 'profile_social_actions.dart';
 import 'user_activity_tracker.dart';
 import 'user_match_service.dart';
@@ -1088,6 +1089,17 @@ class _LikesPageState extends State<LikesPage> {
     );
   }
 
+  /// Open the full mutual-match details sheet (contact, education, profession,
+  /// family). Only shown for rows where both users have liked each other —
+  /// mirrors `manavizha/components/browse-profiles.tsx` lines ~2027-2160.
+  Future<void> _openMutualDetails(MatchPreview p) async {
+    await showMutualMatchSheet(
+      context,
+      targetUserId: p.userId,
+      targetName: p.name,
+    );
+  }
+
   /// Block [p] from this user's feeds. Confirms first, then optimistically
   /// removes them from the local lists (mirrors web behaviour where the row
   /// disappears after a successful block).
@@ -1704,6 +1716,9 @@ class _LikesPageState extends State<LikesPage> {
                                 case 'view':
                                   _openProfile(p.userId);
                                   break;
+                                case 'mutual':
+                                  await _openMutualDetails(p);
+                                  break;
                                 case 'message':
                                   await _openMessage(p);
                                   break;
@@ -1712,13 +1727,17 @@ class _LikesPageState extends State<LikesPage> {
                                   break;
                               }
                             },
-                            itemBuilder: (_) => const [
-                              PopupMenuItem(
+                            itemBuilder: (_) => <PopupMenuEntry<String>>[
+                              const PopupMenuItem(
                                   value: 'view', child: Text('View profile')),
-                              PopupMenuItem(
+                              if (entry.isMutual)
+                                const PopupMenuItem(
+                                    value: 'mutual',
+                                    child: Text('Contact details')),
+                              const PopupMenuItem(
                                   value: 'message',
                                   child: Text('Send message')),
-                              PopupMenuItem(
+                              const PopupMenuItem(
                                 value: 'block',
                                 child: Text(
                                   'Block',
@@ -1817,22 +1836,47 @@ class _LikesPageState extends State<LikesPage> {
                           ],
                         )
                       else if (canMessage)
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: busy ? null : () => _openMessage(p),
-                            icon: const Icon(Icons.chat_bubble_outline_rounded,
-                                size: 16),
-                            label: const Text('Send message'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: _brand,
-                              foregroundColor: Colors.white,
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 8),
-                              textStyle: const TextStyle(
-                                  fontSize: 12, fontWeight: FontWeight.w900),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            FilledButton.icon(
+                              onPressed: busy ? null : () => _openMessage(p),
+                              icon: const Icon(
+                                  Icons.chat_bubble_outline_rounded,
+                                  size: 16),
+                              label: const Text('Send message'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: _brand,
+                                foregroundColor: Colors.white,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 8),
+                                textStyle: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w900),
+                              ),
                             ),
-                          ),
+                            if (entry.isMutual) ...[
+                              const SizedBox(height: 6),
+                              OutlinedButton.icon(
+                                onPressed: busy
+                                    ? null
+                                    : () => _openMutualDetails(p),
+                                icon: const Icon(Icons.contact_page_rounded,
+                                    size: 16),
+                                label: const Text('Contact details'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: _brand,
+                                  side:
+                                      const BorderSide(color: _brand, width: 1.2),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 8),
+                                  textStyle: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w900),
+                                ),
+                              ),
+                            ],
+                          ],
                         )
                       else
                         SizedBox(
