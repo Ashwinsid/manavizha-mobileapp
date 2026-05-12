@@ -32,6 +32,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
 
   List<DashboardShellNotification> _notifInterests = [];
   List<DashboardShellNotification> _notifViews = [];
+  List<DashboardShellMessageNotification> _notifMessages = [];
+  int _notifMessageBadge = 0;
   Timer? _shellPollTimer;
 
   late final List<Widget> _pages;
@@ -104,11 +106,22 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
     final uid = c.auth.currentUser?.id;
     if (uid == null || !mounted) return;
     try {
-      final bundle = await fetchDashboardNotifications(c, uid);
+      final results = await Future.wait<dynamic>([
+        fetchDashboardNotifications(c, uid),
+        fetchUnreadMessageNotifications(c, uid),
+      ]);
       if (!mounted) return;
+      final bundle = results[0] as ({
+        List<DashboardShellNotification> interests,
+        List<DashboardShellNotification> views,
+      });
+      final messages = results[1] as List<DashboardShellMessageNotification>;
+      final messageBadge = messages.fold<int>(0, (sum, m) => sum + m.unreadCount);
       setState(() {
         _notifInterests = bundle.interests;
         _notifViews = bundle.views;
+        _notifMessages = messages;
+        _notifMessageBadge = messageBadge;
       });
     } catch (e, st) {
       debugPrint('_refreshShellCounts: $e\n$st');
@@ -166,7 +179,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
       builder: (sheetContext) {
         final interests = _notifInterests;
         final views = _notifViews;
-        final totalBadge = interests.length + views.length;
+        final messages = _notifMessages;
+        final totalBadge = interests.length + views.length + messages.length;
 
         return SafeArea(
           child: Padding(
@@ -223,7 +237,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
                     ),
                     const SizedBox(height: 12),
                     SizedBox(
-                      height: totalBadge == 0 ? 120 : 340,
+                      height: totalBadge == 0 ? 120 : 380,
                       child: totalBadge == 0
                             ? Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 28),
@@ -246,6 +260,22 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
                             : ListView(
                                 shrinkWrap: true,
                                 children: [
+                                  if (messages.isNotEmpty) ...[
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: Text(
+                                        'NEW MESSAGES',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 1.2,
+                                          color: Colors.indigo.shade600,
+                                        ),
+                                      ),
+                                    ),
+                                    ...messages.take(5).map((m) => _messageNotificationTile(sheetContext, m)),
+                                    const SizedBox(height: 8),
+                                  ],
                                   if (interests.isNotEmpty) ...[
                                     Padding(
                                       padding: const EdgeInsets.only(bottom: 8),
@@ -376,6 +406,109 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(fontSize: 10, color: Colors.black.withValues(alpha: 0.45)),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// One row inside the popover's “NEW MESSAGES” section.
+  /// Tapping closes the sheet and jumps to the chat tab; the inbox auto-opens
+  /// the first unread conversation, which is normally this sender.
+  Widget _messageNotificationTile(
+    BuildContext sheetContext,
+    DashboardShellMessageNotification m,
+  ) {
+    final preview = m.preview.trim();
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () {
+          Navigator.of(sheetContext).pop();
+          setState(() => _currentIndex = 3);
+          unawaited(_refreshShellCounts());
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: Colors.indigo.shade50,
+                    child: Text(
+                      m.name.isNotEmpty ? m.name[0].toUpperCase() : '?',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: Colors.indigo.shade600,
+                      ),
+                    ),
+                  ),
+                  if (m.unreadCount > 1)
+                    Positioned(
+                      right: -4,
+                      top: -4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF1493),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        constraints: const BoxConstraints(minWidth: 20, minHeight: 18),
+                        child: Text(
+                          m.unreadCount > 9 ? '9+' : '${m.unreadCount}',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${m.name} sent you a message',
+                            maxLines: 2,
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _relativeShort(m.at),
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.indigo.shade400,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (preview.isNotEmpty)
+                      Text(
+                        preview,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 10, color: Colors.black.withValues(alpha: 0.55)),
                       ),
                   ],
                 ),
@@ -920,7 +1053,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
             icon: Icons.notifications_none_rounded,
             tooltip: 'Notifications',
             onPressed: () => unawaited(_showNotificationsPopover()),
-            badgeCount: _notifInterests.length + _notifViews.length,
+            badgeCount: _notifInterests.length + _notifViews.length + _notifMessageBadge,
             badgeColor: const Color(0xFFE11D48),
           ),
           const SizedBox(width: 12),

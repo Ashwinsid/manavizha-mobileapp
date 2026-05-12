@@ -27,6 +27,29 @@ class DashboardShellNotification {
   final bool isInterest;
 }
 
+/// One row in the “New messages” section of the header popover — mirrors the
+/// per-row preview tiles in `app/dashboard/layout.tsx` (Bell popover) and the
+/// inbox row in `app/dashboard/messages/page.tsx`.
+///
+/// [unreadCount] is the number of unread messages from [otherUserId] for the
+/// current viewer; the popover surfaces a per-sender row, so the badge bubble
+/// next to the name shows this number.
+class DashboardShellMessageNotification {
+  const DashboardShellMessageNotification({
+    required this.otherUserId,
+    required this.name,
+    required this.preview,
+    required this.at,
+    required this.unreadCount,
+  });
+
+  final String otherUserId;
+  final String name;
+  final String preview;
+  final DateTime at;
+  final int unreadCount;
+}
+
 DateTime? _parseTs(dynamic v) {
   if (v == null) return null;
   return DateTime.tryParse(v.toString());
@@ -90,6 +113,94 @@ Future<int> fetchUnreadMessageCount(SupabaseClient client, String myUserId) asyn
     debugPrint('fetchUnreadMessageCount: $e\n$st');
     return 0;
   }
+}
+
+/// Last-30-days unread messages addressed to [myUserId], grouped by sender so
+/// the popover shows one tile per conversation (matches the web pattern of
+/// rendering distinct senders, not raw rows).
+Future<List<DashboardShellMessageNotification>> fetchUnreadMessageNotifications(
+  SupabaseClient client,
+  String myUserId,
+) async {
+  final cutoff = DateTime.now().subtract(const Duration(days: 30));
+  List<Map<String, dynamic>> rows = const [];
+  try {
+    final raw = await client
+        .from('messages')
+        .select('sender_id, content, created_at, is_read')
+        .eq('receiver_id', myUserId)
+        .eq('is_read', false)
+        .order('created_at', ascending: false)
+        .limit(200);
+    rows = (raw as List<dynamic>).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  } catch (e, st) {
+    debugPrint('fetchUnreadMessageNotifications: $e\n$st');
+    return const [];
+  }
+
+  // Keep only the last 30 days, then group by sender (latest preview wins).
+  final grouped = <String, _PendingMsg>{};
+  for (final r in rows) {
+    final t = _parseTs(r['created_at']);
+    if (t == null || !t.isAfter(cutoff)) continue;
+    final sid = r['sender_id']?.toString();
+    if (sid == null || sid.isEmpty) continue;
+    final preview = r['content']?.toString() ?? '';
+    final prev = grouped[sid];
+    if (prev == null || t.isAfter(prev.at)) {
+      grouped[sid] = _PendingMsg(
+        senderId: sid,
+        at: t,
+        preview: preview,
+        count: (prev?.count ?? 0) + 1,
+      );
+    } else {
+      grouped[sid] = _PendingMsg(
+        senderId: prev.senderId,
+        at: prev.at,
+        preview: prev.preview,
+        count: prev.count + 1,
+      );
+    }
+  }
+  if (grouped.isEmpty) return const [];
+
+  // Enrich with sender names.
+  Map<String, String> names = {};
+  try {
+    final ids = grouped.keys.toList();
+    final pd = await client.from('personal_details').select('user_id, name').inFilter('user_id', ids);
+    for (final raw in (pd as List<dynamic>? ?? const [])) {
+      final m = Map<String, dynamic>.from(raw as Map);
+      final id = m['user_id']?.toString();
+      if (id == null) continue;
+      final name = m['name']?.toString().trim();
+      names[id] = (name == null || name.isEmpty) ? 'Member' : name;
+    }
+  } catch (e, st) {
+    debugPrint('fetchUnreadMessageNotifications names: $e\n$st');
+  }
+
+  final out = grouped.values.toList()
+    ..sort((a, b) => b.at.compareTo(a.at));
+  return [
+    for (final p in out)
+      DashboardShellMessageNotification(
+        otherUserId: p.senderId,
+        name: names[p.senderId] ?? 'Member',
+        preview: p.preview,
+        at: p.at,
+        unreadCount: p.count,
+      ),
+  ];
+}
+
+class _PendingMsg {
+  _PendingMsg({required this.senderId, required this.at, required this.preview, required this.count});
+  final String senderId;
+  final DateTime at;
+  final String preview;
+  final int count;
 }
 
 /// Loads unread profile views + received likes from the last 30 days (same
