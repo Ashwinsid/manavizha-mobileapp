@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
+import 'message_dialog.dart';
+import 'profile_social_actions.dart';
 import 'user_activity_tracker.dart';
 import 'user_match_service.dart';
 import 'user_profile_completion.dart';
@@ -79,6 +81,125 @@ int? _coerceInt(dynamic v) {
   return int.tryParse(v.toString().trim());
 }
 
+/// Partner-preference match matrix — mirrors the counters in
+/// `manavizha/components/profile-detail-view.tsx` (age, height, marital,
+/// mother tongue, religion, caste, education) plus simple heuristics for
+/// occupation and location so the extra [PrefRow]s get meaningful icons.
+({int matches, Map<String, bool> rows}) _evaluatePartnerPreferenceMatrix(
+  Map<String, dynamic> pr,
+  Map<String, dynamic>? v,
+  List<Map<String, dynamic>> viewerEdu,
+) {
+  final rows = <String, bool>{
+    'age': false,
+    'height': false,
+    'marital': false,
+    'religion': false,
+    'education': false,
+    'occupation': false,
+    'location': false,
+  };
+  if (v == null) return (matches: 0, rows: rows);
+
+  var m = 0;
+  final age = _coerceInt(v['age']);
+  final minA = _coerceInt(pr['preferred_age_min']) ?? 18;
+  final maxA = _coerceInt(pr['preferred_age_max']) ?? 70;
+  if (age != null && age >= minA && age <= maxA) {
+    rows['age'] = true;
+    m++;
+  }
+
+  final height = _coerceInt(v['height']);
+  final minH = _coerceInt(pr['preferred_height_min']) ?? 120;
+  final maxH = _coerceInt(pr['preferred_height_max']) ?? 220;
+  if (height != null && height >= minH && height <= maxH) {
+    rows['height'] = true;
+    m++;
+  }
+
+  final prefMar = pr['preferred_marital_status']?.toString();
+  if (prefMar == null || prefMar.isEmpty || prefMar == 'Any' || v['marital_status']?.toString() == prefMar) {
+    rows['marital'] = true;
+    m++;
+  }
+
+  final prefMt = pr['preferred_mother_tongue']?.toString();
+  String? viewerMt = v['mother_tongue']?.toString();
+  if (viewerMt == null || viewerMt.isEmpty) {
+    final langs = v['languages'];
+    if (langs is List && langs.isNotEmpty) {
+      viewerMt = langs.first.toString().trim();
+    }
+  }
+  if (prefMt == null || prefMt.isEmpty || viewerMt == prefMt) {
+    m++; // web increments but does not expose a separate PrefRow for MT
+  }
+
+  final prefRel = pr['preferred_religion']?.toString();
+  if (prefRel == null || prefRel.isEmpty || prefRel == 'Any' || v['religion']?.toString() == prefRel) {
+    rows['religion'] = true;
+    m++;
+  }
+
+  final prefCaste = pr['preferred_caste']?.toString();
+  if (prefCaste == null || prefCaste.isEmpty || prefCaste == 'Any' || v['caste']?.toString() == prefCaste) {
+    m++; // web tracks caste separately in matchResults but one combined PrefRow
+  }
+
+  final prefEdu = pr['preferred_education'];
+  bool eduOk = prefEdu == null ||
+      prefEdu.toString().trim().isEmpty ||
+      prefEdu == 'Any';
+  if (!eduOk) {
+    if (prefEdu is List) {
+      final want = prefEdu.map((e) => e.toString()).toSet();
+      eduOk = viewerEdu.any((e) => want.contains(e['education']?.toString()));
+    } else {
+      final s = prefEdu.toString();
+      eduOk = viewerEdu.any((e) => e['education']?.toString() == s);
+    }
+  }
+  if (eduOk) {
+    rows['education'] = true;
+    m++;
+  }
+
+  final prefOcc = pr['preferred_occupation'];
+  var occOk = prefOcc == null || prefOcc.toString().trim().isEmpty || prefOcc == 'Any';
+  if (!occOk) {
+    final blob = [
+      v['designation']?.toString(),
+      v['job_title']?.toString(),
+      v['occupation']?.toString(),
+    ].whereType<String>().join(' ').toLowerCase();
+    if (prefOcc is List) {
+      occOk = prefOcc.any((o) => blob.contains(o.toString().toLowerCase()));
+    } else {
+      occOk = blob.contains(prefOcc.toString().toLowerCase());
+    }
+  }
+  if (occOk) {
+    rows['occupation'] = true;
+    m++;
+  }
+
+  final prefLoc = pr['preferred_location']?.toString().trim() ?? '';
+  var locOk = prefLoc.isEmpty || prefLoc.toLowerCase() == 'any' || prefLoc == 'Any Location';
+  if (!locOk) {
+    final district = v['current_district']?.toString().toLowerCase() ?? '';
+    final state = v['current_state']?.toString().toLowerCase() ?? '';
+    final l = prefLoc.toLowerCase();
+    locOk = (district.isNotEmpty && l.contains(district)) || (state.isNotEmpty && l.contains(state));
+  }
+  if (locOk) {
+    rows['location'] = true;
+    m++;
+  }
+
+  return (matches: m, rows: rows);
+}
+
 /// Read-only member profile for browsing (mirrors web [ProfileDetailView] essentials).
 class MemberProfileViewScreen extends StatefulWidget {
   const MemberProfileViewScreen({super.key, required this.targetUserId});
@@ -113,13 +234,38 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   List<(String, String)> _personalRows = [];
   List<(String, String)> _familyRows = [];
   String? _familyDescription;
-  List<(String, String)> _educationCareerRows = [];
   List<(String, String)> _horoscopeRows = [];
   /// Resolved display URL for [horoscope_details.jaadhagam_url] (signed when needed).
   String? _jaadhagamImageUrl;
   List<(String, String)> _lifestyleRows = [];
   List<String> _hobbyChips = [];
   List<String> _interestChips = [];
+
+  /// Signed-in viewer (null when logged out or same as [targetUserId] for own profile).
+  String? _viewerId;
+  bool _isViewerPremium = false;
+  bool _targetIsPremium = false;
+  String? _targetPremiumPlan;
+
+  bool _isLiked = false;
+  bool _isShortlisted = false;
+  bool _isMutual = false;
+  String? _iLikedStatus;
+  String? _likedMeStatus;
+  bool _socialBusy = false;
+
+  Map<String, dynamic>? _partnerPrefs;
+  int _prefMatchCount = 0;
+  static const int _prefMatchTotal = 21;
+  final Map<String, bool> _revealedLocked = {};
+  Map<String, bool> _prefRowMatches = {};
+
+  /// Education rows only (unlocked). Profession rows are premium-gated separately.
+  List<(String, String)> _educationOnlyRows = [];
+  /// Profession / salary rows — same labels as web [DetailRow] `isLocked` rows.
+  List<(String, String)> _professionLockedRows = [];
+  Map<String, dynamic>? _fullContact;
+  String? _contactAddressLine;
 
   @override
   void initState() {
@@ -163,6 +309,21 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       Map<String, dynamic>? horo;
       Map<String, dynamic>? intRow;
       Map<String, dynamic>? soc;
+      Map<String, dynamic>? partnerPrefs;
+      Map<String, dynamic>? viewerPersonal;
+      List<Map<String, dynamic>> viewerEducation = [];
+
+      final viewerId = c.auth.currentUser?.id;
+      var viewerPremium = false;
+      var targetPremium = false;
+      String? targetPlan;
+      var isLiked = false;
+      var isShortlisted = false;
+      var isMutual = false;
+      String? iLikedStatus;
+      String? likedMeStatus;
+      var prefMatchCount = 0;
+      Map<String, bool> prefRowMatches = {};
 
       Future<void> runOptional(String label, Future<void> Function() fn) async {
         try {
@@ -173,7 +334,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       }
 
       await runOptional('contact_details', () async {
-        final r = await c.from('contact_details').select('current_district, current_state').eq('user_id', uid).maybeSingle();
+        final r = await c.from('contact_details').select().eq('user_id', uid).maybeSingle();
         contact = _asStringKeyedMap(r);
       });
       await runOptional('photos', () async {
@@ -212,6 +373,74 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         final r = await c.from('social_habits').select('smoking, drinking, parties, pubs').eq('user_id', uid).maybeSingle();
         soc = _asStringKeyedMap(r);
       });
+      await runOptional('partner_preferences', () async {
+        final r = await c.from('partner_preferences').select().eq('user_id', uid).maybeSingle();
+        partnerPrefs = _asStringKeyedMap(r);
+      });
+      await runOptional('target_user_settings', () async {
+        final r = await c.from('user_settings').select('is_premium, premium_plan').eq('user_id', uid).maybeSingle();
+        final m = _asStringKeyedMap(r);
+        if (m != null) {
+          targetPremium = m['is_premium'] == true;
+          targetPlan = m['premium_plan']?.toString();
+        }
+      });
+      if (viewerId != null && viewerId != uid) {
+        await runOptional('viewer_premium', () async {
+          final r = await c.from('user_settings').select('is_premium').eq('user_id', viewerId).maybeSingle();
+          final m = _asStringKeyedMap(r);
+          if (m != null) viewerPremium = m['is_premium'] == true;
+        });
+        await runOptional('likes', () async {
+          final myLikeRow = await c.from('likes').select('status').eq('user_id', viewerId).eq('liked_user_id', uid).maybeSingle();
+          final theirLikeRow = await c.from('likes').select('status').eq('user_id', uid).eq('liked_user_id', viewerId).maybeSingle();
+          isLiked = myLikeRow != null;
+          iLikedStatus = myLikeRow != null ? myLikeRow['status']?.toString() : null;
+          likedMeStatus = theirLikeRow != null ? theirLikeRow['status']?.toString() : null;
+          isMutual = myLikeRow != null && theirLikeRow != null;
+        });
+        await runOptional('shortlist', () async {
+          final r = await c
+              .from('shortlists')
+              .select('user_id')
+              .eq('user_id', viewerId)
+              .eq('shortlisted_user_id', uid)
+              .maybeSingle();
+          isShortlisted = r != null;
+        });
+        if (partnerPrefs != null) {
+          await runOptional('viewer_personal', () async {
+            final r = await c.from('personal_details').select().eq('user_id', viewerId).maybeSingle();
+            viewerPersonal = _asStringKeyedMap(r);
+          });
+          Map<String, dynamic>? viewerContact;
+          await runOptional('viewer_contact', () async {
+            final r = await c
+                .from('contact_details')
+                .select('current_district, current_state')
+                .eq('user_id', viewerId)
+                .maybeSingle();
+            viewerContact = _asStringKeyedMap(r);
+          });
+          await runOptional('viewer_education', () async {
+            final r = await c.from('education_details').select().eq('user_id', viewerId);
+            viewerEducation = (r as List<dynamic>)
+                .map((e) => Map<String, dynamic>.from(e as Map))
+                .toList();
+          });
+          final vMerged = <String, dynamic>{
+            if (viewerPersonal != null) ...viewerPersonal!,
+            if (viewerContact != null) ...viewerContact!,
+          };
+          final bundle = _evaluatePartnerPreferenceMatrix(
+            partnerPrefs!,
+            vMerged.isEmpty ? null : vMerged,
+            viewerEducation,
+          );
+          prefMatchCount = bundle.matches;
+          prefRowMatches = bundle.rows;
+        }
+      }
       DateTime? lastActiveAt;
       // `users` table is RLS-restricted on some deployments — failures here
       // simply hide the activity label rather than break the whole profile.
@@ -291,7 +520,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       }
 
       final eduList = eduRes;
-      final educationCareerRows = <(String, String)>[];
+      final educationOnlyRows = <(String, String)>[];
       for (var i = 0; i < eduList.length; i++) {
         final rowMap = _asStringKeyedMap(eduList[i]);
         if (rowMap == null) continue;
@@ -299,7 +528,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         final ed = e['education']?.toString() ?? '';
         final ins = e['institution']?.toString() ?? '';
         final line = ins.isNotEmpty ? '$ed at $ins' : ed;
-        educationCareerRows.add(('Education ${i + 1}', _dashIfEmpty(line)));
+        educationOnlyRows.add(('Education ${i + 1}', _dashIfEmpty(line)));
       }
 
       String? professionType;
@@ -315,6 +544,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         prof = stu;
       }
 
+      final professionLockedRows = <(String, String)>[];
       final profMap = prof;
       if (profMap != null) {
         final p = profMap;
@@ -322,22 +552,41 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         final occ = professionType == 'student'
             ? _dashIfEmpty(p['course']?.toString())
             : _dashIfEmpty(des.isNotEmpty ? des : null);
-        educationCareerRows.add(('Current occupation', occ));
+        professionLockedRows.add(('Current occupation', occ));
         if (professionType == 'employee') {
-          educationCareerRows.add(('Sector', _dashIfEmpty(p['sector']?.toString())));
-          educationCareerRows.add(('Company', _dashIfEmpty(p['company']?.toString())));
-          educationCareerRows.add(('Annual salary', _dashIfEmpty(p['salary']?.toString())));
-          educationCareerRows.add(('Work location', _dashIfEmpty(p['work_location']?.toString())));
+          professionLockedRows.add(('Sector', _dashIfEmpty(p['sector']?.toString())));
+          professionLockedRows.add(('Company', _dashIfEmpty(p['company']?.toString())));
+          final salary = _dashIfEmpty(
+            (p['salary_range'] ?? p['salary'])?.toString(),
+          );
+          professionLockedRows.add(('Annual salary', salary));
+          professionLockedRows.add(('Work location', _dashIfEmpty(p['work_location']?.toString())));
         } else if (professionType == 'business') {
-          educationCareerRows.add(('Business type', _dashIfEmpty(p['business_type']?.toString())));
-          educationCareerRows.add(('Business name', _dashIfEmpty(p['business_name']?.toString())));
-          educationCareerRows.add(('Annual returns', _dashIfEmpty(p['annual_returns']?.toString())));
-          educationCareerRows.add(('Business location', _dashIfEmpty(p['business_location']?.toString())));
+          professionLockedRows.add(('Business type', _dashIfEmpty(p['business_type']?.toString())));
+          professionLockedRows.add(('Business name', _dashIfEmpty(p['business_name']?.toString())));
+          final rev = _dashIfEmpty(
+            (p['revenue_range'] ?? p['annual_returns'])?.toString(),
+          );
+          professionLockedRows.add(('Annual returns', rev));
+          professionLockedRows.add(('Business location', _dashIfEmpty(p['business_location']?.toString())));
         } else {
-          educationCareerRows.add(('Institution', _dashIfEmpty(p['institution']?.toString())));
-          educationCareerRows.add(('Course', _dashIfEmpty(p['course']?.toString())));
-          educationCareerRows.add(('Field of study', _dashIfEmpty(p['field_of_study']?.toString())));
+          professionLockedRows.add(('Institution', _dashIfEmpty(p['institution']?.toString())));
+          professionLockedRows.add(('Course', _dashIfEmpty(p['course']?.toString())));
+          professionLockedRows.add(('Field of study', _dashIfEmpty(p['field_of_study']?.toString())));
         }
+      }
+
+      String? contactAddressLine;
+      final fullContact = contact;
+      if (fullContact != null) {
+        final parts = <String>[
+          fullContact['current_address_line1']?.toString().trim() ?? '',
+          fullContact['current_address_line2']?.toString().trim() ?? '',
+          fullContact['current_area']?.toString().trim() ?? '',
+          fullContact['current_district']?.toString().trim() ?? '',
+          fullContact['current_state']?.toString().trim() ?? '',
+        ].where((s) => s.isNotEmpty).toList();
+        if (parts.isNotEmpty) contactAddressLine = parts.join(', ');
       }
 
       final horoscopeRows = <(String, String)>[];
@@ -378,6 +627,19 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
 
       if (!mounted) return;
       setState(() {
+        _viewerId = viewerId;
+        _isViewerPremium = viewerPremium;
+        _targetIsPremium = targetPremium;
+        _targetPremiumPlan = targetPlan;
+        _isLiked = isLiked;
+        _isShortlisted = isShortlisted;
+        _isMutual = isMutual;
+        _iLikedStatus = iLikedStatus;
+        _likedMeStatus = likedMeStatus;
+        _partnerPrefs = partnerPrefs;
+        _prefMatchCount = prefMatchCount;
+        _prefRowMatches = prefRowMatches;
+        _revealedLocked.clear();
         _name = pdMap['name']?.toString().trim().isNotEmpty == true ? pdMap['name'].toString() : 'Member';
         _age = _coerceInt(pdMap['age']);
         _sex = pdMap['sex']?.toString();
@@ -388,13 +650,16 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         _personalRows = personalRows;
         _familyRows = familyRows;
         _familyDescription = familyDescription;
-        _educationCareerRows = educationCareerRows;
+        _educationOnlyRows = educationOnlyRows;
+        _professionLockedRows = professionLockedRows;
         _horoscopeRows = horoscopeRows;
         _jaadhagamImageUrl = jaadhagamSigned;
         _lifestyleRows = lifestyleRows;
         _hobbyChips = hobbyChips;
         _interestChips = interestChips;
         _lastActiveAt = lastActiveAt;
+        _fullContact = fullContact;
+        _contactAddressLine = contactAddressLine;
         _loading = false;
       });
     } catch (e, st) {
@@ -408,6 +673,737 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
     }
   }
 
+  bool get _hasContactSection {
+    final m = _fullContact;
+    if (m == null) return false;
+    final phone = m['phone']?.toString().trim();
+    final wa = m['whatsapp_number']?.toString().trim();
+    return (phone != null && phone.isNotEmpty) ||
+        (wa != null && wa.isNotEmpty) ||
+        (_contactAddressLine != null && _contactAddressLine!.trim().isNotEmpty);
+  }
+
+  List<(String, String)> get _contactLockedRows {
+    final m = _fullContact;
+    if (m == null) return const [];
+    final rows = <(String, String)>[];
+    final phone = m['phone']?.toString().trim();
+    final wa = m['whatsapp_number']?.toString().trim();
+    if (phone != null && phone.isNotEmpty) rows.add(('Phone number', phone));
+    if (wa != null && wa.isNotEmpty) rows.add(('WhatsApp', wa));
+    final addr = _contactAddressLine?.trim();
+    if (addr != null && addr.isNotEmpty) rows.add(('Address', addr));
+    return rows;
+  }
+
+  bool get _showVisitorChrome => _viewerId != null && _viewerId != widget.targetUserId;
+
+  Widget _targetPremiumBadge() {
+    final plan = (_targetPremiumPlan ?? '').replaceAll('_', ' ').trim();
+    final label = plan.isEmpty ? 'PREMIUM' : plan.toUpperCase();
+    Color bg = const Color(0xFFEC4899);
+    if (plan.toLowerCase().contains('elite')) bg = const Color(0xFF4B0082);
+    if (plan.toLowerCase().contains('gold') || plan.toLowerCase().contains('prime')) {
+      bg = const Color(0xFFF59E0B);
+    }
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(999),
+          boxShadow: [
+            BoxShadow(color: bg.withValues(alpha: 0.35), blurRadius: 8, offset: const Offset(0, 2)),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.workspace_premium_rounded, color: Colors.white, size: 16),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 9,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _onToggleShortlist() async {
+    final uid = _viewerId;
+    if (uid == null || _socialBusy) return;
+    setState(() => _socialBusy = true);
+    final client = Supabase.instance.client;
+    final err = await ProfileSocialActions.toggleShortlist(
+      client: client,
+      currentUserId: uid,
+      targetUserId: widget.targetUserId,
+      remove: _isShortlisted,
+    );
+    if (!mounted) return;
+    setState(() {
+      _socialBusy = false;
+      if (err == null) _isShortlisted = !_isShortlisted;
+    });
+    _toast(err ?? (_isShortlisted ? 'Shortlisted.' : 'Removed from shortlist.'));
+  }
+
+  Future<void> _onPrimaryAction() async {
+    final uid = _viewerId;
+    if (uid == null || _socialBusy) return;
+    if (_iLikedStatus == 'declined' || _likedMeStatus == 'declined') return;
+
+    if (_isLiked || _iLikedStatus == 'accepted' || _isMutual) {
+      await showMessageDialog(
+        context,
+        receiverId: widget.targetUserId,
+        receiverName: _name,
+        isPremium: _isViewerPremium,
+      );
+      return;
+    }
+
+    setState(() => _socialBusy = true);
+    final client = Supabase.instance.client;
+    final theirLike = await client
+        .from('likes')
+        .select('user_id')
+        .eq('user_id', widget.targetUserId)
+        .eq('liked_user_id', uid)
+        .maybeSingle();
+    final accept = theirLike != null && _likedMeStatus != 'declined';
+    final err = await ProfileSocialActions.sendInterest(
+      client: client,
+      currentUserId: uid,
+      targetUserId: widget.targetUserId,
+      status: accept ? 'accepted' : null,
+    );
+    if (!mounted) return;
+    setState(() {
+      _socialBusy = false;
+      if (err == null) {
+        _isLiked = true;
+        _iLikedStatus = accept ? 'accepted' : 'pending';
+        if (accept) _isMutual = true;
+      }
+    });
+    _toast(err ?? 'Interest sent.');
+  }
+
+  Future<void> _onVisitorMore(BuildContext ctx) async {
+    await showModalBottomSheet<void>(
+      context: ctx,
+      showDragHandle: true,
+      builder: (ctx2) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.visibility_off_outlined),
+              title: const Text('Skip profile'),
+              onTap: () async {
+                Navigator.pop(ctx2);
+                await _confirmSkip(ctx);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.block_rounded, color: Colors.red.shade700),
+              title: Text('Block', style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.w700)),
+              onTap: () async {
+                Navigator.pop(ctx2);
+                await _confirmBlock(ctx);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmSkip(BuildContext ctx) async {
+    final uid = _viewerId;
+    if (uid == null) return;
+    final ok = await showDialog<bool>(
+      context: ctx,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Skip this profile?'),
+        content: const Text('They will be hidden from your browse lists.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dctx, true), child: const Text('Skip')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final err = await ProfileSocialActions.ignoreProfile(
+      client: Supabase.instance.client,
+      currentUserId: uid,
+      targetUserId: widget.targetUserId,
+    );
+    if (!mounted) return;
+    if (err != null) {
+      _toast(err);
+      return;
+    }
+    _toast('Profile skipped.');
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+  }
+
+  Future<void> _confirmBlock(BuildContext ctx) async {
+    final uid = _viewerId;
+    if (uid == null) return;
+    final ok = await showDialog<bool>(
+      context: ctx,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Block this profile?'),
+        content: Text(
+          'You will no longer see $_name. This cannot be undone from here.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade600),
+            onPressed: () => Navigator.pop(dctx, true),
+            child: const Text('Block'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final err = await ProfileSocialActions.blockProfile(
+      client: Supabase.instance.client,
+      currentUserId: uid,
+      targetUserId: widget.targetUserId,
+    );
+    if (!mounted) return;
+    if (err != null) {
+      _toast(err);
+      return;
+    }
+    _toast('Profile blocked.');
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+  }
+
+  Widget _visitorBottomBar(BuildContext context) {
+    final declined = _iLikedStatus == 'declined' || _likedMeStatus == 'declined';
+    final primaryLabel = (_isLiked || _iLikedStatus == 'accepted' || _isMutual) ? 'Message' : 'Interest';
+    final media = MediaQuery.paddingOf(context).bottom;
+    return Material(
+      elevation: 12,
+      color: Colors.white,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 10, 16, 10 + media),
+        child: Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _socialBusy ? null : _onToggleShortlist,
+                icon: Icon(_isShortlisted ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded, size: 18),
+                label: Text(_isShortlisted ? 'Saved' : 'Shortlist'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _isShortlisted ? _brand : Colors.black87,
+                  side: BorderSide(color: _isShortlisted ? _brand : Colors.black26),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              flex: 2,
+              child: FilledButton.icon(
+                onPressed: (_socialBusy || declined) ? null : _onPrimaryAction,
+                icon: Icon(
+                  (_isLiked || _iLikedStatus == 'accepted' || _isMutual)
+                      ? Icons.chat_bubble_outline_rounded
+                      : Icons.favorite_outline_rounded,
+                  size: 18,
+                ),
+                label: Text(declined ? 'Declined' : primaryLabel),
+                style: FilledButton.styleFrom(
+                  backgroundColor: declined ? Colors.grey.shade400 : const Color(0xFFFF5722),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            IconButton.filledTonal(
+              onPressed: _socialBusy ? null : () => _onVisitorMore(context),
+              icon: const Icon(Icons.more_horiz_rounded),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _lockedDetailSection({
+    required String title,
+    required IconData icon,
+    required List<(String, String)> rows,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 18, color: _brand.withValues(alpha: 0.85)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.1,
+                        color: Colors.black.withValues(alpha: 0.4),
+                      ),
+                    ),
+                  ),
+                  if (!_isViewerPremium)
+                    Icon(Icons.lock_outline_rounded, size: 14, color: Colors.black.withValues(alpha: 0.35)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ...List.generate(rows.length, (i) {
+                final (label, value) = rows[i];
+                final isLast = i == rows.length - 1;
+                return Padding(
+                  padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 118,
+                        child: Text(
+                          label.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.6,
+                            color: Colors.black.withValues(alpha: 0.38),
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                      Expanded(child: _lockedValueCell(label, value)),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _lockedValueCell(String rowKey, String rawValue) {
+    final empty = rawValue == '—' || rawValue.trim().isEmpty;
+    if (empty) {
+      return Text(
+        'Not specified',
+        style: TextStyle(
+          fontSize: 13,
+          fontStyle: FontStyle.italic,
+          color: Colors.black.withValues(alpha: 0.35),
+          fontWeight: FontWeight.w600,
+        ),
+      );
+    }
+    if (!_isViewerPremium) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Icon(Icons.lock_outline_rounded, size: 14, color: Colors.black.withValues(alpha: 0.35)),
+          const SizedBox(width: 6),
+          Text(
+            'LOCKED',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.8,
+              color: Colors.black.withValues(alpha: 0.35),
+            ),
+          ),
+        ],
+      );
+    }
+    final revealed = _revealedLocked[rowKey] == true;
+    if (!revealed) {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: OutlinedButton.icon(
+          onPressed: () => setState(() => _revealedLocked[rowKey] = true),
+          icon: const Icon(Icons.workspace_premium_rounded, size: 14),
+          label: const Text('REVEAL'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: _brand,
+            side: BorderSide(color: _brand.withValues(alpha: 0.45)),
+            textStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          ),
+        ),
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Text(
+            rawValue,
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, height: 1.35),
+          ),
+        ),
+        TextButton(
+          onPressed: () => setState(() => _revealedLocked[rowKey] = false),
+          child: const Text('Hide', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+        ),
+      ],
+    );
+  }
+
+  Widget _horoscopePremiumSection(List<(String, String)> rows, String? jaadhagamUrl) {
+    final url = jaadhagamUrl?.trim();
+    final showJa = url != null && url.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.auto_awesome_outlined, size: 18, color: _brand.withValues(alpha: 0.85)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'HOROSCOPE & ASTROLOGY',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.1,
+                        color: Colors.black.withValues(alpha: 0.4),
+                      ),
+                    ),
+                  ),
+                  if (!_isViewerPremium)
+                    Icon(Icons.lock_outline_rounded, size: 14, color: Colors.black.withValues(alpha: 0.35)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ...List.generate(rows.length, (i) {
+                final (label, value) = rows[i];
+                final key = 'horo::$label';
+                final isLast = i == rows.length - 1 && !showJa;
+                return Padding(
+                  padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 118,
+                        child: Text(
+                          label.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.6,
+                            color: Colors.black.withValues(alpha: 0.38),
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                      Expanded(child: _lockedValueCell(key, value)),
+                    ],
+                  ),
+                );
+              }),
+              if (showJa) ...[
+                if (rows.isNotEmpty) const SizedBox(height: 4),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 118,
+                      child: Text(
+                        'JAADHAGAM',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.6,
+                          color: Colors.black.withValues(alpha: 0.38),
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: _jaadhagamButton(url),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _jaadhagamButton(String url) {
+    if (!_isViewerPremium) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Icon(Icons.lock_outline_rounded, size: 14, color: Colors.black.withValues(alpha: 0.35)),
+          const SizedBox(width: 6),
+          Text(
+            'PREMIUM',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              color: Colors.black.withValues(alpha: 0.35),
+            ),
+          ),
+        ],
+      );
+    }
+    final revealed = _revealedLocked['horo::jaadhagam'] == true;
+    if (!revealed) {
+      return OutlinedButton.icon(
+        onPressed: () => setState(() => _revealedLocked['horo::jaadhagam'] = true),
+        icon: const Icon(Icons.workspace_premium_rounded, size: 14),
+        label: const Text('REVEAL CHART'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: _brand,
+          side: BorderSide(color: _brand.withValues(alpha: 0.45)),
+        ),
+      );
+    }
+    return Wrap(
+      alignment: WrapAlignment.end,
+      spacing: 8,
+      runSpacing: 4,
+      children: [
+        OutlinedButton.icon(
+          onPressed: () => _showJaadhagamImageDialog(url),
+          icon: const Icon(Icons.image_outlined, size: 18),
+          label: const Text('View image'),
+          style: OutlinedButton.styleFrom(foregroundColor: _brand),
+        ),
+        TextButton(
+          onPressed: () => setState(() => _revealedLocked['horo::jaadhagam'] = false),
+          child: const Text('Hide'),
+        ),
+      ],
+    );
+  }
+
+  String _prefHeightDisplay(Map<String, dynamic> pr) {
+    String ftIn(int? cm) {
+      if (cm == null || cm <= 0) return 'Any';
+      final totalInches = cm / 2.54;
+      final feet = totalInches ~/ 12;
+      final inches = (totalInches % 12).round().clamp(0, 11);
+      return "$feet'$inches\"";
+    }
+
+    final minCm = int.tryParse(pr['preferred_height_min']?.toString() ?? '');
+    final maxCm = int.tryParse(pr['preferred_height_max']?.toString() ?? '');
+    return '${ftIn(minCm)} - ${ftIn(maxCm)}';
+  }
+
+  String _prefEducationDisplay(Map<String, dynamic> pr) {
+    final v = pr['preferred_education'];
+    if (v == null) return 'Any';
+    if (v is List) return v.map((e) => e.toString()).join(', ');
+    return v.toString();
+  }
+
+  String _prefOccupationDisplay(Map<String, dynamic> pr) {
+    final v = pr['preferred_occupation'];
+    if (v == null) return 'Any';
+    if (v is List) return v.map((e) => e.toString()).join(', ');
+    return v.toString();
+  }
+
+  Widget _partnerPreferencesSection() {
+    final pr = _partnerPrefs!;
+    final ageMin = pr['preferred_age_min'] ?? 18;
+    final ageMax = pr['preferred_age_max'] ?? 70;
+    final rows = <(String label, String value, bool? match)>[
+      ('Preferred age', '$ageMin to $ageMax years', _prefRowMatches['age']),
+      ('Preferred height', _prefHeightDisplay(pr), _prefRowMatches['height']),
+      (
+        'Marital status',
+        pr['preferred_marital_status']?.toString().trim().isNotEmpty == true
+            ? pr['preferred_marital_status'].toString()
+            : 'Any',
+        _prefRowMatches['marital'],
+      ),
+      (
+        'Religion / caste',
+        pr['preferred_religion']?.toString() == 'Any' || (pr['preferred_religion']?.toString().isEmpty ?? true)
+            ? 'Open / Any'
+            : '${pr['preferred_religion']} / ${pr['preferred_caste'] ?? 'Any'}',
+        _prefRowMatches['religion'],
+      ),
+      ('Education', _prefEducationDisplay(pr), _prefRowMatches['education']),
+      ('Occupation', _prefOccupationDisplay(pr), _prefRowMatches['occupation']),
+      (
+        'Location',
+        pr['preferred_location']?.toString().trim().isNotEmpty == true
+            ? pr['preferred_location'].toString()
+            : 'Any Location',
+        _prefRowMatches['location'],
+      ),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.track_changes_rounded, size: 20, color: _brand.withValues(alpha: 0.9)),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'PARTNER PREFERENCES',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.1,
+                      ),
+                    ),
+                  ),
+                  if (_showVisitorChrome)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEEF2FF),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: const Color(0xFFC7D2FE)),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            '$_prefMatchCount',
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                          ),
+                          Text(
+                            '/$_prefMatchTotal',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.black.withValues(alpha: 0.25)),
+                          ),
+                          const SizedBox(width: 6),
+                          Icon(Icons.favorite_rounded, size: 18, color: _brand),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ...rows.map((r) => _prefRowTile(r.$1, r.$2, r.$3)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _prefRowTile(String label, String value, bool? isMatch) {
+    final v = value.trim();
+    final unspecified = v.isEmpty ||
+        v == 'Any' ||
+        v == 'Open / Any' ||
+        v.contains('Any - Any') ||
+        v.toLowerCase().contains('any location');
+    Color iconBg;
+    Color iconFg;
+    IconData icon;
+    if (unspecified) {
+      iconBg = Colors.grey.shade200;
+      iconFg = Colors.grey.shade500;
+      icon = Icons.info_outline_rounded;
+    } else if (isMatch == true) {
+      iconBg = const Color(0xFF10B981);
+      iconFg = Colors.white;
+      icon = Icons.check_circle_rounded;
+    } else {
+      iconBg = const Color(0xFFF43F5E);
+      iconFg = Colors.white;
+      icon = Icons.person_off_rounded;
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(color: iconBg, shape: BoxShape.circle),
+            child: Icon(icon, size: 18, color: iconFg),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: Text(
+              label.toUpperCase(),
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.6,
+                color: Colors.black.withValues(alpha: 0.45),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(
+              v.isEmpty ? 'Open / Any' : value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -417,7 +1413,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       return Center(child: Text(_error!, textAlign: TextAlign.center));
     }
 
-    return SingleChildScrollView(
+    final scroll = SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -526,6 +1522,10 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
                   const SizedBox(height: 10),
                   _activityPill(_lastActiveAt),
                 ],
+                if (_targetIsPremium) ...[
+                  const SizedBox(height: 10),
+                  _targetPremiumBadge(),
+                ],
                 if (_about.isNotEmpty) ...[
                   const SizedBox(height: 18),
                   Text(
@@ -558,14 +1558,38 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
             _detailSection('Family details', Icons.groups_outlined, _familyRows),
           if (_familyDescription != null && _familyDescription!.isNotEmpty)
             _familyAboutCard(_familyDescription!),
-          if (_rowsHaveAnyValue(_educationCareerRows))
-            _detailSection('Education & career', Icons.school_outlined, _educationCareerRows),
+          if (_rowsHaveAnyValue(_educationOnlyRows))
+            _detailSection('Education', Icons.school_outlined, _educationOnlyRows),
+          if (_professionLockedRows.isNotEmpty)
+            _lockedDetailSection(
+              title: 'Career & profession',
+              icon: Icons.work_outline_rounded,
+              rows: _professionLockedRows,
+            ),
           if (_rowsHaveAnyValue(_horoscopeRows) || _jaadhagamHasImage)
-            _horoscopeDetailSection(_horoscopeRows, _jaadhagamImageUrl),
+            _horoscopePremiumSection(_horoscopeRows, _jaadhagamImageUrl),
           if (_rowsHaveAnyValue(_lifestyleRows) || _hobbyChips.isNotEmpty || _interestChips.isNotEmpty)
             _lifestyleSection(_lifestyleRows, _hobbyChips, _interestChips),
+          if (_hasContactSection)
+            _lockedDetailSection(
+              title: 'Contact & location',
+              icon: Icons.phone_in_talk_outlined,
+              rows: _contactLockedRows,
+            ),
+          if (_partnerPrefs != null && _partnerPrefs!.isNotEmpty) _partnerPreferencesSection(),
+          if (_showVisitorChrome) const SizedBox(height: 88),
         ],
       ),
+    );
+
+    if (!_showVisitorChrome) {
+      return scroll;
+    }
+    return Column(
+      children: [
+        Expanded(child: scroll),
+        _visitorBottomBar(context),
+      ],
     );
   }
 
@@ -627,110 +1651,6 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
           ),
         );
       },
-    );
-  }
-
-  Widget _horoscopeDetailSection(List<(String, String)> rows, String? jaadhagamUrl) {
-    final url = jaadhagamUrl?.trim();
-    final showJaadhagam = url != null && url.isNotEmpty;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-      child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.auto_awesome_outlined, size: 18, color: _brand.withValues(alpha: 0.85)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Horoscope & astrology',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.1,
-                        color: Colors.black.withValues(alpha: 0.4),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              ...List.generate(rows.length, (i) {
-                final (label, value) = rows[i];
-                final isLast = i == rows.length - 1 && !showJaadhagam;
-                return Padding(
-                  padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        width: 118,
-                        child: Text(
-                          label.toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.6,
-                            color: Colors.black.withValues(alpha: 0.38),
-                            height: 1.3,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: Text(
-                          value,
-                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, height: 1.35),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }),
-              if (showJaadhagam) ...[
-                if (rows.isNotEmpty) const SizedBox(height: 4),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: 118,
-                      child: Text(
-                        'JAADHAGAM',
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.6,
-                          color: Colors.black.withValues(alpha: 0.38),
-                          height: 1.3,
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: OutlinedButton.icon(
-                          onPressed: () => _showJaadhagamImageDialog(url),
-                          icon: const Icon(Icons.image_outlined, size: 18),
-                          label: const Text('View image'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: _brand,
-                            side: BorderSide(color: _brand.withValues(alpha: 0.55)),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
     );
   }
 

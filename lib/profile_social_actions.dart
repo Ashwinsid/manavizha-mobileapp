@@ -30,19 +30,44 @@ class ProfileSocialActions {
   }
 
   /// Send interest = insert into [likes] (same as web POST /api/likes).
+  /// When [status] is set (e.g. `'accepted'` when the other user already liked
+  /// you), it is written on insert — mirrors the web profile page POST body.
   static Future<String?> sendInterest({
+    required SupabaseClient client,
+    required String currentUserId,
+    required String targetUserId,
+    String? status,
+  }) async {
+    try {
+      final row = <String, dynamic>{
+        'user_id': currentUserId,
+        'liked_user_id': targetUserId,
+      };
+      if (status != null && status.isNotEmpty) row['status'] = status;
+      await client.from('likes').insert(row);
+      return null;
+    } on PostgrestException catch (e) {
+      if (e.code == '23505') return 'You already sent interest to this profile';
+      return e.message;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Withdraw interest — DELETE from [likes] (web DELETE /api/likes).
+  static Future<String?> withdrawInterest({
     required SupabaseClient client,
     required String currentUserId,
     required String targetUserId,
   }) async {
     try {
-      await client.from('likes').insert({
-        'user_id': currentUserId,
-        'liked_user_id': targetUserId,
-      });
+      await client
+          .from('likes')
+          .delete()
+          .eq('user_id', currentUserId)
+          .eq('liked_user_id', targetUserId);
       return null;
     } on PostgrestException catch (e) {
-      if (e.code == '23505') return 'You already sent interest to this profile';
       return e.message;
     } catch (e) {
       return e.toString();
