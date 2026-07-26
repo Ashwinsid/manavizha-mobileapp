@@ -1,0 +1,44 @@
+{
+  "aPriv": {
+    "key_ops": [
+      "deriveKey"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "8rBLohhx7DP96pcRyAzmmFDVM-4UVMtUyEa02MjCAjo",
+    "y": "w3u_KlDEAMvEvrbL5TXkr6Q5jHSdFtSiWdST82nBXlE",
+    "crv": "P-256",
+    "d": "Kls36_FQx6ztj5qwwI6PR5wLAEJq1ORlMVyr7lAP2XY"
+  },
+  "aPub": {
+    "key_ops": [],
+    "ext": true,
+    "kty": "EC",
+    "x": "8rBLohhx7DP96pcRyAzmmFDVM-4UVMtUyEa02MjCAjo",
+    "y": "w3u_KlDEAMvEvrbL5TXkr6Q5jHSdFtSiWdST82nBXlE",
+    "crv": "P-256"
+  },
+  "bPriv": {
+    "key_ops": [
+      "deriveKey"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "cjNP-UoXogTgynfEm3yF9zoBFQh1OnvzKPC6ppI6K0o",
+    "y": "5bTHSLz6KANh_0xRwlw0VnIffixOgHuthDMEnIm_PUQ",
+    "crv": "P-256",
+    "d": "k_X6qijnyLnLe-UsOtZxMTXkqWt4858sTFnOr7opQ6A"
+  },
+  "bPub": {
+    "key_ops": [],
+    "ext": true,
+    "kty": "EC",
+    "x": "cjNP-UoXogTgynfEm3yF9zoBFQh1OnvzKPC6ppI6K0o",
+    "y": "5bTHSLz6KANh_0xRwlw0VnIffixOgHuthDMEnIm_PUQ",
+    "crv": "P-256"
+  },
+  "aesKeyB64": "9wNM3opJdilyT+sMZ+TMJK2HbkXw9ZKmSlQVMT61iWU=",
+  "plaintext": "Vanakkam! E2E test message — உங்களை சந்தித்ததில் மகிழ்ச்சி 😊",
+  "ciphertext": "AKw3RTl/jiFxm/HHu1kkluiHXSFVYR5gcOctVxvgIkqoNDImfstmSt9XMY54xRgV/0rjqebmQ2kdFSYNRzQ1nnzRzxKhEjTNAz81d0El8iJR7Az5JPKfKOvPAN1DwQDiwxNGw8bv6aY4bVYkt/4seq1f3AsBJWChf9a+VYvPTRncUPLSOgl8",
+  "iv": "b2yeRYYfkjY+CHYo"
+}

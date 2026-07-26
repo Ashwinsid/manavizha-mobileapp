@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'admin_home_screen.dart';
+import 'web_api.dart';
 
 /// Modal bottom sheet shown for **mutual** matches (both users liked each
 /// other). Mirrors the "Mutual Interest" sections inside
@@ -41,6 +42,8 @@ Future<void> showMutualMatchSheet(
 class _MutualExtras {
   const _MutualExtras({
     this.contact,
+    this.contactAllowed = false,
+    this.contactError,
     this.education = const [],
     this.employee,
     this.business,
@@ -49,6 +52,14 @@ class _MutualExtras {
   });
 
   final Map<String, dynamic>? contact;
+
+  /// True only when POST /api/contact-view approved the unlock (tier limit
+  /// enforced server-side, `contact_viewed` notification fired there too).
+  final bool contactAllowed;
+
+  /// Server's denial reason (upgrade prompt / limit reached), if any.
+  final String? contactError;
+
   final List<Map<String, dynamic>> education;
   final Map<String, dynamic>? employee;
   final Map<String, dynamic>? business;
@@ -81,8 +92,12 @@ Future<_MutualExtras> _loadMutualExtras(
     }
   }
 
+  // Contact details are gated by the web's /api/contact-view — it enforces
+  // the per-plan unlock limit, logs the view and notifies the profile owner.
+  // Only fetch the contact row once the server approves.
+  final unlock = WebApi.post('/api/contact-view', {'viewedUserId': userId});
+
   final results = await Future.wait<dynamic>([
-    single('contact_details'),
     many('education_details'),
     single('profession_employee'),
     single('profession_business'),
@@ -90,13 +105,19 @@ Future<_MutualExtras> _loadMutualExtras(
     single('family_details'),
   ]);
 
+  final unlockRes = await unlock;
+  final allowed = unlockRes.ok && unlockRes.data['allowed'] == true;
+  final contact = allowed ? await single('contact_details') : null;
+
   return _MutualExtras(
-    contact: results[0] as Map<String, dynamic>?,
-    education: results[1] as List<Map<String, dynamic>>,
-    employee: results[2] as Map<String, dynamic>?,
-    business: results[3] as Map<String, dynamic>?,
-    student: results[4] as Map<String, dynamic>?,
-    family: results[5] as Map<String, dynamic>?,
+    contact: contact,
+    contactAllowed: allowed,
+    contactError: allowed ? null : unlockRes.error,
+    education: results[0] as List<Map<String, dynamic>>,
+    employee: results[1] as Map<String, dynamic>?,
+    business: results[2] as Map<String, dynamic>?,
+    student: results[3] as Map<String, dynamic>?,
+    family: results[4] as Map<String, dynamic>?,
   );
 }
 
@@ -367,6 +388,7 @@ class _MutualMatchSheetState extends State<_MutualMatchSheet> {
   // ── Contact section ─────────────────────────────────────────────────────
 
   Widget? _contactSection() {
+    if (!_extras.contactAllowed) return _lockedContactSection();
     final c = _extras.contact;
     if (c == null) return null;
     final phone = _trim(c['phone']);
@@ -428,6 +450,37 @@ class _MutualMatchSheetState extends State<_MutualMatchSheet> {
             _addressBlock(c, 'permanent_', 'Permanent address'),
           ],
         ],
+      ),
+    );
+  }
+
+  /// Shown when /api/contact-view denied the unlock — free tier, limit
+  /// reached, or a block between the two members. Mirrors the web's locked
+  /// contact fields in `profile-detail-view.tsx`.
+  Widget _lockedContactSection() {
+    return _sectionShell(
+      icon: Icons.lock_rounded,
+      iconColor: const Color(0xFFB45309),
+      background: const Color(0xFFFEF3C7),
+      title: 'Contact details',
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFFBEB),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFFDE68A)),
+        ),
+        child: Text(
+          _extras.contactError ??
+              'Upgrade to a premium plan to view contact details.',
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            height: 1.4,
+            color: Color(0xFF92400E),
+          ),
+        ),
       ),
     );
   }

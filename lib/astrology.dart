@@ -463,37 +463,19 @@ HoroscopeDetails generateHoroscope({
   Duration timezoneOffset = const Duration(hours: 5, minutes: 30),
   String method = 'thirukanitham',
 }) {
-  // [astrology.ts:160] — Compute the Date object the same way: local clock
-  // string + IANA-equivalent fixed timezone offset.
-  final utcDate = birthLocalDate.toUtc().subtract(timezoneOffset).add(
-        Duration(milliseconds: birthLocalDate.millisecondsSinceEpoch -
-            DateTime(
-              birthLocalDate.year,
-              birthLocalDate.month,
-              birthLocalDate.day,
-              birthLocalDate.hour,
-              birthLocalDate.minute,
-              birthLocalDate.second,
-              birthLocalDate.millisecond,
-            ).millisecondsSinceEpoch),
-      );
-  final date = DateTime.fromMillisecondsSinceEpoch(
-    DateTime(
-      birthLocalDate.year,
-      birthLocalDate.month,
-      birthLocalDate.day,
-      birthLocalDate.hour,
-      birthLocalDate.minute,
-      birthLocalDate.second,
-      birthLocalDate.millisecond,
-    ).millisecondsSinceEpoch -
-        timezoneOffset.inMilliseconds,
-    isUtc: true,
-  );
-  // (utcDate is unused beyond proving the conversion is well-defined; we use
-  // `date` for everything below — same as the TS code computing one `Date`.)
-  // ignore: unused_local_variable
-  final _ = utcDate;
+  // [astrology.ts:160] — same instant as JS `new Date("<local>+05:30")`:
+  // treat the wall-clock components as being in the given fixed offset and
+  // convert to UTC. Built via DateTime.utc so the device's own timezone
+  // can never shift the birth instant.
+  final date = DateTime.utc(
+    birthLocalDate.year,
+    birthLocalDate.month,
+    birthLocalDate.day,
+    birthLocalDate.hour,
+    birthLocalDate.minute,
+    birthLocalDate.second,
+    birthLocalDate.millisecond,
+  ).subtract(timezoneOffset);
 
   final jd = _calculateJD(date);
   var ayan = _calculateAyanamsha(jd);
@@ -516,18 +498,28 @@ HoroscopeDetails generateHoroscope({
   };
 
   final siderealMoon = _normalize360(tropicalMoon - ayan).abs() % 360.0;
-  final trueSunSidereal = fallback['Sun']!;
+
+  // [astrology.ts: getTrueLon] — for vakkiyam the web adds the 1.283° offset
+  // BACK onto every planet present in `truePositions` (all except the Moon,
+  // which only exists as the fallback). Lagnam gets no add-back either.
+  // Quirky, but ported faithfully so both apps place planets identically.
+  double trueLon(String name) {
+    final v = fallback[name]!;
+    return method == 'vakkiyam' ? _normalize360(v + 1.283) : v;
+  }
+
+  final trueSunSidereal = trueLon('Sun');
 
   final raw = <Map<String, dynamic>>[
     {'name': 'Sun', 'tamil': 'Suriyan', 'abbr': 'சூ', 'sidLon': trueSunSidereal},
     {'name': 'Moon', 'tamil': 'Chandran', 'abbr': 'சந்', 'sidLon': siderealMoon},
-    {'name': 'Mercury', 'tamil': 'Budhan', 'abbr': 'பு', 'sidLon': fallback['Mercury']},
-    {'name': 'Venus', 'tamil': 'Sukran', 'abbr': 'சு', 'sidLon': fallback['Venus']},
-    {'name': 'Mars', 'tamil': 'Sevvai', 'abbr': 'செ', 'sidLon': fallback['Mars']},
-    {'name': 'Jupiter', 'tamil': 'Guru', 'abbr': 'வி', 'sidLon': fallback['Jupiter']},
-    {'name': 'Saturn', 'tamil': 'Sani', 'abbr': 'சனி', 'sidLon': fallback['Saturn']},
-    {'name': 'Rahu', 'tamil': 'Rahu', 'abbr': 'ரா', 'sidLon': fallback['Rahu']},
-    {'name': 'Ketu', 'tamil': 'Ketu', 'abbr': 'கே', 'sidLon': fallback['Ketu']},
+    {'name': 'Mercury', 'tamil': 'Budhan', 'abbr': 'பு', 'sidLon': trueLon('Mercury')},
+    {'name': 'Venus', 'tamil': 'Sukran', 'abbr': 'சு', 'sidLon': trueLon('Venus')},
+    {'name': 'Mars', 'tamil': 'Sevvai', 'abbr': 'செ', 'sidLon': trueLon('Mars')},
+    {'name': 'Jupiter', 'tamil': 'Guru', 'abbr': 'வி', 'sidLon': trueLon('Jupiter')},
+    {'name': 'Saturn', 'tamil': 'Sani', 'abbr': 'சனி', 'sidLon': trueLon('Saturn')},
+    {'name': 'Rahu', 'tamil': 'Rahu', 'abbr': 'ரா', 'sidLon': trueLon('Rahu')},
+    {'name': 'Ketu', 'tamil': 'Ketu', 'abbr': 'கே', 'sidLon': trueLon('Ketu')},
     {
       'name': 'Lagnam',
       'tamil': 'Lagnam',

@@ -1,7 +1,16 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'e2e.dart';
+import 'web_api.dart';
+
 /// Social actions aligned with manavizha
 /// `/api/shortlists`, `/api/likes`, `/api/ignores`, `/api/blocks`, `/api/messages`.
+///
+/// Interest, shortlist and message actions call the Next.js API (via [WebApi])
+/// so the server enforces block checks / premium gating and fires the same
+/// in-app + email notifications the web produces. Ignore/block remain direct
+/// table writes — the web endpoints for those are plain CRUD with no side
+/// effects.
 class ProfileSocialActions {
   ProfileSocialActions._();
 
@@ -11,67 +20,41 @@ class ProfileSocialActions {
     required String targetUserId,
     required bool remove,
   }) async {
-    try {
-      if (remove) {
-        await client.from('shortlists').delete().eq('user_id', currentUserId).eq('shortlisted_user_id', targetUserId);
-      } else {
-        await client.from('shortlists').insert({
-          'user_id': currentUserId,
-          'shortlisted_user_id': targetUserId,
-        });
-      }
-      return null;
-    } on PostgrestException catch (e) {
-      if (!remove && e.code == '23505') return 'Already on your shortlist';
-      return e.message;
-    } catch (e) {
-      return e.toString();
-    }
+    final res = remove
+        ? await WebApi.delete('/api/shortlists', {'targetUserId': targetUserId})
+        : await WebApi.post('/api/shortlists', {'targetUserId': targetUserId});
+    if (res.ok) return null;
+    if (!remove && res.status == 409) return 'Already on your shortlist';
+    return res.error;
   }
 
-  /// Send interest = insert into [likes] (same as web POST /api/likes).
+  /// Send interest = web POST /api/likes. The server runs the block check and
+  /// notifies the recipient (`interest_received` / `interest_accepted`).
   /// When [status] is set (e.g. `'accepted'` when the other user already liked
-  /// you), it is written on insert — mirrors the web profile page POST body.
+  /// you), it is forwarded — mirrors the web profile page POST body.
   static Future<String?> sendInterest({
     required SupabaseClient client,
     required String currentUserId,
     required String targetUserId,
     String? status,
   }) async {
-    try {
-      final row = <String, dynamic>{
-        'user_id': currentUserId,
-        'liked_user_id': targetUserId,
-      };
-      if (status != null && status.isNotEmpty) row['status'] = status;
-      await client.from('likes').insert(row);
-      return null;
-    } on PostgrestException catch (e) {
-      if (e.code == '23505') return 'You already sent interest to this profile';
-      return e.message;
-    } catch (e) {
-      return e.toString();
-    }
+    final res = await WebApi.post('/api/likes', {
+      'likedUserId': targetUserId,
+      if (status != null && status.isNotEmpty) 'status': status,
+    });
+    if (res.ok) return null;
+    if (res.status == 409) return 'You already sent interest to this profile';
+    return res.error;
   }
 
-  /// Withdraw interest — DELETE from [likes] (web DELETE /api/likes).
+  /// Withdraw interest — web DELETE /api/likes.
   static Future<String?> withdrawInterest({
     required SupabaseClient client,
     required String currentUserId,
     required String targetUserId,
   }) async {
-    try {
-      await client
-          .from('likes')
-          .delete()
-          .eq('user_id', currentUserId)
-          .eq('liked_user_id', targetUserId);
-      return null;
-    } on PostgrestException catch (e) {
-      return e.message;
-    } catch (e) {
-      return e.toString();
-    }
+    final res = await WebApi.delete('/api/likes', {'likedUserId': targetUserId});
+    return res.ok ? null : res.error;
   }
 
   /// Skip / ignore — [ignored_profiles] table (manavizha `/api/ignores`).
@@ -157,10 +140,10 @@ class ProfileSocialActions {
     }
   }
 
-  /// Send a 1:1 message — [messages] table (manavizha `/api/messages` POST).
+  /// Send a 1:1 message — web POST /api/messages. The server enforces the
+  /// block check, declined-interest rule and premium requirement, then
+  /// notifies the receiver (`message_received`) exactly like the web.
   /// Returns `null` on success, else an error message.
-  /// Mutual-interest and premium checks are bypassed on the server side in the
-  /// web app today, so we mirror that and rely on the UI for premium gating.
   static Future<String?> sendMessage({
     required SupabaseClient client,
     required String senderId,
@@ -169,17 +152,23 @@ class ProfileSocialActions {
   }) async {
     final body = content.trim();
     if (body.isEmpty) return 'Message cannot be empty.';
+
+    // Encrypt when the recipient has a published key — same behaviour as the
+    // web message dialog. Falls back to plaintext when keys are unavailable.
+    Map<String, dynamic> payload = {'receiverId': receiverId, 'content': body};
     try {
-      await client.from('messages').insert({
-        'sender_id': senderId,
-        'receiver_id': receiverId,
-        'content': body,
-      });
-      return null;
-    } on PostgrestException catch (e) {
-      return e.message;
-    } catch (e) {
-      return e.toString();
-    }
+      final enc = await E2E.encrypt(body, receiverId);
+      if (enc != null) {
+        payload = {
+          'receiverId': receiverId,
+          'content': enc.ciphertext,
+          'iv': enc.iv,
+          'isEncrypted': true,
+        };
+      }
+    } catch (_) {/* plaintext fallback */}
+
+    final res = await WebApi.post('/api/messages', payload);
+    return res.ok ? null : res.error;
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth_navigation.dart';
+import 'main.dart' show kAuthRedirectUrl;
 import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -37,6 +38,79 @@ class _LoginScreenState extends State<LoginScreen> {
     if (email != null && email.trim().isNotEmpty) {
       _emailController.text = email.trim();
       _passwordController.clear();
+    }
+  }
+
+  /// Same flow as the web AuthDialog's "Forgot password" — collect the email
+  /// and let Supabase send its reset link.
+  Future<void> _openForgotPassword() async {
+    final controller =
+        TextEditingController(text: _emailController.text.trim());
+    final email = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('Reset password',
+            style: TextStyle(fontWeight: FontWeight.w900)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Enter your registered email and we'll send you a password-reset link.",
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.emailAddress,
+              decoration: InputDecoration(
+                labelText: 'Email',
+                filled: true,
+                fillColor: const Color(0xFFF5F6FA),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF2FA086)),
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Send link'),
+          ),
+        ],
+      ),
+    );
+    if (email == null || email.isEmpty) return;
+    try {
+      await Supabase.instance.client.auth
+          .resetPasswordForEmail(email, redirectTo: kAuthRedirectUrl);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(
+                'If an account exists for $email, a reset link has been sent.')),
+      );
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to send reset email.')),
+      );
     }
   }
 
@@ -204,9 +278,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
-                    onPressed: () {
-                      // TODO: Navigate to forgot password screen
-                    },
+                    onPressed: _openForgotPassword,
                     style: TextButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 0),
                     ),

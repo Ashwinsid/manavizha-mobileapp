@@ -98,6 +98,50 @@ class _MatchesPageState extends State<MatchesPage> {
   BrowseCategory _category = BrowseCategory.allMatches;
   final TextEditingController _searchCtrl = TextEditingController();
 
+  // Manual browse filters — mirrors the web's `BrowseManualFilters`
+  // (`manavizha/lib/utils/browse-manual-filter.ts`): combined with the saved
+  // partner preferences, null/'Any' means inactive.
+  int? _fAgeMin;
+  int? _fAgeMax;
+  String? _fCaste;
+  String? _fSubcaste;
+  String? _fMarital;
+  String? _fEducation;
+  bool _fWithPhoto = false;
+  bool _fVerified = false;
+
+  /// Same list the web filter panel offers (COLLEGE_EDUCATION_FILTER_OPTIONS).
+  static const List<String> _educationFilterOptions = [
+    'Any',
+    'Diploma / Polytechnic',
+    "Bachelor's - Engineering / Computer Science",
+    "Master's - Engineering / Computer Science",
+    "Bachelor's - Arts / Science / Commerce",
+    "Master's - Arts / Science / Commerce",
+    "Bachelor's - Management",
+    "Master's - Management",
+    "Bachelor's - Medicine - General / Dental / Surgeon",
+    "Master's - Medicine - General / Dental / Surgeon",
+    'Doctorates',
+    'Finance - ICWAI / CA / CS / CFA',
+  ];
+
+  // Master data for the filter sheet — loaded lazily on first open, with
+  // fallbacks derived from the loaded profiles when the tables are empty.
+  List<String>? _casteOptions;
+  List<Map<String, String?>> _subcasteRows = const [];
+  List<String>? _maritalOptions;
+
+  bool get _hasActiveFilters =>
+      _fAgeMin != null ||
+      _fAgeMax != null ||
+      (_fCaste != null && _fCaste != 'Any') ||
+      (_fSubcaste != null && _fSubcaste != 'Any') ||
+      (_fMarital != null && _fMarital != 'Any') ||
+      (_fEducation != null && _fEducation != 'Any') ||
+      _fWithPhoto ||
+      _fVerified;
+
   List<MatchPreview> _all = <MatchPreview>[];
   Set<String> _ignoredIds = <String>{};
   Set<String> _shortlistedByMe = <String>{};
@@ -230,6 +274,43 @@ class _MatchesPageState extends State<MatchesPage> {
     if (term.isNotEmpty) {
       rows = rows.where((m) {
         return m.name.toLowerCase().contains(term) || m.userId.toLowerCase().contains(term);
+      });
+    }
+
+    // Manual filters — same semantics as the web's
+    // `filterProfilesByBrowseManualFilters` (missing age passes through,
+    // missing caste/subcaste/marital fails the filter).
+    if (_hasActiveFilters) {
+      rows = rows.where((m) {
+        if (_fAgeMin != null || _fAgeMax != null) {
+          final a = m.age;
+          if (a != null) {
+            if (_fAgeMin != null && a < _fAgeMin!) return false;
+            if (_fAgeMax != null && a > _fAgeMax!) return false;
+          }
+        }
+        if (_fCaste != null && _fCaste != 'Any') {
+          final c = (m.caste ?? '').trim();
+          if (c.isEmpty || c != _fCaste) return false;
+        }
+        if (_fSubcaste != null && _fSubcaste != 'Any') {
+          final s = (m.subcaste ?? '').trim();
+          if (s.isEmpty || s != _fSubcaste) return false;
+        }
+        if (_fMarital != null && _fMarital != 'Any') {
+          if ((m.maritalStatus ?? '').toLowerCase() != _fMarital!.toLowerCase()) {
+            return false;
+          }
+        }
+        if (_fEducation != null && _fEducation != 'Any') {
+          final needle = _fEducation!.toLowerCase();
+          final match = m.educationLevels
+              .any((e) => e.toLowerCase().contains(needle) || needle.contains(e.toLowerCase()));
+          if (!match) return false;
+        }
+        if (_fWithPhoto && (m.photoUrl ?? '').isEmpty) return false;
+        if (_fVerified && !m.photoVerified) return false;
+        return true;
       });
     }
     return rows.toList(growable: false);
@@ -382,6 +463,261 @@ class _MatchesPageState extends State<MatchesPage> {
     );
   }
 
+  Future<List<Map<String, String?>>> _masterRows(String table) async {
+    try {
+      final rows =
+          await Supabase.instance.client.from(table).select('value, category');
+      return [
+        for (final r in (rows as List<dynamic>))
+          {
+            'value': (r as Map)['value']?.toString(),
+            'category': r['category']?.toString(),
+          }
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _ensureFilterMasterData() async {
+    if (_casteOptions != null && _maritalOptions != null) return;
+    final results = await Future.wait([
+      _masterRows('master_caste'),
+      _masterRows('master_subcaste'),
+      _masterRows('master_marital_status'),
+    ]);
+    List<String> values(List<Map<String, String?>> rows, List<String> fallback) {
+      final v = rows
+          .map((r) => r['value']?.trim() ?? '')
+          .where((s) => s.isNotEmpty)
+          .toList();
+      return v.isEmpty ? fallback : ['Any', ...v];
+    }
+
+    // Fallbacks: distinct values from the loaded profiles.
+    final profileCastes = _all
+        .map((m) => (m.caste ?? '').trim())
+        .where((c) => c.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    final profileMarital = _all
+        .map((m) => (m.maritalStatus ?? '').trim())
+        .where((s) => s.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+
+    _casteOptions = values(results[0], ['Any', ...profileCastes]);
+    _subcasteRows = results[1];
+    _maritalOptions = values(results[2], ['Any', ...profileMarital]);
+  }
+
+  List<String> _subcasteOptionsFor(String? caste) {
+    if (caste == null || caste == 'Any') return const ['Any'];
+    final fromMaster = _subcasteRows
+        .where((s) {
+          final cat = s['category']?.trim() ?? '';
+          return cat.isEmpty || cat == caste;
+        })
+        .map((s) => s['value']?.trim() ?? '')
+        .where((v) => v.isNotEmpty)
+        .toList();
+    if (fromMaster.isNotEmpty) return ['Any', ...fromMaster];
+    final fromProfiles = _all
+        .where((m) => (m.caste ?? '').trim() == caste)
+        .map((m) => (m.subcaste ?? '').trim())
+        .where((s) => s.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    return ['Any', ...fromProfiles];
+  }
+
+  /// Bottom-sheet port of the web `BrowseManualFiltersPanel`.
+  Future<void> _openFilterSheet() async {
+    await _ensureFilterMasterData();
+    if (!mounted) return;
+
+    final ageMinCtrl =
+        TextEditingController(text: _fAgeMin?.toString() ?? '');
+    final ageMaxCtrl =
+        TextEditingController(text: _fAgeMax?.toString() ?? '');
+    var caste = _fCaste ?? 'Any';
+    var subcaste = _fSubcaste ?? 'Any';
+    var marital = _fMarital ?? 'Any';
+    var education = _fEducation ?? 'Any';
+    var withPhoto = _fWithPhoto;
+    var verified = _fVerified;
+
+    final applied = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          InputDecoration deco(String label) => InputDecoration(
+                labelText: label,
+                filled: true,
+                fillColor: const Color(0xFFF5F6FA),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              );
+          Widget dropdown(String label, String value, List<String> options,
+              ValueChanged<String> onChanged, {bool enabled = true}) {
+            final safeValue = options.contains(value) ? value : 'Any';
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: DropdownButtonFormField<String>(
+                // Re-create the field whenever the selection or option set
+                // changes so the FormField state never holds a stale value
+                // that is missing from the new items list.
+                key: ValueKey('$label:$safeValue:${options.length}'),
+                initialValue: safeValue,
+                isExpanded: true,
+                decoration: deco(label),
+                items: [
+                  for (final o in options)
+                    DropdownMenuItem(value: o, child: Text(o, overflow: TextOverflow.ellipsis)),
+                ],
+                onChanged: enabled ? (v) => onChanged(v ?? 'Any') : null,
+              ),
+            );
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Browse filters',
+                        style: TextStyle(
+                            fontSize: 17, fontWeight: FontWeight.w900)),
+                    Text(
+                      'Combine with your saved partner preferences.',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.black.withValues(alpha: 0.5)),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: ageMinCtrl,
+                            keyboardType: TextInputType.number,
+                            decoration: deco('Age from'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: ageMaxCtrl,
+                            keyboardType: TextInputType.number,
+                            decoration: deco('Age to'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    dropdown('Caste', caste, _casteOptions ?? const ['Any'],
+                        (v) => setSheetState(() {
+                              caste = v;
+                              subcaste = 'Any';
+                            })),
+                    dropdown('Subcaste', subcaste, _subcasteOptionsFor(caste),
+                        (v) => setSheetState(() => subcaste = v),
+                        enabled: caste != 'Any'),
+                    dropdown('College education', education,
+                        _educationFilterOptions,
+                        (v) => setSheetState(() => education = v)),
+                    dropdown('Marital status', marital,
+                        _maritalOptions ?? const ['Any'],
+                        (v) => setSheetState(() => marital = v)),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      activeThumbColor: _brand,
+                      title: const Text('With photo',
+                          style: TextStyle(
+                              fontSize: 14, fontWeight: FontWeight.w700)),
+                      value: withPhoto,
+                      onChanged: (v) => setSheetState(() => withPhoto = v),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      activeThumbColor: _brand,
+                      title: const Text('Verified profile',
+                          style: TextStyle(
+                              fontSize: 14, fontWeight: FontWeight.w700)),
+                      value: verified,
+                      onChanged: (v) => setSheetState(() => verified = v),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () {
+                              ageMinCtrl.clear();
+                              ageMaxCtrl.clear();
+                              setSheetState(() {
+                                caste = 'Any';
+                                subcaste = 'Any';
+                                marital = 'Any';
+                                education = 'Any';
+                                withPhoto = false;
+                                verified = false;
+                              });
+                            },
+                            child: const Text('Clear'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
+                                backgroundColor: _brand),
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('Apply'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    if (applied == true && mounted) {
+      setState(() {
+        _fAgeMin = int.tryParse(ageMinCtrl.text.trim());
+        _fAgeMax = int.tryParse(ageMaxCtrl.text.trim());
+        _fCaste = caste == 'Any' ? null : caste;
+        _fSubcaste = subcaste == 'Any' ? null : subcaste;
+        _fMarital = marital == 'Any' ? null : marital;
+        _fEducation = education == 'Any' ? null : education;
+        _fWithPhoto = withPhoto;
+        _fVerified = verified;
+      });
+    }
+    ageMinCtrl.dispose();
+    ageMaxCtrl.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final visible = _visibleProfiles;
@@ -441,6 +777,8 @@ class _MatchesPageState extends State<MatchesPage> {
               child: _PreferencesBar(
                 applyPreferences: _applyPreferences,
                 resultCount: visible.length,
+                filtersActive: _hasActiveFilters,
+                onOpenFilters: _openFilterSheet,
                 onChanged: (v) {
                   setState(() => _applyPreferences = v);
                   _refresh();
@@ -529,15 +867,20 @@ class _PreferencesBar extends StatelessWidget {
   const _PreferencesBar({
     required this.applyPreferences,
     required this.resultCount,
+    required this.filtersActive,
+    required this.onOpenFilters,
     required this.onChanged,
   });
 
   final bool applyPreferences;
   final int resultCount;
+  final bool filtersActive;
+  final VoidCallback onOpenFilters;
   final ValueChanged<bool> onChanged;
 
   @override
   Widget build(BuildContext context) {
+    const brand = _MatchesPageState._brand;
     return Row(
       children: [
         Expanded(
@@ -551,13 +894,33 @@ class _PreferencesBar extends StatelessWidget {
             ),
           ),
         ),
+        OutlinedButton.icon(
+          onPressed: onOpenFilters,
+          icon: Icon(Icons.tune_rounded,
+              size: 15, color: filtersActive ? Colors.white : brand),
+          label: Text(filtersActive ? 'Filters on' : 'Filters'),
+          style: OutlinedButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            backgroundColor: filtersActive ? brand : Colors.white,
+            foregroundColor: filtersActive ? Colors.white : brand,
+            side: BorderSide(
+                color: filtersActive
+                    ? brand
+                    : Colors.black.withValues(alpha: 0.12)),
+            textStyle:
+                const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(999)),
+          ),
+        ),
+        const SizedBox(width: 6),
         const Text(
-          'Apply preferences',
+          'Preferences',
           style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
         ),
         Switch.adaptive(
           value: applyPreferences,
-          activeThumbColor: _MatchesPageState._brand,
+          activeThumbColor: brand,
           onChanged: onChanged,
         ),
       ],

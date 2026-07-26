@@ -1,0 +1,346 @@
+[
+ {
+  "input": {
+   "dt": "1995-06-15T06:30",
+   "lat": 13.0827,
+   "lon": 80.2707,
+   "method": "thirukanitham"
+  },
+  "star": "Puradam (பூராடம்)",
+  "rashi": "Dhanusu (தனுசு)",
+  "lagnam": "Midhunam (மிதுனம்)",
+  "planets": [
+   {
+    "name": "Sun",
+    "rasiIndex": 1,
+    "navamsamIndex": 5,
+    "sid": 59.697299
+   },
+   {
+    "name": "Moon",
+    "rasiIndex": 8,
+    "navamsamIndex": 7,
+    "sid": 266.329131
+   },
+   {
+    "name": "Mercury",
+    "rasiIndex": 8,
+    "navamsamIndex": 8,
+    "sid": 269.18905
+   },
+   {
+    "name": "Venus",
+    "rasiIndex": 0,
+    "navamsamIndex": 4,
+    "sid": 16.298293
+   },
+   {
+    "name": "Mars",
+    "rasiIndex": 6,
+    "navamsamIndex": 6,
+    "sid": 180.992314
+   },
+   {
+    "name": "Jupiter",
+    "rasiIndex": 7,
+    "navamsamIndex": 9,
+    "sid": 232.498777
+   },
+   {
+    "name": "Saturn",
+    "rasiIndex": 11,
+    "navamsamIndex": 3,
+    "sid": 330.559422
+   },
+   {
+    "name": "Rahu",
+    "rasiIndex": 6,
+    "navamsamIndex": 8,
+    "sid": 189.221256
+   },
+   {
+    "name": "Ketu",
+    "rasiIndex": 0,
+    "navamsamIndex": 2,
+    "sid": 9.221256
+   },
+   {
+    "name": "Lagnam",
+    "rasiIndex": 2,
+    "navamsamIndex": 8,
+    "sid": 69.769462
+   },
+   {
+    "name": "Maandi",
+    "rasiIndex": 4,
+    "navamsamIndex": 8,
+    "sid": 149.697299
+   }
+  ],
+  "firstDasa": {
+   "dasa": "சு",
+   "bhukti": "கே",
+   "start": "15-06-1995",
+   "end": "17-12-1995",
+   "endMs": 819155996752
+  }
+ },
+ {
+  "input": {
+   "dt": "1995-06-15T06:30",
+   "lat": 13.0827,
+   "lon": 80.2707,
+   "method": "vakkiyam"
+  },
+  "star": "Uthiradam (உத்திராடம்)",
+  "rashi": "Dhanusu (தனுசு)",
+  "lagnam": "Midhunam (மிதுனம்)",
+  "planets": [
+   {
+    "name": "Sun",
+    "rasiIndex": 2,
+    "navamsamIndex": 6,
+    "sid": 62.263299
+   },
+   {
+    "name": "Moon",
+    "rasiIndex": 8,
+    "navamsamIndex": 8,
+    "sid": 267.612131
+   },
+   {
+    "name": "Mercury",
+    "rasiIndex": 9,
+    "navamsamIndex": 9,
+    "sid": 271.75505
+   },
+   {
+    "name": "Venus",
+    "rasiIndex": 0,
+    "navamsamIndex": 5,
+    "sid": 18.864293
+   },
+   {
+    "name": "Mars",
+    "rasiIndex": 6,
+    "navamsamIndex": 7,
+    "sid": 183.558314
+   },
+   {
+    "name": "Jupiter",
+    "rasiIndex": 7,
+    "navamsamIndex": 10,
+    "sid": 235.064777
+   },
+   {
+    "name": "Saturn",
+    "rasiIndex": 11,
+    "navamsamIndex": 3,
+    "sid": 333.125422
+   },
+   {
+    "name": "Rahu",
+    "rasiIndex": 6,
+    "navamsamIndex": 9,
+    "sid": 191.787256
+   },
+   {
+    "name": "Ketu",
+    "rasiIndex": 0,
+    "navamsamIndex": 3,
+    "sid": 11.787256
+   },
+   {
+    "name": "Lagnam",
+    "rasiIndex": 2,
+    "navamsamIndex": 9,
+    "sid": 71.052462
+   },
+   {
+    "name": "Maandi",
+    "rasiIndex": 5,
+    "navamsamIndex": 9,
+    "sid": 152.263299
+   }
+  ],
+  "firstDasa": {
+   "dasa": "சூ",
+   "bhukti": "சந்",
+   "start": "15-06-1995",
+   "end": "30-10-1995",
+   "endMs": 814997821012
+  }
+ },
+ {
+  "input": {
+   "dt": "1988-11-02T23:45",
+   "lat": 9.9252,
+   "lon": 78.1198,
+   "method": "thirukanitham"
+  },
+  "star": "Magam (மகம்)",
+  "rashi": "Simmam (சிம்மம்)",
+  "lagnam": "Kadagam (கடகம்)",
+  "planets": [
+   {
+    "name": "Sun",
+    "rasiIndex": 6,
+    "navamsamIndex": 11,
+    "sid": 196.847811
+   },
+   {
+    "name": "Moon",
+    "rasiIndex": 4,
+    "navamsamIndex": 0,
+    "sid": 121.497627
+   },
+   {
+    "name": "Mercury",
+    "rasiIndex": 3,
+    "navamsamIndex": 7,
+    "sid": 105.115347
+   },
+   {
+    "name": "Venus",
+    "rasiIndex": 3,
+    "navamsamIndex": 8,
+    "sid": 106.79532
+   },
+   {
+    "name": "Mars",
+    "rasiIndex": 11,
+    "navamsamIndex": 10,
+    "sid": 355.39794
+   },
+   {
+    "name": "Jupiter",
+    "rasiIndex": 1,
+    "navamsamIndex": 9,
+    "sid": 31.902915
+   },
+   {
+    "name": "Saturn",
+    "rasiIndex": 8,
+    "navamsamIndex": 2,
+    "sid": 249.837555
+   },
+   {
+    "name": "Rahu",
+    "rasiIndex": 10,
+    "navamsamIndex": 11,
+    "sid": 317.211431
+   },
+   {
+    "name": "Ketu",
+    "rasiIndex": 4,
+    "navamsamIndex": 5,
+    "sid": 137.211431
+   },
+   {
+    "name": "Lagnam",
+    "rasiIndex": 3,
+    "navamsamIndex": 6,
+    "sid": 101.48898
+   },
+   {
+    "name": "Maandi",
+    "rasiIndex": 9,
+    "navamsamIndex": 2,
+    "sid": 286.847811
+   }
+  ],
+  "firstDasa": {
+   "dasa": "கே",
+   "bhukti": "சு",
+   "start": "02-11-1988",
+   "end": "18-08-1989",
+   "endMs": 619389054485
+  }
+ },
+ {
+  "input": {
+   "dt": "2001-01-26T12:00",
+   "lat": 11.0168,
+   "lon": 76.9558,
+   "method": "thirukanitham"
+  },
+  "star": "Avittam (அவிட்டம்)",
+  "rashi": "Kumbam (கும்பம்)",
+  "lagnam": "Mesham (மேஷம்)",
+  "planets": [
+   {
+    "name": "Sun",
+    "rasiIndex": 9,
+    "navamsamIndex": 0,
+    "sid": 282.503235
+   },
+   {
+    "name": "Moon",
+    "rasiIndex": 10,
+    "navamsamIndex": 6,
+    "sid": 301.155436
+   },
+   {
+    "name": "Mercury",
+    "rasiIndex": 0,
+    "navamsamIndex": 8,
+    "sid": 27.541968
+   },
+   {
+    "name": "Venus",
+    "rasiIndex": 2,
+    "navamsamIndex": 7,
+    "sid": 64.158394
+   },
+   {
+    "name": "Mars",
+    "rasiIndex": 5,
+    "navamsamIndex": 4,
+    "sid": 176.349349
+   },
+   {
+    "name": "Jupiter",
+    "rasiIndex": 1,
+    "navamsamIndex": 0,
+    "sid": 42.942146
+   },
+   {
+    "name": "Saturn",
+    "rasiIndex": 1,
+    "navamsamIndex": 11,
+    "sid": 39.147609
+   },
+   {
+    "name": "Rahu",
+    "rasiIndex": 2,
+    "navamsamIndex": 0,
+    "sid": 80.469874
+   },
+   {
+    "name": "Ketu",
+    "rasiIndex": 8,
+    "navamsamIndex": 6,
+    "sid": 260.469874
+   },
+   {
+    "name": "Lagnam",
+    "rasiIndex": 0,
+    "navamsamIndex": 3,
+    "sid": 11.095441
+   },
+   {
+    "name": "Maandi",
+    "rasiIndex": 0,
+    "navamsamIndex": 3,
+    "sid": 12.503235
+   }
+  ],
+  "firstDasa": {
+   "dasa": "செ",
+   "bhukti": "பு",
+   "start": "26-01-2001",
+   "end": "16-06-2001",
+   "endMs": 992642463658
+  }
+ }
+]

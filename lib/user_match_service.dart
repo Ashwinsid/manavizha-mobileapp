@@ -64,6 +64,11 @@ class MatchPreview {
     this.createdAt,
     this.star,
     this.zodiacSign,
+    this.maritalStatus,
+    this.caste,
+    this.subcaste,
+    this.educationLevels = const [],
+    this.photoVerified = false,
   }) : _interestTags = interestTags;
 
   final String userId;
@@ -99,6 +104,18 @@ class MatchPreview {
   /// filters and by the porutham score.
   final String? star;
   final String? zodiacSign;
+
+  /// Manual Browse-filter fields (web `BrowseManualFilters` parity). Only
+  /// populated by [loadUserMatchSections]; empty/false elsewhere.
+  final String? maritalStatus;
+  final String? caste;
+  final String? subcaste;
+
+  /// All `education_details.education` values for the member.
+  final List<String> educationLevels;
+
+  /// `photos.photo_verified` — drives the "Verified profile" filter.
+  final bool photoVerified;
 }
 
 
@@ -139,13 +156,15 @@ Future<UserMatchSets> loadUserMatchSections(
   final minAge = prefs != null ? prefs['min_age'] as int? : null;
   final maxAge = prefs != null ? prefs['max_age'] as int? : null;
 
+  // No explicit cap — matches the web Browse query, which fetches every
+  // matching profile (both are bounded only by PostgREST's server-side
+  // max-rows setting).
   final potential = await client
       .from('personal_details')
       .select('user_id, name, age, sex, marital_status, created_at')
       .ilike('sex', targetGender)
       .neq('user_id', userId)
-      .neq('marital_status', 'Married')
-      .limit(150);
+      .neq('marital_status', 'Married');
 
   final rows = (potential as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   if (rows.isEmpty) {
@@ -161,7 +180,7 @@ Future<UserMatchSets> loadUserMatchSections(
   }
 
   final ids = filtered.map((p) => p['user_id'].toString()).toList();
-  final photosRes = await client.from('photos').select('user_id, user_photos').inFilter('user_id', ids);
+  final photosRes = await client.from('photos').select('user_id, user_photos, photo_verified').inFilter('user_id', ids);
   final contactRes = await client.from('contact_details').select('user_id, current_district, current_state').inFilter('user_id', ids);
   final settingsRes = await client.from('user_settings').select('user_id, is_premium').inFilter('user_id', ids);
   final eduRes = await client.from('education_details').select('user_id, education').inFilter('user_id', ids);
@@ -178,6 +197,22 @@ Future<UserMatchSets> loadUserMatchSections(
   } catch (_) {
     activityRes = null;
   }
+  // Tolerant family fetch — caste/subcaste for the manual Browse filters.
+  List<dynamic>? familyRes;
+  try {
+    familyRes = await client
+        .from('family_details')
+        .select('user_id, caste, subcaste')
+        .inFilter('user_id', ids) as List<dynamic>?;
+  } catch (_) {
+    familyRes = null;
+  }
+  final familyRows = (familyRes ?? const []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final Map<String, Map<String, dynamic>> familyByUser = {
+    for (final r in familyRows)
+      if (r['user_id'] != null) r['user_id'].toString(): r,
+  };
+
   // Tolerant horoscope fetch — drives the Browse Star / Horoscope filters.
   List<dynamic>? horoscopeRes;
   try {
@@ -314,6 +349,7 @@ Future<UserMatchSets> loadUserMatchSections(
     }
 
     final horo = horoscopeByUser[id];
+    final fam = familyByUser[id];
     return MatchPreview(
       userId: id,
       name: p['name']?.toString().trim().isNotEmpty == true ? p['name'].toString() : 'Member',
@@ -328,6 +364,11 @@ Future<UserMatchSets> loadUserMatchSections(
       createdAt: DateTime.tryParse(p['created_at']?.toString() ?? ''),
       star: horo?['star']?.toString(),
       zodiacSign: horo?['zodiac_sign']?.toString(),
+      maritalStatus: p['marital_status']?.toString(),
+      caste: fam?['caste']?.toString(),
+      subcaste: fam?['subcaste']?.toString(),
+      educationLevels: eduByUser[id] ?? const [],
+      photoVerified: ph?['photo_verified'] == true,
     );
   }
 

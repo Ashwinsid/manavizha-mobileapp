@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
+import 'e2e.dart';
 import 'profile_social_actions.dart';
 import 'subscription_dialog.dart';
 import 'user_activity_tracker.dart';
@@ -144,7 +145,7 @@ class _MessagesPageState extends State<MessagesPage> {
     try {
       final res = await client
           .from('messages')
-          .select('id, sender_id, receiver_id, content, is_read, created_at')
+          .select('id, sender_id, receiver_id, content, is_read, created_at, is_encrypted, iv')
           .or('sender_id.eq.$uid,receiver_id.eq.$uid')
           .order('created_at', ascending: false);
 
@@ -202,7 +203,8 @@ class _MessagesPageState extends State<MessagesPage> {
       for (final id in ids) {
         final listMsgs = byOther[id]!;
         listMsgs.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-        final last = listMsgs.first;
+        // Only the newest message is previewed — decrypt just that one.
+        final last = await _decryptMsg(uid, listMsgs.first);
         final unread = listMsgs.where((m) => m.receiverId == uid && !m.isRead).length;
         list.add(
           _Conversation(
@@ -264,6 +266,16 @@ class _MessagesPageState extends State<MessagesPage> {
     }
   }
 
+  /// Resolves an encrypted row to display text via [E2E.decrypt]; plaintext
+  /// rows pass through untouched. Undecryptable content gets the same
+  /// placeholder the web shows.
+  Future<_Msg> _decryptMsg(String uid, _Msg m) async {
+    if (!m.isEncrypted || m.iv == null || m.iv!.isEmpty) return m;
+    final other = m.senderId == uid ? m.receiverId : m.senderId;
+    final dec = await E2E.decrypt(m.content, m.iv!, other);
+    return m.withContent(dec ?? '🔒 Encrypted message');
+  }
+
   Future<void> _loadThread(
     SupabaseClient client,
     String uid,
@@ -275,12 +287,15 @@ class _MessagesPageState extends State<MessagesPage> {
     try {
       final res = await client
           .from('messages')
-          .select('id, sender_id, receiver_id, content, is_read, created_at')
+          .select('id, sender_id, receiver_id, content, is_read, created_at, is_encrypted, iv')
           .or('and(sender_id.eq.$uid,receiver_id.eq.$otherId),and(sender_id.eq.$otherId,receiver_id.eq.$uid)')
           .order('created_at', ascending: true);
 
       final raw = res as List<dynamic>? ?? [];
-      final list = raw.map((e) => _Msg.fromMap(Map<String, dynamic>.from(e as Map))).toList();
+      final parsed = raw.map((e) => _Msg.fromMap(Map<String, dynamic>.from(e as Map))).toList();
+      final list = <_Msg>[
+        for (final m in parsed) await _decryptMsg(uid, m),
+      ];
       if (!mounted) return;
       setState(() => _thread = list);
 
@@ -883,6 +898,8 @@ class _Msg {
     required this.content,
     required this.createdAt,
     required this.isRead,
+    this.isEncrypted = false,
+    this.iv,
   });
 
   factory _Msg.fromMap(Map<String, dynamic> m) {
@@ -893,6 +910,8 @@ class _Msg {
       content: m['content']?.toString() ?? '',
       createdAt: DateTime.tryParse(m['created_at']?.toString() ?? '') ?? DateTime.now().toUtc(),
       isRead: m['is_read'] == true,
+      isEncrypted: m['is_encrypted'] == true,
+      iv: m['iv']?.toString(),
     );
   }
 
@@ -902,4 +921,17 @@ class _Msg {
   final String content;
   final DateTime createdAt;
   final bool isRead;
+  final bool isEncrypted;
+  final String? iv;
+
+  /// Copy with the decrypted (or placeholder) text in place of ciphertext.
+  _Msg withContent(String newContent) => _Msg(
+        id: id,
+        senderId: senderId,
+        receiverId: receiverId,
+        content: newContent,
+        createdAt: createdAt,
+        isRead: isRead,
+        iv: iv,
+      );
 }

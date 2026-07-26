@@ -5,6 +5,7 @@ import 'member_profile_view_screen.dart';
 import 'message_dialog.dart';
 import 'mutual_match_sheet.dart';
 import 'profile_social_actions.dart';
+import 'web_api.dart';
 
 /// One row in the header notifications popover — mirrors the web dashboard
 /// layout (`app/dashboard/layout.tsx`) sections “Interest Received” and
@@ -620,6 +621,114 @@ class _MemberProfileFullscreenWrapperState
     );
   }
 
+  /// Report the profile to admins — web POST /api/reports. Same reason set as
+  /// the web's report dialog; the server dedupes open reports and emails the
+  /// admin moderation queue.
+  Future<void> _onReport() async {
+    const reasons = <String, String>{
+      'fake_profile': 'Fake profile',
+      'harassment': 'Harassment',
+      'inappropriate_content': 'Inappropriate content',
+      'scam': 'Scam / fraud',
+      'already_married': 'Already married',
+      'other': 'Other',
+    };
+    String selected = 'fake_profile';
+    final detailsController = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: Text(
+            'Report ${_targetName.isEmpty ? "this member" : _targetName}',
+            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Why are you reporting this profile?',
+                    style: TextStyle(fontSize: 13)),
+                const SizedBox(height: 8),
+                for (final entry in reasons.entries)
+                  InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () => setDialogState(() => selected = entry.key),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        children: [
+                          Icon(
+                            selected == entry.key
+                                ? Icons.radio_button_checked_rounded
+                                : Icons.radio_button_off_rounded,
+                            size: 20,
+                            color: selected == entry.key
+                                ? Colors.red.shade600
+                                : Colors.black38,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(entry.value,
+                                style: const TextStyle(fontSize: 14)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: detailsController,
+                  maxLines: 3,
+                  maxLength: 2000,
+                  decoration: InputDecoration(
+                    labelText: 'Additional details (optional)',
+                    filled: true,
+                    fillColor: const Color(0xFFF5F6FA),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style:
+                  FilledButton.styleFrom(backgroundColor: Colors.red.shade600),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Submit report'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final details = detailsController.text.trim();
+    final res = await WebApi.post('/api/reports', {
+      'reportedUserId': widget.targetUserId,
+      'reason': selected,
+      if (details.isNotEmpty) 'details': details,
+    });
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(res.ok
+            ? 'Report submitted. Our team will review this profile.'
+            : (res.error ?? 'Failed to submit the report.')),
+      ),
+    );
+  }
+
   Future<void> _onBlock() async {
     if (_blocking) return;
     final ok = await showDialog<bool>(
@@ -695,6 +804,9 @@ class _MemberProfileFullscreenWrapperState
                 case 'message':
                   await _onMessage();
                   break;
+                case 'report':
+                  await _onReport();
+                  break;
                 case 'block':
                   await _onBlock();
                   break;
@@ -705,6 +817,10 @@ class _MemberProfileFullscreenWrapperState
                 const PopupMenuItem(
                     value: 'mutual', child: Text('Contact details')),
               const PopupMenuItem(value: 'message', child: Text('Send message')),
+              const PopupMenuItem(
+                value: 'report',
+                child: Text('Report member'),
+              ),
               const PopupMenuItem(
                 value: 'block',
                 child: Text(

@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -7,6 +9,7 @@ import 'profile_social_actions.dart';
 import 'user_activity_tracker.dart';
 import 'user_match_service.dart';
 import 'user_profile_completion.dart';
+import 'web_api.dart';
 import 'widgets/adaptive_network_photo.dart';
 
 String _formatDobDisplay(dynamic v) {
@@ -237,6 +240,19 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   String? _marital;
   String _about = '';
   List<String> _photoUrls = [];
+
+  /// Photo privacy — resolved by GET /api/photo-access, mirroring the web
+  /// `ProfileDetailView`. When [_canViewPhotos] is false the gallery renders
+  /// blurred with a lock overlay and the password / request-photos actions.
+  bool _canViewPhotos = true;
+  bool _photoPasswordProtected = false;
+  String? _photoRequestStatus;
+  bool _photoRequesting = false;
+
+  /// True when the *target* has a pending photo request to the signed-in
+  /// viewer — surfaces the owner-side Approve / Decline banner.
+  bool _incomingPhotoRequest = false;
+
   /// Latest heartbeat from `users.last_active_at` — drives the green dot +
   /// "Active X ago" label under the location row, mirroring the web profile
   /// detail view.
@@ -469,6 +485,40 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         if (u != null && u.isNotEmpty) urls.add(u);
       }
 
+      // Record the profile view — web POST /api/views. Server dedupes within
+      // a 1-hour window and drives the "Who Viewed Me" carousels + counts.
+      // Fire-and-forget: a failed view write must never break the profile.
+      if (viewerId != null && viewerId != uid) {
+        WebApi.post('/api/views', {'viewedUserId': uid});
+      }
+
+      // Photo privacy — same contract as the web ProfileDetailView. On API
+      // failure default to hidden for safety (the web does the same).
+      var canViewPhotos = true;
+      var photoPasswordProtected = false;
+      String? photoRequestStatus;
+      var incomingPhotoRequest = false;
+      if (viewerId != null && viewerId != uid && urls.isNotEmpty) {
+        final pa = await WebApi.get('/api/photo-access',
+            query: {'targetUserId': uid});
+        if (pa.ok) {
+          canViewPhotos = pa.data['canView'] != false;
+          photoPasswordProtected = pa.data['passwordProtected'] == true;
+          photoRequestStatus = pa.data['requestStatus']?.toString();
+        } else {
+          canViewPhotos = false;
+        }
+        // Owner side: does this member have a pending request to see *my*
+        // photos? Drives the Approve / Decline banner.
+        final reqs = await WebApi.get('/api/photo-requests');
+        if (reqs.ok) {
+          final list = reqs.data['requests'];
+          incomingPhotoRequest = list is List &&
+              list.any((r) =>
+                  r is Map && r['requester_id']?.toString() == uid);
+        }
+      }
+
       String loc = '';
       final contactMap = contact;
       if (contactMap != null) {
@@ -658,6 +708,10 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         _location = loc.isEmpty ? 'Location not shared' : loc;
         _about = pdMap['about']?.toString().trim() ?? '';
         _photoUrls = urls;
+        _canViewPhotos = canViewPhotos;
+        _photoPasswordProtected = photoPasswordProtected;
+        _photoRequestStatus = photoRequestStatus;
+        _incomingPhotoRequest = incomingPhotoRequest;
         _personalRows = personalRows;
         _familyRows = familyRows;
         _familyDescription = familyDescription;
@@ -1418,6 +1472,267 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
     );
   }
 
+  // ── Photo privacy actions (web ProfileDetailView parity) ────────────────
+
+  /// Password-protected photos: prompt, verify via POST /api/photo-access and
+  /// unblur on success. The password is checked server-side only.
+  Future<void> _onUnlockPhotosWithPassword() async {
+    final controller = TextEditingController();
+    String? dialogError;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: Colors.white,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: const Text('Photos are protected',
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Enter the password $_name shared with you to view their photos.',
+                style: const TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  errorText: dialogError,
+                  filled: true,
+                  fillColor: const Color(0xFFF5F6FA),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: _brand),
+              onPressed: () async {
+                final pw = controller.text;
+                if (pw.isEmpty) return;
+                final res = await WebApi.post('/api/photo-access', {
+                  'targetUserId': widget.targetUserId,
+                  'password': pw,
+                });
+                if (res.ok && res.data['valid'] == true) {
+                  if (ctx.mounted) Navigator.pop(ctx, true);
+                } else {
+                  setDialogState(() => dialogError = res.ok
+                      ? 'Incorrect password'
+                      : (res.error ?? 'Could not verify the password.'));
+                }
+              },
+              child: const Text('Unlock'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok == true && mounted) {
+      setState(() => _canViewPhotos = true);
+    }
+  }
+
+  /// on_accept photos: ask the owner for access — web POST /api/photo-requests.
+  Future<void> _onRequestPhotos() async {
+    if (_photoRequesting) return;
+    setState(() => _photoRequesting = true);
+    final res =
+        await WebApi.post('/api/photo-requests', {'ownerId': widget.targetUserId});
+    if (!mounted) return;
+    setState(() {
+      _photoRequesting = false;
+      if (res.ok) _photoRequestStatus = 'pending';
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(res.ok
+            ? 'Photo request sent to $_name.'
+            : (res.error ?? 'Could not send the photo request.')),
+      ),
+    );
+  }
+
+  /// Owner side: approve / decline the target's pending request to see the
+  /// viewer's photos — web PATCH /api/photo-requests.
+  Future<void> _onRespondToPhotoRequest(String status) async {
+    final res = await WebApi.patch('/api/photo-requests', {
+      'requesterId': widget.targetUserId,
+      'status': status,
+    });
+    if (!mounted) return;
+    if (res.ok) setState(() => _incomingPhotoRequest = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(res.ok
+            ? (status == 'approved'
+                ? '$_name can now see your photos.'
+                : 'Photo request declined.')
+            : (res.error ?? 'Could not update the photo request.')),
+      ),
+    );
+  }
+
+  /// Blurred gallery + lock overlay shown while /api/photo-access denies
+  /// viewing. Mirrors the web's `blur-xl` photo + "Photos are private" layer.
+  Widget _lockedPhotoView() {
+    Widget action;
+    if (_photoPasswordProtected) {
+      action = FilledButton.icon(
+        onPressed: _onUnlockPhotosWithPassword,
+        icon: const Icon(Icons.key_rounded, size: 18),
+        label: const Text('Enter password'),
+        style: FilledButton.styleFrom(
+          backgroundColor: _brand,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+        ),
+      );
+    } else if (_photoRequestStatus == 'pending') {
+      action = _lockChip('Request pending', Colors.white);
+    } else if (_photoRequestStatus == 'declined') {
+      action = _lockChip('Request declined', Colors.red.shade200);
+    } else {
+      action = FilledButton.icon(
+        onPressed: _photoRequesting ? null : _onRequestPhotos,
+        icon: const Icon(Icons.photo_library_outlined, size: 18),
+        label: Text(_photoRequesting ? 'Sending…' : 'Request photos'),
+        style: FilledButton.styleFrom(
+          backgroundColor: _brand,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+        ),
+      );
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ImageFiltered(
+          imageFilter: ui.ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+          child: Image.network(
+            _photoUrls.first,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) =>
+                Container(color: _brand.withValues(alpha: 0.12)),
+          ),
+        ),
+        Container(color: Colors.black.withValues(alpha: 0.35)),
+        Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.lock_rounded, color: Colors.white, size: 30),
+            const SizedBox(height: 8),
+            const Text(
+              'Photos are private',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 12),
+            action,
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _lockChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+          color: color == Colors.white ? const Color(0xFF1F4068) : Colors.red,
+        ),
+      ),
+    );
+  }
+
+  /// Owner-side banner: the member being viewed asked to see MY photos.
+  Widget _incomingPhotoRequestBanner() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.photo_camera_front_outlined,
+                  size: 18, color: Color(0xFFB45309)),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Photo request',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF92400E),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '$_name has requested access to your photos.',
+            style: const TextStyle(fontSize: 13, color: Color(0xFF92400E)),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF16A34A),
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: () => _onRespondToPhotoRequest('approved'),
+                child: const Text('Approve'),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red.shade600,
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: () => _onRespondToPhotoRequest('declined'),
+                child: const Text('Decline'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -1439,6 +1754,8 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
                     color: _brand.withValues(alpha: 0.08),
                     child: Icon(Icons.person_rounded, size: 80, color: _brand.withValues(alpha: 0.35)),
                   )
+                : !_canViewPhotos
+                ? _lockedPhotoView()
                 : Stack(
                     fit: StackFit.expand,
                     children: [
@@ -1503,6 +1820,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
                     ],
                   ),
           ),
+          if (_incomingPhotoRequest) _incomingPhotoRequestBanner(),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
             child: Column(

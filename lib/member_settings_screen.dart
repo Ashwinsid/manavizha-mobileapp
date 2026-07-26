@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'e2e.dart';
+import 'main.dart' show kAuthRedirectUrl;
 import 'profile_social_actions.dart';
+import 'web_api.dart';
 import 'welcome_screen.dart';
 
 /// Flutter port of `manavizha/app/dashboard/settings/page.tsx`.
@@ -85,6 +88,7 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
   String _mobilePrivacy = 'show_all';
   String _horoscopePrivacy = 'visible_all';
   String _profilePrivacy = 'show_all';
+  String _photoVisibility = 'everyone';
   bool _isDeactivated = false;
   DateTime? _deactivatedUntil;
 
@@ -178,6 +182,10 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
     if (hp == 'visible_all' || hp == 'contacted_only') _horoscopePrivacy = hp!;
     final pp = row['profile_privacy']?.toString();
     if (pp == 'show_all' || pp == 'registered_only') _profilePrivacy = pp!;
+    final pv = row['photo_visibility']?.toString();
+    if (pv == 'everyone' || pv == 'on_accept' || pv == 'password') {
+      _photoVisibility = pv!;
+    }
     _isDeactivated = row['is_deactivated'] == true;
     final untilRaw = row['deactivated_until'];
     _deactivatedUntil = untilRaw == null ? null : DateTime.tryParse(untilRaw.toString());
@@ -219,32 +227,26 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
     }
   }
 
+  /// Writes via the web's POST /api/settings so the server-side whitelist
+  /// validates every field and `photo_password` is hashed before storage —
+  /// never upsert `user_settings` directly from the app.
   Future<void> _saveSettings(Map<String, dynamic> updates, {String? successMessage}) async {
     final uid = _userId;
     if (uid == null) return;
     setState(() => _saving = true);
-    final client = Supabase.instance.client;
-    try {
-      await client.from('user_settings').upsert(
-        {
-          'user_id': uid,
-          ...updates,
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
-        },
-        onConflict: 'user_id',
-      );
-      if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _applySettings({..._currentSettingsMap(), ...updates});
-      });
-      _toast(successMessage ?? 'Settings updated.');
-    } catch (e) {
-      debugPrint('MemberSettings save: $e');
-      if (!mounted) return;
+    final res = await WebApi.post('/api/settings', {'updates': updates});
+    if (!mounted) return;
+    if (!res.ok) {
+      debugPrint('MemberSettings save: ${res.error}');
       setState(() => _saving = false);
-      _toast('Failed to update settings.');
+      _toast(res.error ?? 'Failed to update settings.');
+      return;
     }
+    setState(() {
+      _saving = false;
+      _applySettings({..._currentSettingsMap(), ...updates});
+    });
+    _toast(successMessage ?? 'Settings updated.');
   }
 
   /// Snapshot of current settings as a Postgres-ready map.
@@ -255,6 +257,7 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
         'mobile_privacy': _mobilePrivacy,
         'horoscope_privacy': _horoscopePrivacy,
         'profile_privacy': _profilePrivacy,
+        'photo_visibility': _photoVisibility,
         'is_deactivated': _isDeactivated,
         'deactivated_until': _deactivatedUntil?.toIso8601String(),
       };
@@ -309,7 +312,8 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
       return;
     }
     try {
-      await Supabase.instance.client.auth.resetPasswordForEmail(email);
+      await Supabase.instance.client.auth
+          .resetPasswordForEmail(email, redirectTo: kAuthRedirectUrl);
       _toast('A password reset link has been sent to $email.');
     } on AuthException catch (e) {
       _toast(e.message);
@@ -354,15 +358,13 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
           .eq('user_id', uid);
       final farFuture =
           DateTime.now().toUtc().add(const Duration(days: 365 * 10));
-      await client.from('user_settings').upsert(
-        {
-          'user_id': uid,
+      final res = await WebApi.post('/api/settings', {
+        'updates': {
           'is_deactivated': true,
           'deactivated_until': farFuture.toIso8601String(),
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
         },
-        onConflict: 'user_id',
-      );
+      });
+      if (!res.ok) throw Exception(res.error ?? 'Settings update failed');
       if (!mounted) return;
       setState(() {
         _saving = false;
@@ -371,6 +373,7 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
       });
       _toast('Congratulations! Your profile has been marked as Married.');
       // Sign out and bounce to welcome so the member doesn't keep browsing.
+      E2E.reset();
       await client.auth.signOut();
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
@@ -827,7 +830,92 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
           selected: _horoscopePrivacy == 'contacted_only',
           onTap: () => _saveSettings({'horoscope_privacy': 'contacted_only'}),
         ),
+        const SizedBox(height: 16),
+        _sectionHeader('Photo privacy', Icons.photo_library_outlined),
+        _description('Control who can see your profile photos.'),
+        _radioCard(
+          title: 'Visible to everyone',
+          subtitle: 'All members can view your photos.',
+          selected: _photoVisibility == 'everyone',
+          onTap: () => _saveSettings({'photo_visibility': 'everyone'}),
+        ),
+        _radioCard(
+          title: 'Only after accepted interest',
+          subtitle: 'Photos unlock for members with a mutually accepted interest or an approved photo request.',
+          selected: _photoVisibility == 'on_accept',
+          onTap: () => _saveSettings({'photo_visibility': 'on_accept'}),
+        ),
+        _radioCard(
+          title: 'Protected with a password',
+          subtitle: _photoVisibility == 'password'
+              ? 'Members must enter your password to view photos. Tap to change the password.'
+              : 'Members must enter a password you share with them.',
+          selected: _photoVisibility == 'password',
+          onTap: _onSetPhotoPassword,
+        ),
       ],
+    );
+  }
+
+  /// Prompts for a photo password and saves it together with
+  /// `photo_visibility: 'password'`. The password is hashed server-side by
+  /// POST /api/settings — it must never be written to `user_settings` raw.
+  Future<void> _onSetPhotoPassword() async {
+    final controller = TextEditingController();
+    final password = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('Photo password',
+            style: TextStyle(fontWeight: FontWeight.w900)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Members must enter this password to view your photos. Share it only with people you trust.',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              maxLength: 100,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: 'Password',
+                filled: true,
+                fillColor: const Color(0xFFF5F6FA),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: _brand),
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (password == null) return;
+    if (password.isEmpty) {
+      _toast('Password cannot be empty.');
+      return;
+    }
+    await _saveSettings(
+      {'photo_visibility': 'password', 'photo_password': password},
+      successMessage: 'Photos are now password protected.',
     );
   }
 

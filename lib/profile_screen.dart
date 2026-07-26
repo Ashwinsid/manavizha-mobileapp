@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'e2e.dart';
 import 'welcome_screen.dart';
 import 'profile_pages.dart';
 
@@ -35,6 +36,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             icon: const Icon(Icons.logout, color: Colors.redAccent),
             label: const Text('Log Out', style: TextStyle(color: Colors.redAccent)),
             onPressed: () async {
+              E2E.reset();
               await Supabase.instance.client.auth.signOut();
               if (context.mounted) {
                 Navigator.of(context).pushAndRemoveUntil(

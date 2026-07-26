@@ -9,6 +9,7 @@ import 'horoscope_screen.dart';
 import 'manage_parents_screen.dart';
 import 'member_settings_screen.dart';
 import 'parent_selections_screen.dart';
+import 'partner_preferences_screen.dart';
 import 'pricing_screen.dart';
 import 'profile_screen.dart';
 import 'user_activity_tracker.dart';
@@ -615,11 +616,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
     setState(() => _currentIndex = index);
   }
 
-  void _dismissMenuAndSnack(BuildContext menuContext, String msg) {
-    Navigator.of(menuContext).pop();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
   void _dismissMenuAndMarriedHint(BuildContext menuContext) {
     Navigator.of(menuContext).pop();
     _openSettings(initialTab: 'deactivate');
@@ -694,6 +690,24 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
     _openHoroscope();
   }
 
+  void _openPreferences() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const PartnerPreferencesScreen(),
+      ),
+    );
+  }
+
+  void _dismissMenuAndOpenPreferences(BuildContext menuContext) {
+    Navigator.of(menuContext).pop();
+    _openPreferences();
+  }
+
+  void _speedDialOpenPreferences() {
+    setState(() => _speedDialOpen = false);
+    _openPreferences();
+  }
+
   void _speedDialOpenHoroscope() {
     setState(() => _speedDialOpen = false);
     _openHoroscope();
@@ -708,11 +722,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
       _speedDialOpen = false;
       _currentIndex = index;
     });
-  }
-
-  void _speedDialSnack(String msg) {
-    setState(() => _speedDialOpen = false);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   void _speedDialMarriedHint() {
@@ -747,10 +756,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
       ListTile(
         leading: const Icon(Icons.tune_rounded, color: Color(0xFF2FA086)),
         title: const Text('Preferences', style: TextStyle(fontWeight: FontWeight.w600)),
-        onTap: () => _dismissMenuAndSnack(
-          menuContext,
-          'Partner preferences: use Profile Setup in the app or the website dashboard.',
-        ),
+        onTap: () => _dismissMenuAndOpenPreferences(menuContext),
       ),
       ListTile(
         leading: const Icon(Icons.auto_awesome, color: Color(0xFF2FA086)),
@@ -861,9 +867,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
         icon: Icons.tune_rounded,
         tip: 'Preferences',
         pageName: 'Preferences',
-        onTap: () => _speedDialSnack(
-          'Partner preferences: use Profile Setup in the app or the website dashboard.',
-        ),
+        onTap: _speedDialOpenPreferences,
       ),
       (
         icon: Icons.auto_awesome_rounded,

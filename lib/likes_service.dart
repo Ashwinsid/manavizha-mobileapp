@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'user_match_service.dart';
+import 'web_api.dart';
 
 /// One row from the `likes` table, normalised to the perspective of the
 /// signed-in user. `otherUserId` is always the *other* party — either the
@@ -141,39 +142,30 @@ Future<String?> updateLikeStatus({
   required String status,
   String? reciprocateFor,
 }) async {
-  try {
-    await client
-        .from('likes')
-        .update({'status': status, 'is_read': true})
-        .eq('user_id', likerUserId)
-        .eq('liked_user_id', recipientUserId);
+  final res = await WebApi.patch('/api/likes', {
+    'userId': likerUserId,
+    'likedUserId': recipientUserId,
+    'status': status,
+    'is_read': true,
+  });
+  if (!res.ok) return res.error;
 
-    if (status == 'accepted' && reciprocateFor != null) {
-      // Insert the reciprocal like (recipient -> sender) at status=accepted so
-      // the pair shows up as mutual on both sides. Tolerate the unique-key
-      // duplicate which simply means the reciprocal row already exists.
-      try {
-        await client.from('likes').insert({
-          'user_id': reciprocateFor,
-          'liked_user_id': likerUserId,
-          'status': 'accepted',
-        });
-      } on PostgrestException catch (e) {
-        if (e.code != '23505') {
-          // Existing row — flip its status to accepted so both directions read
-          // as accepted (mirrors the web's mutual-accept behaviour).
-          await client
-              .from('likes')
-              .update({'status': 'accepted'})
-              .eq('user_id', reciprocateFor)
-              .eq('liked_user_id', likerUserId);
-        }
-      }
+  if (status == 'accepted' && reciprocateFor != null) {
+    // Reciprocal like (recipient -> sender) at status=accepted so the pair
+    // shows up as mutual on both sides — same as the web LikesView, which
+    // POSTs the reciprocal row after a successful accept. A 409 means the
+    // reciprocal row already exists; flip its status via PATCH instead.
+    final rec = await WebApi.post('/api/likes', {
+      'likedUserId': likerUserId,
+      'status': 'accepted',
+    });
+    if (!rec.ok && rec.status == 409) {
+      await WebApi.patch('/api/likes', {
+        'userId': reciprocateFor,
+        'likedUserId': likerUserId,
+        'status': 'accepted',
+      });
     }
-    return null;
-  } on PostgrestException catch (e) {
-    return e.message;
-  } catch (e) {
-    return e.toString();
   }
+  return null;
 }

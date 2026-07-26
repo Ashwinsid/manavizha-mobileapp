@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_config.dart';
+import 'main.dart' show kAuthRedirectUrl;
 
 /// Sign-up screen — mirrors the web `components/auth-dialog.tsx` Sign Up tab.
 ///
@@ -511,7 +512,11 @@ class _SignupScreenState extends State<SignupScreen> {
 
     try {
       final client = Supabase.instance.client;
-      final auth = await client.auth.signUp(email: email, password: password);
+      final auth = await client.auth.signUp(
+        email: email,
+        password: password,
+        emailRedirectTo: kAuthRedirectUrl,
+      );
 
       final user = auth.user;
       if (user == null) {
@@ -551,13 +556,42 @@ class _SignupScreenState extends State<SignupScreen> {
       }
 
       if (!mounted) return;
-      Navigator.of(context).pop<String>(email);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Account created successfully! Please sign in to continue.'),
-          backgroundColor: Color(0xFF15803D),
+      // "Check your inbox" notice — mirrors the web AuthDialog, which tells
+      // the member to confirm their email before the first sign-in.
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: Colors.white,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: Row(
+            children: const [
+              Icon(Icons.mark_email_unread_rounded,
+                  color: Color(0xFF2FA086), size: 26),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text('Verify your email',
+                    style: TextStyle(fontWeight: FontWeight.w900)),
+              ),
+            ],
+          ),
+          content: Text(
+            'Account created! We\'ve sent a confirmation link to\n\n$email\n\n'
+            'Open it to verify your email, then sign in to continue.',
+            style: const TextStyle(fontSize: 13.5, height: 1.45),
+          ),
+          actions: [
+            FilledButton(
+              style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF2FA086)),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Got it'),
+            ),
+          ],
         ),
       );
+      if (!mounted) return;
+      Navigator.of(context).pop<String>(email);
     } on AuthException catch (e) {
       if (!mounted) return;
       // Supabase auth itself enforces email uniqueness — surface that with
