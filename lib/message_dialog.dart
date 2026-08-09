@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
+import 'premium_utils.dart';
 import 'profile_social_actions.dart';
 import 'subscription_dialog.dart';
 
@@ -55,6 +56,31 @@ class _MessageDialogState extends State<_MessageDialog> {
   final TextEditingController _ctrl = TextEditingController();
   bool _sending = false;
   String? _error;
+  late bool _isPremium;
+
+  @override
+  void initState() {
+    super.initState();
+    _isPremium = widget.isPremium;
+    _verifyPremium();
+  }
+
+  Future<void> _verifyPremium() async {
+    final client = Supabase.instance.client;
+    final uid = client.auth.currentUser?.id;
+    if (uid == null) return;
+    try {
+      final row = await client
+          .from('user_settings')
+          .select('is_premium, premium_expires_at')
+          .eq('user_id', uid)
+          .maybeSingle();
+      final p = row != null && isPremiumActive(row);
+      if (p != _isPremium && mounted) {
+        setState(() => _isPremium = p);
+      }
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -66,7 +92,7 @@ class _MessageDialogState extends State<_MessageDialog> {
     final body = _ctrl.text.trim();
     if (body.isEmpty || _sending) return;
 
-    if (!widget.isPremium) {
+    if (!_isPremium) {
       // Same UX as web: bail to the upgrade dialog.
       await showSubscriptionDialog(
         context,
@@ -214,7 +240,7 @@ class _MessageDialogState extends State<_MessageDialog> {
                         ),
                       ),
                     ),
-                    if (!widget.isPremium) ...[
+                    if (!_isPremium) ...[
                       const SizedBox(height: 6),
                       Material(
                         color: Colors.amber.shade50,

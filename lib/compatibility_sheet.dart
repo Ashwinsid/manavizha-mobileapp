@@ -65,10 +65,12 @@ class _CompatibilitySheetState extends State<_CompatibilitySheet> {
   String? _err;
   LifestyleResult? _lifestyle;
   PoruthamResult? _porutham;
+  bool _viewerIsPremium = false;
 
   @override
   void initState() {
     super.initState();
+    _viewerIsPremium = widget.isPremium;
     _load();
   }
 
@@ -77,15 +79,33 @@ class _CompatibilitySheetState extends State<_CompatibilitySheet> {
     try {
       final me = await loadCompatibilityProfile(client, widget.myUserId);
       final them = await loadCompatibilityProfile(client, widget.targetUserId);
+      
+      // Fetch viewer premium status if not passed
+      if (!_viewerIsPremium) {
+        try {
+          final r = await client.from('user_settings').select('is_premium').eq('user_id', widget.myUserId).maybeSingle();
+          if (r != null && r['is_premium'] == true) {
+            _viewerIsPremium = true;
+          }
+        } catch (_) {}
+      }
+
       final life = calculateLifestyleScore(me, them);
       PoruthamResult? por;
+      debugPrint('[Porutham] me.star="${me.star}" me.zodiac="${me.zodiacSign}" me.sex="${me.sex}"');
+      debugPrint('[Porutham] them.star="${them.star}" them.zodiac="${them.zodiacSign}" them.sex="${them.sex}"');
       if ((me.star ?? '').isNotEmpty && (them.star ?? '').isNotEmpty) {
+        final isFemale = (them.sex?.toLowerCase() == 'female');
+        debugPrint('[Porutham] isFemale=$isFemale');
         por = checkTamilPorutham(
-          girlStar: me.star ?? '',
-          girlRashi: me.zodiacSign ?? '',
-          boyStar: them.star ?? '',
-          boyRashi: them.zodiacSign ?? '',
+          girlStar: isFemale ? them.star ?? '' : me.star ?? '',
+          girlRashi: isFemale ? them.zodiacSign ?? '' : me.zodiacSign ?? '',
+          boyStar: isFemale ? me.star ?? '' : them.star ?? '',
+          boyRashi: isFemale ? me.zodiacSign ?? '' : them.zodiacSign ?? '',
         );
+        debugPrint('[Porutham] score=${por.score} status=${por.status}');
+      } else {
+        debugPrint('[Porutham] skipped — one or both stars are empty');
       }
       if (!mounted) return;
       setState(() {
@@ -204,7 +224,7 @@ class _CompatibilitySheetState extends State<_CompatibilitySheet> {
               Expanded(
                 child: _porutham == null
                     ? _scoreTile('HOROSCOPE PORUTHAM', '—', muted: true)
-                    : (widget.isPremium
+                    : (_viewerIsPremium
                         ? _scoreTile('HOROSCOPE PORUTHAM', '${_porutham!.score}/10')
                         : InkWell(
                             borderRadius: BorderRadius.circular(20),
@@ -427,7 +447,7 @@ class _CompatibilitySheetState extends State<_CompatibilitySheet> {
             ],
           ),
           const SizedBox(height: 12),
-          if (widget.isPremium)
+          if (_viewerIsPremium)
             Wrap(
               spacing: 8,
               runSpacing: 8,

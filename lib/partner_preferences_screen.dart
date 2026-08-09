@@ -51,21 +51,21 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
   String _smokingHabits = '';
   String _drinkingHabits = '';
   String _religion = '';
-  String _caste = '';
-  String _subcaste = '';
+  List<String> _caste = [];
+  List<String> _subcaste = [];
   bool _casteCompulsory = false;
-  String _star = '';
-  String _raasiValue = '';
-  String _dosham = '';
+  List<String> _star = [];
+  List<String> _raasiValue = [];
+  List<String> _dosham = [];
   List<String> _education = [];
   List<String> _degrees = [];
   List<String> _branchesSel = [];
   List<String> _employedIn = [];
   List<String> _occupation = [];
-  String _incomeMin = '';
-  String _country = '';
-  String _state = '';
-  String _city = '';
+  List<String> _incomeMin = [];
+  List<String> _country = [];
+  List<String> _state = [];
+  List<String> _city = [];
 
   /// Whether the loaded row contained `caste_compulsory` — the column is not
   /// written by the web form, so only persist it when it exists in the schema.
@@ -99,7 +99,7 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
   Future<List<Map<String, String?>>> _masterRows(
       SupabaseClient c, String table) async {
     try {
-      final rows = await c.from(table).select('value, category');
+      final rows = await c.from(table).select();
       return [
         for (final r in (rows as List<dynamic>))
           {
@@ -183,6 +183,11 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
       List<String> strList(dynamic v) => v is List
           ? v.map((e) => e?.toString() ?? '').where((s) => s.isNotEmpty).toList()
           : (str(v).isNotEmpty ? [str(v)] : <String>[]);
+      List<String> commaList(dynamic v) => str(v)
+          .split(',')
+          .map((e) => e.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
       String firstOf(dynamic v) {
         final l = strList(v);
         return l.isEmpty ? '' : l.first;
@@ -201,21 +206,21 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
         _smokingHabits = firstOf(pref['preferred_smoking_habits']);
         _drinkingHabits = firstOf(pref['preferred_drinking_habits']);
         _religion = str(pref['preferred_religion']);
-        _caste = str(pref['preferred_caste']);
-        _subcaste = str(pref['preferred_subcaste']);
+        _caste = commaList(pref['preferred_caste']);
+        _subcaste = commaList(pref['preferred_subcaste']);
         _casteCompulsory = pref['caste_compulsory'] == true;
-        _star = str(pref['preferred_star']);
-        _raasiValue = str(pref['preferred_raasi']);
-        _dosham = str(pref['preferred_dosham']);
+        _star = commaList(pref['preferred_star']);
+        _raasiValue = commaList(pref['preferred_raasi']);
+        _dosham = commaList(pref['preferred_dosham']);
         _education = strList(pref['preferred_education']);
         _degrees = strList(pref['preferred_degrees']);
         _branchesSel = strList(pref['preferred_branches']);
         _employedIn = strList(pref['preferred_employed_in']);
         _occupation = strList(pref['preferred_occupation']);
-        _incomeMin = str(pref['preferred_annual_income_min']);
-        _country = str(pref['preferred_country']);
-        _state = str(pref['preferred_state']);
-        _city = str(pref['preferred_city']);
+        _incomeMin = commaList(pref['preferred_annual_income_min']);
+        _country = commaList(pref['preferred_country']);
+        _state = commaList(pref['preferred_state']);
+        _city = commaList(pref['preferred_city']);
       } else if (profile != null) {
         // Smart defaults from the member's own profile — same as web.
         final userAge = int.tryParse(str(profile['age'])) ?? 25;
@@ -228,20 +233,20 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
             ? str(profile['marital_status'])
             : 'Never Married';
         _religion = str(profile['religion']);
-        _caste = str(profile['caste']);
+        _caste = str(profile['caste']).isNotEmpty ? [str(profile['caste'])] : [];
         _subcaste =
-            str(profile['subcaste']).isNotEmpty ? str(profile['subcaste']) : 'Any';
+            str(profile['subcaste']).isNotEmpty ? [str(profile['subcaste'])] : ['Any'];
         _eatingHabits = str(profile['food_preference']).isNotEmpty
             ? str(profile['food_preference'])
             : 'Any';
         _languages = strList(profile['languages']);
-        _star = str(horoscope?['star']).isNotEmpty ? str(horoscope?['star']) : 'Any';
+        _star = str(horoscope?['star']).isNotEmpty ? [str(horoscope?['star'])] : [];
         _raasiValue = str(horoscope?['zodiac_sign']).isNotEmpty
-            ? str(horoscope?['zodiac_sign'])
-            : 'Any';
+            ? [str(horoscope?['zodiac_sign'])]
+            : [];
         _dosham = str(horoscope?['dhosham']).isNotEmpty
-            ? str(horoscope?['dhosham'])
-            : 'Any';
+            ? [str(horoscope?['dhosham'])]
+            : [];
         final edu = str(education?['education']);
         if (edu.isNotEmpty) _education = [edu];
       }
@@ -254,11 +259,11 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
   // ── Derived options ──────────────────────────────────────────────────────
 
   List<String> get _filteredSubcastes {
-    if (_caste.isEmpty || _caste == 'Any') return const ['Any'];
+    if (_caste.isEmpty || _caste.contains('Any')) return const ['Any'];
     final filtered = _subcasteRows
         .where((s) {
           final cat = s['category']?.trim() ?? '';
-          return cat.isEmpty || cat == _caste;
+          return cat.isEmpty || _caste.contains(cat);
         })
         .map((s) => s['value']?.trim() ?? '')
         .where((v) => v.isNotEmpty)
@@ -316,20 +321,20 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
       'preferred_smoking_habits': orAny(_smokingHabits),
       'preferred_drinking_habits': orAny(_drinkingHabits),
       'preferred_religion': orNull(_religion),
-      'preferred_caste': orNull(_caste),
-      'preferred_subcaste': orNull(_subcaste),
-      'preferred_star': orNull(_star),
-      'preferred_raasi': orNull(_raasiValue),
-      'preferred_dosham': orNull(_dosham),
+      'preferred_caste': _caste.isNotEmpty ? _caste.join(', ') : null,
+      'preferred_subcaste': _subcaste.isNotEmpty ? _subcaste.join(', ') : null,
+      'preferred_star': _star.isNotEmpty ? _star.join(', ') : null,
+      'preferred_raasi': _raasiValue.isNotEmpty ? _raasiValue.join(', ') : null,
+      'preferred_dosham': _dosham.isNotEmpty ? _dosham.join(', ') : null,
       'preferred_education': _education,
       'preferred_degrees': _degrees,
       'preferred_branches': _branchesSel,
       'preferred_employed_in': _employedIn,
       'preferred_occupation': _occupation,
-      'preferred_annual_income_min': orNull(_incomeMin),
-      'preferred_country': orNull(_country),
-      'preferred_state': orNull(_state),
-      'preferred_city': orNull(_city),
+      'preferred_annual_income_min': _incomeMin.isNotEmpty ? _incomeMin.join(', ') : null,
+      'preferred_country': _country.isNotEmpty ? _country.join(', ') : null,
+      'preferred_state': _state.isNotEmpty ? _state.join(', ') : null,
+      'preferred_city': _city.isNotEmpty ? _city.join(', ') : null,
       if (_casteCompulsoryColumnExists) 'caste_compulsory': _casteCompulsory,
     };
 
@@ -415,6 +420,7 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
     required ValueChanged<List<String>> onPicked,
   }) async {
     final selected = current.where((s) => s != 'Any').toSet();
+    String? _searchQuery;
     final picked = await showModalBottomSheet<List<String>>(
       context: context,
       isScrollControlled: true,
@@ -449,34 +455,61 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
                     ],
                   ),
                 ),
-                Flexible(
-                  child: ListView(
-                    shrinkWrap: true,
-                    children: [
-                      CheckboxListTile(
-                        dense: true,
-                        activeColor: _brand,
-                        title: const Text('Any'),
-                        value: selected.isEmpty,
-                        onChanged: (_) =>
-                            setSheetState(() => selected.clear()),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Search...',
+                      prefixIcon: const Icon(Icons.search),
+                      filled: true,
+                      fillColor: const Color(0xFFF5F6FA),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
                       ),
-                      for (final opt in options.where((o) => o != 'Any'))
-                        CheckboxListTile(
-                          dense: true,
-                          activeColor: _brand,
-                          title: Text(opt),
-                          value: selected.contains(opt),
-                          onChanged: (v) => setSheetState(() {
-                            if (v == true) {
-                              selected.add(opt);
-                            } else {
-                              selected.remove(opt);
-                            }
-                          }),
-                        ),
-                    ],
+                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                    ),
+                    onChanged: (val) {
+                      setSheetState(() {
+                        // The actual filtering is done below in the ListView
+                        _searchQuery = val.toLowerCase();
+                      });
+                    },
                   ),
+                ),
+                Flexible(
+                  child: Builder(builder: (context) {
+                    final sq = _searchQuery ?? '';
+                    final filteredOpts = options.where((o) => o != 'Any' && (sq.isEmpty || o.toLowerCase().contains(sq))).toList();
+                    return ListView(
+                      shrinkWrap: true,
+                      children: [
+                        if (sq.isEmpty)
+                          CheckboxListTile(
+                            dense: true,
+                            activeColor: _brand,
+                            title: const Text('Any'),
+                            value: selected.isEmpty,
+                            onChanged: (_) =>
+                                setSheetState(() => selected.clear()),
+                          ),
+                        for (final opt in filteredOpts)
+                          CheckboxListTile(
+                            dense: true,
+                            activeColor: _brand,
+                            title: Text(opt),
+                            value: selected.contains(opt),
+                            onChanged: (v) => setSheetState(() {
+                              if (v == true) {
+                                selected.add(opt);
+                              } else {
+                                selected.remove(opt);
+                              }
+                            }),
+                          ),
+                      ],
+                    );
+                  }),
                 ),
               ],
             ),
@@ -707,18 +740,18 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
                         options: _religionOptions,
                         current: _religion,
                         onPicked: (v) => setState(() => _religion = v))),
-                    _selectTile('Caste', _caste, () => _pickSingle(
+                    _multiTile('Caste', _caste, () => _pickMulti(
                         title: 'Caste',
                         options: _casteOptions,
                         current: _caste,
                         onPicked: (v) => setState(() {
                               _caste = v;
-                              _subcaste = '';
-                              if (v.isEmpty) _casteCompulsory = false;
+                              _subcaste = ['Any'];
+                              if (v.isEmpty || v.contains('Any')) _casteCompulsory = false;
                             }))),
-                    _selectTile('Subcaste', _subcaste, () {
+                    _multiTile('Subcaste', _subcaste, () {
                       if (_caste.isEmpty) return;
-                      _pickSingle(
+                      _pickMulti(
                           title: 'Subcaste',
                           options: _filteredSubcastes,
                           current: _subcaste,
@@ -734,23 +767,23 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
                           'When enabled, only profiles matching your caste and subcaste preferences are shown.',
                           style: TextStyle(fontSize: 11.5)),
                       value: _casteCompulsory,
-                      onChanged: _caste.isEmpty
+                      onChanged: _caste.isEmpty || _caste.contains('Any')
                           ? null
                           : (v) => setState(() => _casteCompulsory = v),
                     ),
                     const SizedBox(height: 4),
-                    _selectTile('Star (Nakshatra)', _star, () => _pickSingle(
+                    _multiTile('Star (Nakshatra)', _star, () => _pickMulti(
                         title: 'Star (Nakshatra)',
                         options: _stars,
                         current: _star,
                         onPicked: (v) => setState(() => _star = v))),
-                    _selectTile('Raasi / Zodiac Sign', _raasiValue, () =>
-                        _pickSingle(
+                    _multiTile('Raasi / Zodiac Sign', _raasiValue, () =>
+                        _pickMulti(
                             title: 'Raasi / Zodiac Sign',
                             options: _raasi,
                             current: _raasiValue,
                             onPicked: (v) => setState(() => _raasiValue = v))),
-                    _selectTile('Dosham', _dosham, () => _pickSingle(
+                    _multiTile('Dosham', _dosham, () => _pickMulti(
                         title: 'Dosham',
                         options: const ['Any', 'No', 'Yes', "Doesn't Matter"],
                         current: _dosham,
@@ -792,23 +825,23 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
                             options: _occupations,
                             current: _occupation,
                             onPicked: (v) => setState(() => _occupation = v))),
-                    _selectTile('Preferred Annual Income (From)', _incomeMin,
-                        () => _pickSingle(
+                    _multiTile('Preferred Annual Income (From)', _incomeMin,
+                        () => _pickMulti(
                             title: 'Preferred Annual Income (From)',
                             options: _incomeOptions,
                             current: _incomeMin,
                             onPicked: (v) => setState(() => _incomeMin = v))),
-                    _selectTile('Country', _country, () => _pickSingle(
+                    _multiTile('Country', _country, () => _pickMulti(
                         title: 'Country',
                         options: _countries,
                         current: _country,
                         onPicked: (v) => setState(() => _country = v))),
-                    _selectTile('State', _state, () => _pickSingle(
+                    _multiTile('State', _state, () => _pickMulti(
                         title: 'State',
                         options: _states,
                         current: _state,
                         onPicked: (v) => setState(() => _state = v))),
-                    _selectTile('City', _city, () => _pickSingle(
+                    _multiTile('City', _city, () => _pickMulti(
                         title: 'City',
                         options: _cities,
                         current: _city,

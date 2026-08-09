@@ -44,6 +44,8 @@ class _MutualExtras {
     this.contact,
     this.contactAllowed = false,
     this.contactError,
+    this.contactRemaining,
+    this.contactLimit,
     this.education = const [],
     this.employee,
     this.business,
@@ -59,6 +61,12 @@ class _MutualExtras {
 
   /// Server's denial reason (upgrade prompt / limit reached), if any.
   final String? contactError;
+
+  /// Remaining contact views for this session (null = unlimited or unknown).
+  final int? contactRemaining;
+
+  /// Total contact view limit for this plan (null = unlimited or unknown).
+  final int? contactLimit;
 
   final List<Map<String, dynamic>> education;
   final Map<String, dynamic>? employee;
@@ -109,10 +117,23 @@ Future<_MutualExtras> _loadMutualExtras(
   final allowed = unlockRes.ok && unlockRes.data['allowed'] == true;
   final contact = allowed ? await single('contact_details') : null;
 
+  // Parse remaining / limit from the API response
+  // JSON numbers may arrive as int or double — use num to safely convert.
+  int? remaining;
+  int? limit;
+  if (unlockRes.ok) {
+    final r = unlockRes.data['remaining'];
+    final l = unlockRes.data['limit'];
+    if (r != null) remaining = (r as num).toInt();
+    if (l != null) limit = (l as num).toInt();
+  }
+
   return _MutualExtras(
     contact: contact,
     contactAllowed: allowed,
     contactError: allowed ? null : unlockRes.error,
+    contactRemaining: remaining,
+    contactLimit: limit,
     education: results[0] as List<Map<String, dynamic>>,
     employee: results[1] as Map<String, dynamic>?,
     business: results[2] as Map<String, dynamic>?,
@@ -287,6 +308,45 @@ class _MutualMatchSheetState extends State<_MutualMatchSheet> {
               color: Colors.black.withValues(alpha: 0.55),
             ),
           ),
+          if (!_loading &&
+              _extras.contactAllowed &&
+              _extras.contactRemaining != null &&
+              _extras.contactLimit != null) ...
+            [
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: _extras.contactRemaining! <= 3
+                      ? const Color(0xFFFEE2E2)
+                      : const Color(0xFFD1FAE5),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.contacts_rounded,
+                      size: 12,
+                      color: _extras.contactRemaining! <= 3
+                          ? const Color(0xFFDC2626)
+                          : const Color(0xFF059669),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      '${_extras.contactRemaining} of ${_extras.contactLimit} contact views remaining',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: _extras.contactRemaining! <= 3
+                            ? const Color(0xFFDC2626)
+                            : const Color(0xFF059669),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
         ],
       ),
     );
@@ -440,14 +500,6 @@ class _MutualMatchSheetState extends State<_MutualMatchSheet> {
               },
               onLongPress: () => _copyToClipboard(whatsapp, 'WhatsApp number'),
             ),
-          ],
-          if (hasCurrentAddr) ...[
-            const SizedBox(height: 14),
-            _addressBlock(c, 'current_', 'Current address'),
-          ],
-          if (hasPermanentAddr) ...[
-            const SizedBox(height: 14),
-            _addressBlock(c, 'permanent_', 'Permanent address'),
           ],
         ],
       ),

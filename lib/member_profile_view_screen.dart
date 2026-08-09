@@ -11,6 +11,10 @@ import 'user_match_service.dart';
 import 'user_profile_completion.dart';
 import 'web_api.dart';
 import 'widgets/adaptive_network_photo.dart';
+import 'premium_utils.dart';
+import 'astrology.dart';
+import 'profile_scoring.dart';
+import 'compatibility_sheet.dart';
 
 String _formatDobDisplay(dynamic v) {
   if (v == null) return '—';
@@ -145,8 +149,9 @@ int? _coerceInt(dynamic v) {
     m++;
   }
 
-  final prefCaste = pr['preferred_caste']?.toString();
-  if (prefCaste == null || prefCaste.isEmpty || prefCaste == 'Any' || v['caste']?.toString() == prefCaste) {
+  final prefCasteStr = pr['preferred_caste']?.toString();
+  final prefCasteArr = prefCasteStr != null && prefCasteStr.isNotEmpty ? prefCasteStr.split(', ') : <String>[];
+  if (prefCasteArr.isEmpty || prefCasteArr.contains('Any') || prefCasteArr.contains(v['caste']?.toString())) {
     m++; // web tracks caste separately in matchResults but one combined PrefRow
   }
 
@@ -234,6 +239,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   String? _error;
 
   String _name = '';
+  String? _profileCode;
   int? _age;
   String? _sex;
   String _location = '';
@@ -279,6 +285,8 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   bool _isMutual = false;
   String? _iLikedStatus;
   String? _likedMeStatus;
+  DateTime? _iLikedDate;
+  DateTime? _shortlistedDate;
   bool _socialBusy = false;
 
   Map<String, dynamic>? _partnerPrefs;
@@ -286,6 +294,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   static const int _prefMatchTotal = 21;
   final Map<String, bool> _revealedLocked = {};
   Map<String, bool> _prefRowMatches = {};
+  int? _poruthamScore;
 
   /// Education rows only (unlocked). Profession rows are premium-gated separately.
   List<(String, String)> _educationOnlyRows = [];
@@ -293,6 +302,39 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   List<(String, String)> _professionLockedRows = [];
   Map<String, dynamic>? _fullContact;
   String? _contactAddressLine;
+  int? _contactViewsRemaining;
+  int? _contactViewsLimit;
+  final Set<String> _revealingKeys = {};
+
+  Future<void> _handleReveal(String rowKey, bool isContactView) async {
+    if (!isContactView) {
+      setState(() => _revealedLocked[rowKey] = true);
+      return;
+    }
+
+    setState(() => _revealingKeys.add(rowKey));
+    try {
+      final res = await WebApi.post('/api/contact-view', {'viewedUserId': widget.targetUserId});
+      if (!mounted) return;
+      if (res.ok && res.data['allowed'] == true) {
+        setState(() {
+          _revealedLocked[rowKey] = true;
+          final r = res.data['remaining'];
+          final l = res.data['limit'];
+          if (r != null) _contactViewsRemaining = (r as num).toInt();
+          if (l != null) _contactViewsLimit = (l as num).toInt();
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(res.error ?? 'Could not reveal contact details.', textAlign: TextAlign.center)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _revealingKeys.remove(rowKey));
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -304,6 +346,14 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   void dispose() {
     _photoPageController.dispose();
     super.dispose();
+  }
+
+  Future<void> _recordView() async {
+    try {
+      await WebApi.post('/api/views', {'viewedUserId': widget.targetUserId});
+    } catch (_) {
+      // Silently ignore view recording errors
+    }
   }
 
   Future<void> _load() async {
@@ -326,6 +376,9 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         return;
       }
 
+      // Fire-and-forget view recording
+      _recordView();
+
       Map<String, dynamic>? contact;
       Map<String, dynamic>? photosRow;
       List<dynamic> eduRes = [];
@@ -338,6 +391,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       Map<String, dynamic>? soc;
       Map<String, dynamic>? partnerPrefs;
       Map<String, dynamic>? viewerPersonal;
+      Map<String, dynamic>? viewerHoro;
       List<Map<String, dynamic>> viewerEducation = [];
 
       final viewerId = c.auth.currentUser?.id;
@@ -349,6 +403,8 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       var isMutual = false;
       String? iLikedStatus;
       String? likedMeStatus;
+      DateTime? iLikedDate;
+      DateTime? shortlistedDate;
       var prefMatchCount = 0;
       Map<String, bool> prefRowMatches = {};
 
@@ -405,35 +461,41 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         partnerPrefs = _asStringKeyedMap(r);
       });
       await runOptional('target_user_settings', () async {
-        final r = await c.from('user_settings').select('is_premium, premium_plan').eq('user_id', uid).maybeSingle();
+        final r = await c.from('user_settings').select('is_premium, premium_plan, premium_expires_at').eq('user_id', uid).maybeSingle();
         final m = _asStringKeyedMap(r);
         if (m != null) {
-          targetPremium = m['is_premium'] == true;
+          targetPremium = isPremiumActive(m);
           targetPlan = m['premium_plan']?.toString();
         }
       });
       if (viewerId != null && viewerId != uid) {
         await runOptional('viewer_premium', () async {
-          final r = await c.from('user_settings').select('is_premium').eq('user_id', viewerId).maybeSingle();
+          final r = await c.from('user_settings').select('is_premium, premium_expires_at').eq('user_id', viewerId).maybeSingle();
           final m = _asStringKeyedMap(r);
-          if (m != null) viewerPremium = m['is_premium'] == true;
+          if (m != null) viewerPremium = isPremiumActive(m);
         });
         await runOptional('likes', () async {
-          final myLikeRow = await c.from('likes').select('status').eq('user_id', viewerId).eq('liked_user_id', uid).maybeSingle();
-          final theirLikeRow = await c.from('likes').select('status').eq('user_id', uid).eq('liked_user_id', viewerId).maybeSingle();
+          final myLikeRow = await c.from('likes').select('status, created_at').eq('user_id', viewerId).eq('liked_user_id', uid).maybeSingle();
+          final theirLikeRow = await c.from('likes').select('status, created_at').eq('user_id', uid).eq('liked_user_id', viewerId).maybeSingle();
           isLiked = myLikeRow != null;
           iLikedStatus = myLikeRow != null ? myLikeRow['status']?.toString() : null;
+          if (myLikeRow != null && myLikeRow['created_at'] != null) {
+            iLikedDate = DateTime.tryParse(myLikeRow['created_at'].toString())?.toLocal();
+          }
           likedMeStatus = theirLikeRow != null ? theirLikeRow['status']?.toString() : null;
           isMutual = myLikeRow != null && theirLikeRow != null;
         });
         await runOptional('shortlist', () async {
           final r = await c
               .from('shortlists')
-              .select('user_id')
+              .select('user_id, created_at')
               .eq('user_id', viewerId)
               .eq('shortlisted_user_id', uid)
               .maybeSingle();
           isShortlisted = r != null;
+          if (r != null && r['created_at'] != null) {
+            shortlistedDate = DateTime.tryParse(r['created_at'].toString())?.toLocal();
+          }
         });
         if (partnerPrefs != null) {
           await runOptional('viewer_personal', () async {
@@ -467,7 +529,25 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
           prefMatchCount = bundle.matches;
           prefRowMatches = bundle.rows;
         }
+
+        await runOptional('viewer_horoscope', () async {
+          final r = await c.from('horoscope_details').select('star, zodiac_sign').eq('user_id', viewerId!).maybeSingle();
+          viewerHoro = _asStringKeyedMap(r);
+        });
       }
+      
+      int? porutham;
+      if (viewerHoro != null && viewerHoro!['star'] != null && horo != null && horo!['star'] != null) {
+        final isFemale = (pdMap['sex']?.toString().toLowerCase() == 'female') || (pdMap['gender']?.toString().toLowerCase() == 'female');
+        final scoreRes = checkTamilPorutham(
+          girlStar: isFemale ? horo!['star'].toString() : viewerHoro!['star'].toString(),
+          girlRashi: isFemale ? (horo!['zodiac_sign']?.toString() ?? '') : (viewerHoro!['zodiac_sign']?.toString() ?? ''),
+          boyStar: isFemale ? viewerHoro!['star'].toString() : horo!['star'].toString(),
+          boyRashi: isFemale ? (viewerHoro!['zodiac_sign']?.toString() ?? '') : (horo!['zodiac_sign']?.toString() ?? ''),
+        );
+        porutham = scoreRes.score;
+      }
+      
       DateTime? lastActiveAt;
       // `users` table is RLS-restricted on some deployments — failures here
       // simply hide the activity label rather than break the whole profile.
@@ -697,11 +777,15 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         _isMutual = isMutual;
         _iLikedStatus = iLikedStatus;
         _likedMeStatus = likedMeStatus;
+        _iLikedDate = iLikedDate;
+        _shortlistedDate = shortlistedDate;
         _partnerPrefs = partnerPrefs;
         _prefMatchCount = prefMatchCount;
         _prefRowMatches = prefRowMatches;
+        _poruthamScore = porutham;
         _revealedLocked.clear();
         _name = pdMap['name']?.toString().trim().isNotEmpty == true ? pdMap['name'].toString() : 'Member';
+        _profileCode = pdMap['profile_code']?.toString();
         _age = _coerceInt(pdMap['age']);
         _sex = pdMap['sex']?.toString();
         _marital = pdMap['marital_status']?.toString();
@@ -726,6 +810,19 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         _fullContact = fullContact;
         _contactAddressLine = contactAddressLine;
         _loading = false;
+      });
+
+      // Fetch contact-view remaining count (non-blocking, fires after main load)
+      WebApi.get('/api/contact-view').then((res) {
+        if (!mounted || !res.ok) return;
+        final r = res.data['remaining'];
+        final l = res.data['limit'];
+        if (r != null && l != null) {
+          setState(() {
+            _contactViewsRemaining = (r as num).toInt();
+            _contactViewsLimit = (l as num).toInt();
+          });
+        }
       });
     } catch (e, st) {
       debugPrint('MemberProfileView: $e\n$st');
@@ -756,8 +853,6 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
     final wa = m['whatsapp_number']?.toString().trim();
     if (phone != null && phone.isNotEmpty) rows.add(('Phone number', phone));
     if (wa != null && wa.isNotEmpty) rows.add(('WhatsApp', wa));
-    final addr = _contactAddressLine?.trim();
-    if (addr != null && addr.isNotEmpty) rows.add(('Address', addr));
     return rows;
   }
 
@@ -803,6 +898,44 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         ),
       ),
     );
+  }
+
+  Widget _activityBanner({
+    required IconData icon,
+    required Color color,
+    required String text,
+    DateTime? date,
+  }) {
+    final dateStr = date != null
+        ? '${date.day.toString().padLeft(2, '0')} ${_monthAbbr(date.month)} ${date.year}'
+        : '';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      color: color.withValues(alpha: 0.08),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              dateStr.isNotEmpty ? '$text on $dateStr' : text,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _monthAbbr(int month) {
+    const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    if (month < 1 || month > 12) return '';
+    return m[month - 1];
   }
 
   void _toast(String msg) {
@@ -888,6 +1021,14 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
               },
             ),
             ListTile(
+              leading: Icon(Icons.flag_outlined, color: Colors.red.shade700),
+              title: Text('Report member', style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.w700)),
+              onTap: () {
+                Navigator.pop(ctx2);
+                _showReportDialog(ctx);
+              },
+            ),
+            ListTile(
               leading: Icon(Icons.block_rounded, color: Colors.red.shade700),
               title: Text('Block', style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.w700)),
               onTap: () async {
@@ -928,6 +1069,96 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
     }
     _toast('Profile skipped.');
     if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+  }
+
+  Future<void> _showReportDialog(BuildContext ctx) async {
+    final uid = _viewerId;
+    if (uid == null) return;
+    String? selectedReason;
+    final detailsController = TextEditingController();
+    bool busy = false;
+
+    final reasons = {
+      'fake_profile': 'Fake profile',
+      'harassment': 'Harassment',
+      'inappropriate_content': 'Inappropriate content',
+      'scam': 'Scam',
+      'already_married': 'Already married',
+      'other': 'Other',
+    };
+
+    await showDialog(
+      context: ctx,
+      builder: (dctx) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: const Text('Report member'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Why are you reporting this profile?', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  ...reasons.entries.map((e) => RadioListTile<String>(
+                    title: Text(e.value),
+                    value: e.key,
+                    groupValue: selectedReason,
+                    onChanged: (val) => setState(() => selectedReason = val),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  )),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: detailsController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      hintText: 'Additional details (optional)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: busy ? null : () => Navigator.pop(dctx),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: (busy || selectedReason == null) ? null : () async {
+                  setState(() => busy = true);
+                  try {
+                    final res = await WebApi.post('/api/reports', {
+                      'reportedUserId': widget.targetUserId,
+                      'reason': selectedReason,
+                      'details': detailsController.text.trim(),
+                    });
+                    if (!context.mounted) return;
+                    Navigator.pop(dctx);
+                    if (res.ok) {
+                      _toast('Report submitted. Our team will review this profile.');
+                    } else if (res.status == 409) {
+                      _toast('You have already reported this profile.');
+                    } else {
+                      _toast(res.data['error']?.toString() ?? 'Failed to report profile');
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      Navigator.pop(dctx);
+                      _toast('Network error. Try again.');
+                    }
+                  }
+                },
+                child: busy
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('Submit'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _confirmBlock(BuildContext ctx) async {
@@ -1022,6 +1253,9 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
     required String title,
     required IconData icon,
     required List<(String, String)> rows,
+    int? viewsRemaining,
+    int? viewsLimit,
+    bool isContactView = false,
   }) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
@@ -1052,6 +1286,43 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
                     Icon(Icons.lock_outline_rounded, size: 14, color: Colors.black.withValues(alpha: 0.35)),
                 ],
               ),
+              // Contact view remaining counter pill
+              if (viewsRemaining != null && viewsLimit != null) ...
+                [
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: viewsRemaining <= 3
+                          ? const Color(0xFFFEE2E2)
+                          : const Color(0xFFD1FAE5),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.contacts_rounded,
+                          size: 11,
+                          color: viewsRemaining <= 3
+                              ? const Color(0xFFDC2626)
+                              : const Color(0xFF059669),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$viewsRemaining of $viewsLimit contact views remaining',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: viewsRemaining <= 3
+                                ? const Color(0xFFDC2626)
+                                : const Color(0xFF059669),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               const SizedBox(height: 12),
               ...List.generate(rows.length, (i) {
                 final (label, value) = rows[i];
@@ -1074,7 +1345,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
                           ),
                         ),
                       ),
-                      Expanded(child: _lockedValueCell(label, value)),
+                      Expanded(child: _lockedValueCell(label, value, isContactView: isContactView)),
                     ],
                   ),
                 );
@@ -1086,7 +1357,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
     );
   }
 
-  Widget _lockedValueCell(String rowKey, String rawValue) {
+  Widget _lockedValueCell(String rowKey, String rawValue, {bool isContactView = false}) {
     final empty = rawValue == '—' || rawValue.trim().isEmpty;
     if (empty) {
       return Text(
@@ -1119,12 +1390,15 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
     }
     final revealed = _revealedLocked[rowKey] == true;
     if (!revealed) {
+      final isRevealing = _revealingKeys.contains(rowKey);
       return Align(
         alignment: Alignment.centerRight,
         child: OutlinedButton.icon(
-          onPressed: () => setState(() => _revealedLocked[rowKey] = true),
-          icon: const Icon(Icons.workspace_premium_rounded, size: 14),
-          label: const Text('REVEAL'),
+          onPressed: isRevealing ? null : () => _handleReveal(rowKey, isContactView),
+          icon: isRevealing 
+              ? SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: _brand))
+              : const Icon(Icons.workspace_premium_rounded, size: 14),
+          label: Text(isRevealing ? 'REVEALING...' : 'REVEAL'),
           style: OutlinedButton.styleFrom(
             foregroundColor: _brand,
             side: BorderSide(color: _brand.withValues(alpha: 0.45)),
@@ -1821,14 +2095,64 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
                   ),
           ),
           if (_incomingPhotoRequest) _incomingPhotoRequestBanner(),
+          if (_isLiked) _activityBanner(
+            icon: Icons.favorite_rounded,
+            color: const Color(0xFFFF5722),
+            text: _isMutual ? "It's a Match! You both liked each other" : "You sent an interest",
+            date: _iLikedDate,
+          ),
+          if (_isShortlisted && !_isLiked) _activityBanner(
+            icon: Icons.bookmark_rounded,
+            color: _brand,
+            text: 'You shortlisted this profile',
+            date: _shortlistedDate,
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  _name,
-                  style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: -0.5),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _name,
+                        style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: -0.5),
+                      ),
+                    ),
+                    if (_poruthamScore != null && _viewerId != null && _viewerId != widget.targetUserId)
+                      GestureDetector(
+                        onTap: () {
+                          showCompatibilitySheet(
+                            context,
+                            targetUserId: widget.targetUserId,
+                            targetName: _name,
+                          );
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.only(left: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4))],
+                            border: Border.all(color: const Color(0xFFE87898).withValues(alpha: 0.3)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.stars_rounded, size: 16, color: Color(0xFFE87898)),
+                              const SizedBox(width: 4),
+                              Text(
+                                '$_poruthamScore/10',
+                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1F4068)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 6),
                 Text(
@@ -1850,9 +2174,34 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
                     ),
                   ],
                 ),
-                if (formatActivityTime(_lastActiveAt).isNotEmpty) ...[
+                if (formatActivityTime(_lastActiveAt).isNotEmpty || _profileCode != null) ...[
                   const SizedBox(height: 10),
-                  _activityPill(_lastActiveAt),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (formatActivityTime(_lastActiveAt).isNotEmpty)
+                        _activityPill(_lastActiveAt),
+                      if (_profileCode != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: Text(
+                            'ID: $_profileCode',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade700,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
                 if (_targetIsPremium) ...[
                   const SizedBox(height: 10),
@@ -1907,6 +2256,9 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
               title: 'Contact & location',
               icon: Icons.phone_in_talk_outlined,
               rows: _contactLockedRows,
+              viewsRemaining: _contactViewsRemaining,
+              viewsLimit: _contactViewsLimit,
+              isContactView: true,
             ),
           if (_partnerPrefs != null && _partnerPrefs!.isNotEmpty) _partnerPreferencesSection(),
           if (_showVisitorChrome) const SizedBox(height: 88),

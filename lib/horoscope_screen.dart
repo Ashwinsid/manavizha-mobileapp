@@ -12,6 +12,16 @@ import 'horoscope_location_options.dart';
 import 'profile_extended_details.dart' show ProfileExtendedRepository;
 import 'widgets/south_indian_chart.dart';
 
+const _kHoroscopeQuickCities = <String>[
+  'Ariyalur', 'Chengalpattu', 'Chennai', 'Coimbatore', 'Cuddalore', 'Dharmapuri',
+  'Dindigul', 'Erode', 'Kallakurichi', 'Kanchipuram', 'Kanyakumari', 'Karur',
+  'Krishnagiri', 'Madurai', 'Mayiladuthurai', 'Nagapattinam', 'Namakkal',
+  'Nilgiris', 'Perambalur', 'Pudukkottai', 'Ramanathapuram', 'Ranipet',
+  'Salem', 'Sivaganga', 'Tenkasi', 'Thanjavur', 'Theni', 'Thoothukudi',
+  'Tiruchirappalli', 'Tirunelveli', 'Tirupathur', 'Tiruppur', 'Tiruvallur',
+  'Tiruvannamalai', 'Tiruvarur', 'Vellore', 'Viluppuram', 'Virudhunagar',
+];
+
 /// Flutter port of [manavizha/app/horoscope/page.tsx] — Vedic horoscope
 /// generator. Uses the mean-motion engine from [astrology.dart] (matching
 /// the web's `vedic-astro` *fallback* code path), provides a 12×11 manual
@@ -459,12 +469,19 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
   Future<void> _downloadPdf() async {
     final result = _active;
     if (result == null) return;
-    final pdfData = await _buildPdf(result);
-    if (!mounted) return;
-    await Printing.layoutPdf(
-      onLayout: (format) async => pdfData,
-      name: 'Horoscope_${(_name.text.trim().isEmpty ? 'Unknown' : _name.text.trim())}.pdf',
-    );
+    try {
+      final pdfData = await _buildPdf(result);
+      if (!mounted) return;
+      await Printing.layoutPdf(
+        onLayout: (format) async => pdfData,
+        name: 'Horoscope_${(_name.text.trim().isEmpty ? 'Unknown' : _name.text.trim())}.pdf',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('PDF generation failed: $e')),
+      );
+    }
   }
 
   @override
@@ -683,32 +700,50 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
             onTap: _pickTob,
           ),
           const SizedBox(height: 10),
-          TextField(
-            controller: _city,
-            decoration: _dec('Birth city', hint: 'E.g., Chennai'),
+          Autocomplete<String>(
+            optionsBuilder: (TextEditingValue textEditingValue) {
+              if (textEditingValue.text.isEmpty) return _kHoroscopeQuickCities;
+              return _kHoroscopeQuickCities.where((c) => c.toLowerCase().contains(textEditingValue.text.toLowerCase()));
+            },
+            onSelected: (String selection) => _city.text = selection,
+            fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
+              // Sync our outer controller with this inner one if needed, or just let it be.
+              // Actually, best to use our _city controller directly. But Autocomplete requires its own.
+              // Let's just listen to it.
+              controller.text = _city.text;
+              controller.addListener(() { _city.text = controller.text; });
+              return TextField(
+                controller: controller,
+                focusNode: focusNode,
+                decoration: _dec('Birth city', hint: 'Select or type a city'),
+              );
+            },
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _state,
             decoration: _dec('Birth state / region'),
             items: [
               for (final s in kIndianStatesAndUTs)
-                DropdownMenuItem(value: s, child: Text(s)),
+                DropdownMenuItem(value: s, child: Text(s, overflow: TextOverflow.ellipsis)),
             ],
             onChanged: (v) => setState(() => _state = v),
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _country,
             decoration: _dec('Birth country'),
             items: [
               for (final c in kWorldCountries)
-                DropdownMenuItem(value: c, child: Text(c)),
+                DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis)),
             ],
             onChanged: (v) => setState(() => _country = v),
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _method,
             decoration: _dec('Calculation method'),
             items: const [
@@ -1074,31 +1109,25 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
         final chartWidth = wide ? (constraints.maxWidth - 16) / 2 : constraints.maxWidth;
         final rasi = SizedBox(
           width: chartWidth,
-          child: AspectRatio(
-            aspectRatio: 1,
-            child: SouthIndianChart(
-              type: 'Rasi',
-              title: 'ராசி (பிறந்த அட்டவணை)',
-              planetsByHouse: rasiHouses,
-              centerLines: [
-                if (r.star.isNotEmpty) r.star,
-                if (_dob != null) _formatDob(_dob!),
-                if (_tob != null) _formatTob(_tob!),
-              ],
-              editable: r.isManual,
-              onTapHouse: r.isManual ? (h) => _toggleManual(_activeManualPlanet, h) : null,
-            ),
+          child: SouthIndianChart(
+            type: 'Rasi',
+            title: 'ராசி (பிறந்த அட்டவணை)',
+            planetsByHouse: rasiHouses,
+            centerLines: [
+              if (r.star.isNotEmpty) r.star,
+              if (_dob != null) _formatDob(_dob!),
+              if (_tob != null) _formatTob(_tob!),
+            ],
+            editable: r.isManual,
+            onTapHouse: r.isManual ? (h) => _toggleManual(_activeManualPlanet, h) : null,
           ),
         );
         final nav = SizedBox(
           width: chartWidth,
-          child: AspectRatio(
-            aspectRatio: 1,
-            child: SouthIndianChart(
-              type: 'Navamsam',
-              title: 'நவாம்சம்',
-              planetsByHouse: navHouses,
-            ),
+          child: SouthIndianChart(
+            type: 'Navamsam',
+            title: 'நவாம்சம்',
+            planetsByHouse: navHouses,
           ),
         );
         if (wide) {
@@ -1425,7 +1454,7 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
 
     pw.Widget chart(String title, Map<int, List<String>> houses, {List<String> center = const []}) {
       return pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
         children: [
           pw.Container(
             color: pw_color.PdfColor.fromInt(0xFFEEF2FF),
@@ -1434,13 +1463,16 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
           ),
           pw.SizedBox(height: 2),
           pw.Container(
+            width: 160,
+            height: 160,
             decoration: pw.BoxDecoration(
-              border: pw.Border.all(color: pw_color.PdfColor.fromInt(0xFF7E22CE), width: 1.4),
+              border: pw.Border.all(color: pw_color.PdfColor.fromInt(0xFF7E22CE), width: 1.0),
             ),
-            child: pw.Table(
-              border: pw.TableBorder.all(color: pw_color.PdfColor.fromInt(0xFF7E22CE), width: 0.7),
-              children: List.generate(4, (row) {
-                final cells = List.generate(4, (col) {
+            child: pw.Stack(
+              children: [
+                ...List.generate(16, (i) {
+                  final row = i ~/ 4;
+                  final col = i % 4;
                   final grid = [
                     [11, 0, 1, 2],
                     [10, -1, -1, 3],
@@ -1448,67 +1480,81 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
                     [8, 7, 6, 5],
                   ];
                   final rasi = grid[row][col];
-                  if (rasi == -1) {
-                    if (row == 1 && col == 1) {
-                      return pw.Container(
-                        width: 80,
-                        height: 80,
-                        alignment: pw.Alignment.center,
-                        child: pw.Column(
-                          mainAxisAlignment: pw.MainAxisAlignment.center,
-                          children: [
-                            for (final l in center)
-                              pw.Text(l, textAlign: pw.TextAlign.center, style: ts(7)),
-                          ],
-                        ),
-                      );
-                    }
-                    return pw.SizedBox(width: 40, height: 40);
-                  }
+                  if (rasi == -1) return pw.SizedBox();
                   final occ = houses[rasi] ?? const <String>[];
-                  return pw.Container(
-                    width: 40,
-                    height: 40,
-                    padding: const pw.EdgeInsets.all(2),
-                    child: pw.Stack(
-                      children: [
-                        pw.Positioned(
-                          left: 1,
-                          top: 1,
-                          child: pw.Text(
-                            astro.rasiNamesTamil[rasi],
-                            style: pw.TextStyle(
-                              fontSize: 5,
-                              color: pw_color.PdfColor.fromInt(0xFF6B7280),
-                              font: regularFont,
-                              fontFallback: [tamilFont],
+                  return pw.Positioned(
+                    left: col * 40.0,
+                    top: row * 40.0,
+                    child: pw.SizedBox(
+                      width: 40.0,
+                      height: 40.0,
+                      child: pw.Container(
+                        padding: const pw.EdgeInsets.all(2),
+                        child: pw.Stack(
+                        children: [
+                          pw.Positioned(
+                            left: 1,
+                            top: 1,
+                            child: pw.Text(
+                              astro.rasiNamesTamil[rasi],
+                              style: pw.TextStyle(
+                                fontSize: 5,
+                                color: pw_color.PdfColor.fromInt(0xFF6B7280),
+                                font: regularFont,
+                                fontFallback: [tamilFont],
+                              ),
                             ),
                           ),
-                        ),
-                        pw.Align(
-                          alignment: pw.Alignment.bottomLeft,
-                          child: pw.Wrap(
-                            spacing: 1,
-                            children: [
-                              for (final a in occ)
-                                pw.Text(
-                                  a,
-                                  style: pw.TextStyle(
-                                    fontSize: 7,
-                                    color: pw_color.PdfColor.fromInt(0xFF1F2937),
-                                    font: boldFont,
-                                    fontFallback: [tamilFont],
+                          pw.Align(
+                            alignment: pw.Alignment.center,
+                            child: pw.Wrap(
+                              spacing: 1,
+                              runSpacing: 1,
+                              alignment: pw.WrapAlignment.center,
+                              children: [
+                                for (final a in occ)
+                                  pw.Text(
+                                    a,
+                                    style: pw.TextStyle(
+                                      fontSize: 7,
+                                      color: pw_color.PdfColor.fromInt(0xFF1F2937),
+                                      font: boldFont,
+                                      fontFallback: [tamilFont],
+                                    ),
                                   ),
-                                ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
+                    ),
                     ),
                   );
-                });
-                return pw.TableRow(children: cells);
-              }),
+                }),
+                pw.Positioned(left: 40, top: 0, child: pw.SizedBox(width: 1, height: 160, child: pw.Container(color: pw_color.PdfColor.fromInt(0xFF7E22CE)))),
+                pw.Positioned(left: 80, top: 0, child: pw.SizedBox(width: 1, height: 40, child: pw.Container(color: pw_color.PdfColor.fromInt(0xFF7E22CE)))),
+                pw.Positioned(left: 80, top: 120, child: pw.SizedBox(width: 1, height: 40, child: pw.Container(color: pw_color.PdfColor.fromInt(0xFF7E22CE)))),
+                pw.Positioned(left: 120, top: 0, child: pw.SizedBox(width: 1, height: 160, child: pw.Container(color: pw_color.PdfColor.fromInt(0xFF7E22CE)))),
+                pw.Positioned(left: 0, top: 40, child: pw.SizedBox(width: 160, height: 1, child: pw.Container(color: pw_color.PdfColor.fromInt(0xFF7E22CE)))),
+                pw.Positioned(left: 0, top: 80, child: pw.SizedBox(width: 40, height: 1, child: pw.Container(color: pw_color.PdfColor.fromInt(0xFF7E22CE)))),
+                pw.Positioned(left: 120, top: 80, child: pw.SizedBox(width: 40, height: 1, child: pw.Container(color: pw_color.PdfColor.fromInt(0xFF7E22CE)))),
+                pw.Positioned(left: 0, top: 120, child: pw.SizedBox(width: 160, height: 1, child: pw.Container(color: pw_color.PdfColor.fromInt(0xFF7E22CE)))),
+                pw.Positioned(
+                  left: 40,
+                  top: 40,
+                  child: pw.SizedBox(
+                    width: 80,
+                    height: 80,
+                    child: pw.Column(
+                    mainAxisAlignment: pw.MainAxisAlignment.center,
+                    children: [
+                      for (final l in center)
+                        pw.Text(l, textAlign: pw.TextAlign.center, style: ts(7)),
+                    ],
+                  ),
+                ),
+                ),
+              ],
             ),
           ),
         ],

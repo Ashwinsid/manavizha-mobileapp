@@ -94,9 +94,11 @@ class _MatchesPageState extends State<MatchesPage> {
   bool _loading = true;
   String? _error;
 
-  bool _applyPreferences = true;
+  bool _applyPreferences = false;
   BrowseCategory _category = BrowseCategory.allMatches;
   final TextEditingController _searchCtrl = TextEditingController();
+  final TextEditingController _filterAgeMinCtrl = TextEditingController();
+  final TextEditingController _filterAgeMaxCtrl = TextEditingController();
 
   // Manual browse filters — mirrors the web's `BrowseManualFilters`
   // (`manavizha/lib/utils/browse-manual-filter.ts`): combined with the saved
@@ -163,6 +165,8 @@ class _MatchesPageState extends State<MatchesPage> {
   @override
   void dispose() {
     _searchCtrl.dispose();
+    _filterAgeMinCtrl.dispose();
+    _filterAgeMaxCtrl.dispose();
     super.dispose();
   }
 
@@ -273,7 +277,7 @@ class _MatchesPageState extends State<MatchesPage> {
     final term = _searchCtrl.text.trim().toLowerCase();
     if (term.isNotEmpty) {
       rows = rows.where((m) {
-        return m.name.toLowerCase().contains(term) || m.userId.toLowerCase().contains(term);
+        return m.name.toLowerCase().contains(term) || m.userId.toLowerCase().contains(term) || (m.profileCode?.toLowerCase().contains(term) ?? false);
       });
     }
 
@@ -539,10 +543,8 @@ class _MatchesPageState extends State<MatchesPage> {
     await _ensureFilterMasterData();
     if (!mounted) return;
 
-    final ageMinCtrl =
-        TextEditingController(text: _fAgeMin?.toString() ?? '');
-    final ageMaxCtrl =
-        TextEditingController(text: _fAgeMax?.toString() ?? '');
+    _filterAgeMinCtrl.text = _fAgeMin?.toString() ?? '';
+    _filterAgeMaxCtrl.text = _fAgeMax?.toString() ?? '';
     var caste = _fCaste ?? 'Any';
     var subcaste = _fSubcaste ?? 'Any';
     var marital = _fMarital ?? 'Any';
@@ -614,7 +616,7 @@ class _MatchesPageState extends State<MatchesPage> {
                       children: [
                         Expanded(
                           child: TextField(
-                            controller: ageMinCtrl,
+                            controller: _filterAgeMinCtrl,
                             keyboardType: TextInputType.number,
                             decoration: deco('Age from'),
                           ),
@@ -622,7 +624,7 @@ class _MatchesPageState extends State<MatchesPage> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: TextField(
-                            controller: ageMaxCtrl,
+                            controller: _filterAgeMaxCtrl,
                             keyboardType: TextInputType.number,
                             decoration: deco('Age to'),
                           ),
@@ -668,8 +670,8 @@ class _MatchesPageState extends State<MatchesPage> {
                         Expanded(
                           child: OutlinedButton(
                             onPressed: () {
-                              ageMinCtrl.clear();
-                              ageMaxCtrl.clear();
+                              _filterAgeMinCtrl.clear();
+                              _filterAgeMaxCtrl.clear();
                               setSheetState(() {
                                 caste = 'Any';
                                 subcaste = 'Any';
@@ -704,8 +706,8 @@ class _MatchesPageState extends State<MatchesPage> {
 
     if (applied == true && mounted) {
       setState(() {
-        _fAgeMin = int.tryParse(ageMinCtrl.text.trim());
-        _fAgeMax = int.tryParse(ageMaxCtrl.text.trim());
+        _fAgeMin = int.tryParse(_filterAgeMinCtrl.text.trim());
+        _fAgeMax = int.tryParse(_filterAgeMaxCtrl.text.trim());
         _fCaste = caste == 'Any' ? null : caste;
         _fSubcaste = subcaste == 'Any' ? null : subcaste;
         _fMarital = marital == 'Any' ? null : marital;
@@ -714,8 +716,6 @@ class _MatchesPageState extends State<MatchesPage> {
         _fVerified = verified;
       });
     }
-    ageMinCtrl.dispose();
-    ageMaxCtrl.dispose();
   }
 
   @override
@@ -781,6 +781,14 @@ class _MatchesPageState extends State<MatchesPage> {
                 onOpenFilters: _openFilterSheet,
                 onChanged: (v) {
                   setState(() => _applyPreferences = v);
+                  if (v) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Profiles are now filtered according to your preference.'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  }
                   _refresh();
                 },
               ),
@@ -1056,12 +1064,20 @@ class _BrowseCard extends StatelessWidget {
                           color: _brand.withValues(alpha: 0.1),
                           child: Icon(Icons.person_rounded, size: 40, color: _brand.withValues(alpha: 0.5)),
                         ),
-                      if (m.isPremium)
-                        const Positioned(
-                          top: 6,
-                          right: 6,
-                          child: Icon(Icons.workspace_premium_rounded, size: 18, color: Color(0xFFEAB308)),
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            if (m.isPremium)
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 4),
+                                child: Icon(Icons.workspace_premium_rounded, size: 18, color: Color(0xFFEAB308)),
+                              ),
+                          ],
                         ),
+                      ),
                       if (formatActivityTime(m.lastActiveAt).isNotEmpty)
                         Positioned(
                           left: 6,
@@ -1100,8 +1116,31 @@ class _BrowseCard extends StatelessWidget {
                                   style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
                                 ),
                               ),
+                              if (m.poruthamScore != null)
+                                GestureDetector(
+                                  onTap: onLongPress, // Clicking the badge shows the sheet, same as long press
+                                  child: Container(
+                                    margin: const EdgeInsets.only(left: 4),
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(12),
+                                      boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
+                                      border: Border.all(color: const Color(0xFFE87898).withValues(alpha: 0.3)),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.stars_rounded, size: 10, color: Color(0xFFE87898)),
+                                        const SizedBox(width: 4),
+                                        Text('${m.poruthamScore}/10', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF1F4068))),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               if (shortlistedMe)
                                 Container(
+                                  margin: const EdgeInsets.only(left: 4),
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                   decoration: BoxDecoration(
                                     color: _brand.withValues(alpha: 0.10),

@@ -1,3 +1,4 @@
+import 'astrology.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Dart ports of the two scoring functions in `manavizha/lib`:
@@ -46,6 +47,7 @@ class CompatibilityProfile {
     this.salary,
     this.star,
     this.zodiacSign,
+    this.sex,
   });
 
   final String? foodPreference;
@@ -59,6 +61,7 @@ class CompatibilityProfile {
   final String? salary;
   final String? star;
   final String? zodiacSign;
+  final String? sex;
 }
 
 /// Lifestyle compatibility — port of `calculateLifestyleScore`.
@@ -222,6 +225,20 @@ String _strip(String s) {
   return s.split(' (').first.trim();
 }
 
+String? _findMatch(String raw, List<String> options, [Map<String, String>? fallbackMap]) {
+  final cleanRaw = _strip(raw).toLowerCase().replaceAll(' ', '');
+  for (final opt in options) {
+    if (opt.toLowerCase().replaceAll(' ', '') == cleanRaw) return opt;
+  }
+  if (fallbackMap != null) {
+    for (final entry in fallbackMap.entries) {
+      final cleanVal = _strip(entry.value).toLowerCase().replaceAll(' ', '');
+      if (cleanVal == cleanRaw) return entry.key;
+    }
+  }
+  return null;
+}
+
 /// Tamil 10-Porutham — port of `checkTamilPorutham`. Empty inputs return 0/Athamam.
 PoruthamResult checkTamilPorutham({
   required String girlStar,
@@ -229,10 +246,10 @@ PoruthamResult checkTamilPorutham({
   required String boyStar,
   required String boyRashi,
 }) {
-  final gStar = _strip(girlStar);
-  final bStar = _strip(boyStar);
-  final gRashi = _strip(girlRashi);
-  final bRashi = _strip(boyRashi);
+  final gStar = _findMatch(girlStar, _nakshatras, nakshatraTamil) ?? _strip(girlStar);
+  final bStar = _findMatch(boyStar, _nakshatras, nakshatraTamil) ?? _strip(boyStar);
+  final gRashi = _findMatch(girlRashi, _rashis, rashiTamil) ?? _strip(girlRashi);
+  final bRashi = _findMatch(boyRashi, _rashis, rashiTamil) ?? _strip(boyRashi);
 
   final gData = _nakshatraData[gStar];
   final bData = _nakshatraData[bStar];
@@ -361,5 +378,6 @@ Future<CompatibilityProfile> loadCompatibilityProfile(SupabaseClient client, Str
     salary: emp?['salary']?.toString() ?? bus?['annual_returns']?.toString(),
     star: horo?['star']?.toString(),
     zodiacSign: horo?['zodiac_sign']?.toString(),
+    sex: personal?['sex']?.toString() ?? personal?['gender']?.toString(),
   );
 }

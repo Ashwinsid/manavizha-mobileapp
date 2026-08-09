@@ -127,13 +127,8 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
       final counts = await loadInteractionCounts(client, userId);
       // Cap to a reasonable preview window per carousel (most-recent first).
       final cutoff = DateTime.now().subtract(const Duration(days: 30));
-      bool isFresh(String id, Map<String, DateTime> at) {
-        final t = at[id];
-        return t != null && t.isAfter(cutoff);
-      }
-
-      final viewedIds = counts.viewedMeIds.where((id) => isFresh(id, counts.viewedMeAt)).take(20).toList();
-      final interestedIds = counts.likedMeIds.where((id) => isFresh(id, counts.likedMeAt)).take(20).toList();
+      final viewedIds = counts.viewedMeIds.take(20).toList();
+      final interestedIds = counts.likedMeIds.take(20).toList();
       final iViewedIds = counts.iViewedIds.take(20).toList();
 
       final results = await Future.wait([
@@ -183,10 +178,29 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
         _showSearchError("That's your own ID.");
         return;
       }
+      if (raw.startsWith('MNV')) {
+        final p = await client
+            .from('personal_details')
+            .select('user_id, name, age, sex, marital_status, created_at, photo_verified')
+            .eq('profile_code', raw)
+            .maybeSingle();
+
+        if (p == null) {
+          _showSearchError('No active member found with that ID.');
+          return;
+        }
+        _searchCtrl.clear();
+        await pushMemberProfileFullscreen(context, p['user_id'] as String);
+        return;
+      }
       final res = await resolveUserById(client, raw);
       if (!mounted) return;
       if (res == null) {
         _showSearchError('No member found with that ID.');
+        return;
+      }
+      if (res.userId == myUid) {
+        _showSearchError("That's your own profile.");
         return;
       }
       _searchCtrl.clear();
@@ -214,7 +228,7 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
     final client = Supabase.instance.client;
     setState(() => _sectionsLoading = true);
     try {
-      final sets = await loadUserMatchSections(client, userId);
+      final sets = await loadUserMatchSections(client, userId, applyPreferences: false);
       if (!mounted) return;
       setState(() {
         _daily = List<MatchPreview>.from(sets.daily);
@@ -460,7 +474,7 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
             sliver: SliverToBoxAdapter(
               child: _CarouselSection(
                 title: 'Who viewed me',
-                subtitle: 'Members who looked at your profile in the last 30 days',
+                subtitle: 'Members who recently looked at your profile',
                 items: _whoViewedMe,
                 loading: _activityLoading,
                 onProfileTap: (m) => pushMemberProfileFullscreen(context, m.userId),
@@ -473,7 +487,7 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
             sliver: SliverToBoxAdapter(
               child: _CarouselSection(
                 title: 'Interest received',
-                subtitle: 'Members who liked you in the last 30 days',
+                subtitle: 'Members who recently liked you',
                 items: _whoExpressedInterest,
                 loading: _activityLoading,
                 onProfileTap: (m) => pushMemberProfileFullscreen(context, m.userId),

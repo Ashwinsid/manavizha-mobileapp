@@ -7,7 +7,7 @@ class AppConfig {
   /// Override at build time for staging: `--dart-define=WEB_APP_BASE_URL=https://...`
   static const String webAppBaseUrl = String.fromEnvironment(
     'WEB_APP_BASE_URL',
-    defaultValue: 'https://manavizha.com',
+    defaultValue: 'http://10.0.2.2:3000',
   );
 
   static bool get hasWebAppForAdminApi => webAppBaseUrl.trim().isNotEmpty;

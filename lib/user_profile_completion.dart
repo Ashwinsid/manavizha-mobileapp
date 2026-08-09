@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'premium_utils.dart';
 
 /// Completion 0–100 for each category on [UserDetailsPage] (same rules as [loadUserProfileSnapshot]).
 class UserDetailsSectionCompletion {
@@ -465,7 +466,7 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
     marital = marital[0].toUpperCase() + marital.substring(1).toLowerCase();
   }
 
-  final isPremium = settings?['is_premium'] == true;
+  final isPremium = isPremiumActive(settings);
   final premiumPlan = settings?['premium_plan']?.toString();
 
   final sections = UserDetailsSectionCompletion(
@@ -608,6 +609,7 @@ Future<String?> signUserProfilePhoto(SupabaseClient client, String userId, Strin
       if (kDebugMode) {
         debugPrint('signUserProfilePhoto missing object ($userId): $raw');
       }
+      if (raw.startsWith('http')) return raw;
       return null;
     }
 

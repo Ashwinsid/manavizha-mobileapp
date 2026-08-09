@@ -28,6 +28,24 @@ class DashboardShellNotification {
   final bool isInterest;
 }
 
+class DashboardGenericNotification {
+  const DashboardGenericNotification({
+    required this.id,
+    this.actorId,
+    required this.name,
+    required this.type,
+    required this.subtitle,
+    required this.at,
+  });
+
+  final String id;
+  final String? actorId;
+  final String name;
+  final String type;
+  final String subtitle;
+  final DateTime at;
+}
+
 /// One row in the “New messages” section of the header popover — mirrors the
 /// per-row preview tiles in `app/dashboard/layout.tsx` (Bell popover) and the
 /// inbox row in `app/dashboard/messages/page.tsx`.
@@ -206,12 +224,16 @@ class _PendingMsg {
 
 /// Loads unread profile views + received likes from the last 30 days (same
 /// window as the web header). Tolerates RLS failures by returning an empty list.
-Future<({List<DashboardShellNotification> interests, List<DashboardShellNotification> views})>
-    fetchDashboardNotifications(SupabaseClient client, String myUserId) async {
+Future<({
+  List<DashboardShellNotification> interests,
+  List<DashboardShellNotification> views,
+  List<DashboardGenericNotification> generics,
+})> fetchDashboardNotifications(SupabaseClient client, String myUserId) async {
   final cutoff = DateTime.now().subtract(const Duration(days: 30));
 
   List<Map<String, dynamic>> viewRows = [];
   List<Map<String, dynamic>> likeRows = [];
+  List<Map<String, dynamic>> notifRows = [];
 
   try {
     final vRaw = await client
@@ -237,6 +259,18 @@ Future<({List<DashboardShellNotification> interests, List<DashboardShellNotifica
     debugPrint('fetchDashboardNotifications likes: $e\n$st');
   }
 
+  try {
+    final res = await WebApi.get('/api/notifications');
+    if (res.ok) {
+      final list = res.data['notifications'] as List<dynamic>? ?? [];
+      notifRows = list.map((e) => Map<String, dynamic>.from(e as Map)).where((r) {
+        return _isUnread(r) && r['type'] != 'interest_received';
+      }).toList();
+    }
+  } catch (e, st) {
+    debugPrint('fetchDashboardNotifications notifications API: $e\n$st');
+  }
+
   viewRows = _dedupeViewsByViewer(viewRows).where((r) {
     final t = _parseTs(r['created_at']);
     return _isUnread(r) && t != null && t.isAfter(cutoff);
@@ -250,10 +284,11 @@ Future<({List<DashboardShellNotification> interests, List<DashboardShellNotifica
   final ids = <String>{
     for (final r in viewRows) r['viewer_user_id']?.toString() ?? '',
     for (final r in likeRows) r['user_id']?.toString() ?? '',
+    for (final r in notifRows) r['actor_id']?.toString() ?? '',
   }..removeWhere((s) => s.isEmpty);
 
-  if (ids.isEmpty) {
-    return (interests: <DashboardShellNotification>[], views: <DashboardShellNotification>[]);
+  if (ids.isEmpty && notifRows.isEmpty) {
+    return (interests: <DashboardShellNotification>[], views: <DashboardShellNotification>[], generics: <DashboardGenericNotification>[]);
   }
 
   Map<String, Map<String, dynamic>> personalByUser = {};
@@ -346,7 +381,25 @@ Future<({List<DashboardShellNotification> interests, List<DashboardShellNotifica
     );
   }
 
-  return (interests: interests, views: views);
+  final generics = <DashboardGenericNotification>[];
+  for (final r in notifRows.take(8)) {
+    final oid = r['actor_id']?.toString() ?? '';
+    final p = personalByUser[oid];
+    final name = p != null && p['name']?.toString().trim().isNotEmpty == true ? p['name'].toString() : 'Member';
+    final at = _parseTs(r['created_at']) ?? DateTime.now();
+    generics.add(
+      DashboardGenericNotification(
+        id: r['id']?.toString() ?? '',
+        actorId: oid.isEmpty ? null : oid,
+        name: oid.isEmpty ? 'System' : name,
+        type: r['type']?.toString() ?? '',
+        subtitle: oid.isEmpty ? '' : subtitleFor(oid, interest: false),
+        at: at,
+      ),
+    );
+  }
+
+  return (interests: interests, views: views, generics: generics);
 }
 
 Future<void> markProfileViewNotificationRead(SupabaseClient client, String myUserId, String viewerUserId) async {

@@ -23,7 +23,11 @@ class MessagesPage extends StatefulWidget {
   State<MessagesPage> createState() => _MessagesPageState();
 }
 
-class _MessagesPageState extends State<MessagesPage> {
+/// A key that the shell can use to call [_MessagesPageState.refreshPremium]
+/// when the Chat tab is tapped without rebuilding the whole widget tree.
+final messagesPageKey = GlobalKey<_MessagesPageState>();
+
+class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver {
   static const Color _brand = AdminHomeScreen.brandPurple;
 
   final TextEditingController _composer = TextEditingController();
@@ -40,6 +44,7 @@ class _MessagesPageState extends State<MessagesPage> {
   bool _threadLoading = false;
   bool _sending = false;
   bool _mutualWithSelected = false;
+  bool _otherPersonHasMessaged = false; // true when the other party already sent a message to us
   String _search = '';
   bool _mobileShowList = true;
 
@@ -49,12 +54,29 @@ class _MessagesPageState extends State<MessagesPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _composer.addListener(() => setState(() {}));
     _bootstrap();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _userId != null) {
+      refreshPremium();
+    }
+  }
+
+  /// Re-fetches premium status from DB. Called by the shell when the Chat tab
+  /// is tapped so a freshly-subscribed user sees the composer immediately.
+  void refreshPremium() {
+    final client = Supabase.instance.client;
+    final uid = _userId ?? client.auth.currentUser?.id;
+    if (uid != null) _loadPremium(client, uid);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _rtDebounce?.cancel();
     _rt?.unsubscribe();
     _composer.dispose();
@@ -297,7 +319,11 @@ class _MessagesPageState extends State<MessagesPage> {
         for (final m in parsed) await _decryptMsg(uid, m),
       ];
       if (!mounted) return;
-      setState(() => _thread = list);
+      final otherHasMessaged = list.any((m) => m.senderId == otherId);
+      setState(() {
+        _thread = list;
+        _otherPersonHasMessaged = otherHasMessaged;
+      });
 
       if (!skipMarkRead) {
         try {
@@ -333,7 +359,9 @@ class _MessagesPageState extends State<MessagesPage> {
     final text = _composer.text.trim();
     if (text.isEmpty) return;
 
-    if (!_isPremium) {
+    // Can send if premium OR if the other person already sent us a message (non-premium reply allowed)
+    final canSend = _isPremium || _otherPersonHasMessaged;
+    if (!canSend) {
       await showSubscriptionDialog(context, featureName: 'Personalized messaging');
       return;
     }
@@ -793,7 +821,8 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   Widget _composerBlock() {
-    if (!_isPremium) {
+    final canSend = _isPremium || _otherPersonHasMessaged;
+    if (!canSend) {
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(

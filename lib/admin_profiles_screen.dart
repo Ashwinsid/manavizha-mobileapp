@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 import 'admin_profile_detail_screen.dart';
+import 'premium_utils.dart';
 
 /// Combined profile row — mirrors web `admin/dashboard/profiles/page.tsx` fetch shape.
 class _AdminProfile {
@@ -331,7 +332,7 @@ class _AdminProfilesScreenState extends State<AdminProfilesScreen> {
         final uid = s['user_id']?.toString();
         if (uid == null) continue;
         settingsMap[uid] = (
-          ip: s['is_premium'] == true,
+          ip: isPremiumActive(Map<String, dynamic>.from(s)),
           plan: s['premium_plan']?.toString(),
           exp: s['premium_expires_at']?.toString(),
         );

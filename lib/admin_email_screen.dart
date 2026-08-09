@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'admin_home_screen.dart';
+import 'premium_utils.dart';
 
 /// Admin **Email tools** screen.
 ///
@@ -183,12 +184,12 @@ class _AdminEmailScreenState extends State<AdminEmailScreen> {
           if (slice.isEmpty) continue;
           final settingsRes = await client
               .from('user_settings')
-              .select('user_id, is_premium')
+              .select('user_id, is_premium, premium_expires_at')
               .inFilter('user_id', slice);
           for (final row in settingsRes as List<dynamic>) {
             final m = Map<String, dynamic>.from(row as Map);
             final uid = m['user_id']?.toString();
-            if (uid != null) settingsMap[uid] = m['is_premium'] == true;
+            if (uid != null) settingsMap[uid] = isPremiumActive(m);
           }
         }
         userMap.removeWhere((id, _) => (settingsMap[id] ?? false) != wantPremium);

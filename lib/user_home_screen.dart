@@ -8,6 +8,7 @@ import 'dashboard_shell_service.dart';
 import 'horoscope_screen.dart';
 import 'manage_parents_screen.dart';
 import 'member_settings_screen.dart';
+import 'messages_inbox_page.dart';
 import 'parent_selections_screen.dart';
 import 'partner_preferences_screen.dart';
 import 'pricing_screen.dart';
@@ -15,6 +16,7 @@ import 'profile_screen.dart';
 import 'user_activity_tracker.dart';
 import 'user_pages.dart';
 import 'user_profile_completion.dart';
+import 'web_api.dart';
 import 'widgets/radial_menu.dart';
 
 class UserHomeScreen extends StatefulWidget {
@@ -37,6 +39,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
 
   List<DashboardShellNotification> _notifInterests = [];
   List<DashboardShellNotification> _notifViews = [];
+  List<DashboardGenericNotification> _notifGenerics = [];
   List<DashboardShellMessageNotification> _notifMessages = [];
   int _notifMessageBadge = 0;
   Timer? _shellPollTimer;
@@ -119,12 +122,14 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
       final bundle = results[0] as ({
         List<DashboardShellNotification> interests,
         List<DashboardShellNotification> views,
+        List<DashboardGenericNotification> generics,
       });
       final messages = results[1] as List<DashboardShellMessageNotification>;
       final messageBadge = messages.fold<int>(0, (sum, m) => sum + m.unreadCount);
       setState(() {
         _notifInterests = bundle.interests;
         _notifViews = bundle.views;
+        _notifGenerics = bundle.generics;
         _notifMessages = messages;
         _notifMessageBadge = messageBadge;
       });
@@ -184,8 +189,9 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
       builder: (sheetContext) {
         final interests = _notifInterests;
         final views = _notifViews;
+        final generics = _notifGenerics;
         final messages = _notifMessages;
-        final totalBadge = interests.length + views.length + messages.length;
+        final totalBadge = interests.length + views.length + generics.length + messages.length;
 
         return SafeArea(
           child: Padding(
@@ -281,6 +287,22 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
                                     ...messages.take(5).map((m) => _messageNotificationTile(sheetContext, m)),
                                     const SizedBox(height: 8),
                                   ],
+                                  if (generics.isNotEmpty) ...[
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: Text(
+                                        'NOTIFICATIONS',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 1.2,
+                                          color: Colors.orange.shade600,
+                                        ),
+                                      ),
+                                    ),
+                                    ...generics.take(5).map((n) => _genericNotificationTile(n, uid)),
+                                    const SizedBox(height: 8),
+                                  ],
                                   if (interests.isNotEmpty) ...[
                                     Padding(
                                       padding: const EdgeInsets.only(bottom: 8),
@@ -364,6 +386,91 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
             }
           });
           await pushMemberProfileFullscreen(context, n.otherUserId);
+          await _refreshShellCounts();
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: _brand.withValues(alpha: 0.12),
+                child: Text(
+                  n.name.isNotEmpty ? n.name[0].toUpperCase() : '?',
+                  style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF2FA086)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 2,
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _relativeShort(n.at),
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: _brand.withValues(alpha: 0.75),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (n.subtitle.isNotEmpty)
+                      Text(
+                        n.subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 10, color: Colors.black.withValues(alpha: 0.45)),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _genericNotificationTile(DashboardGenericNotification n, String myUid) {
+    final client = Supabase.instance.client;
+    String title = 'Notification';
+    if (n.type == 'photo_request') title = '${n.name} requested your photos';
+    else if (n.type == 'photo_request_approved') title = '${n.name} approved your photo request';
+    else if (n.type == 'message_received') title = 'New message from ${n.name}';
+    else if (n.type == 'interest_accepted') title = '${n.name} accepted your interest';
+    else if (n.type == 'profile_shortlisted') title = '${n.name} shortlisted you';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () async {
+          Navigator.of(context).pop();
+          try {
+            await WebApi.patch('/api/notifications', {'notificationId': n.id});
+          } catch (_) {}
+          if (!mounted) return;
+          setState(() {
+            _notifGenerics.removeWhere((x) => x.id == n.id);
+          });
+          if (n.actorId != null && n.actorId!.isNotEmpty) {
+            await pushMemberProfileFullscreen(context, n.actorId!);
+          } else {
+             setState(() => _currentIndex = 2);
+          }
           await _refreshShellCounts();
         },
         child: Padding(
@@ -588,7 +695,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
       ),
       const MatchesPage(),
       const LikesPage(),
-      const MessagesPage(),
+      MessagesPage(key: messagesPageKey),
     ];
   }
 
@@ -1142,7 +1249,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
             icon: Icons.notifications_none_rounded,
             tooltip: 'Notifications',
             onPressed: () => unawaited(_showNotificationsPopover()),
-            badgeCount: _notifInterests.length + _notifViews.length + _notifMessageBadge,
+            badgeCount: _notifInterests.length + _notifViews.length + _notifGenerics.length + _notifMessageBadge,
             badgeColor: const Color(0xFFE11D48),
           ),
           const SizedBox(width: 12),
@@ -1264,7 +1371,12 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
         setState(() {
           _currentIndex = index;
         });
-        if (index == 3) unawaited(_refreshShellCounts());
+        if (index == 3) {
+          unawaited(_refreshShellCounts());
+          // Re-verify premium each time the Chat tab is tapped so a user whose
+          // subscription was just activated sees the composer without restarting.
+          messagesPageKey.currentState?.refreshPremium();
+        }
       },
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(

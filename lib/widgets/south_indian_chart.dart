@@ -44,13 +44,6 @@ class SouthIndianChart extends StatelessWidget {
   final Color headerTextColor;
   final double cellAspect;
 
-  // 4x4 grid, -1 marks the merged-centre cells.
-  static const List<List<int>> _grid = [
-    [11, 0, 1, 2],
-    [10, -1, -1, 3],
-    [9, -1, -1, 4],
-    [8, 7, 6, 5],
-  ];
 
   static const _planetColors = <String, Color>{
     'சூ': Color(0xFF4B5563),
@@ -90,27 +83,57 @@ class SouthIndianChart extends StatelessWidget {
         const SizedBox(height: 4),
         Container(
           decoration: BoxDecoration(border: Border.all(color: borderColor, width: 2)),
-          child: GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: 16,
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 4,
-              childAspectRatio: cellAspect,
-              crossAxisSpacing: 0,
-              mainAxisSpacing: 0,
-            ),
-            itemBuilder: (context, index) {
-              final row = index ~/ 4;
-              final col = index % 4;
-              final rasi = _grid[row][col];
-              if (rasi == -1) {
-                if (row == 1 && col == 1) return _centerCell();
-                return const SizedBox.shrink();
-              }
-              final occupants = planetsByHouse[rasi] ?? const <String>[];
-              return _cell(rasi, occupants);
-            },
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(child: AspectRatio(aspectRatio: cellAspect, child: _cell(11, planetsByHouse[11] ?? const []))),
+                  Expanded(child: AspectRatio(aspectRatio: cellAspect, child: _cell(0, planetsByHouse[0] ?? const []))),
+                  Expanded(child: AspectRatio(aspectRatio: cellAspect, child: _cell(1, planetsByHouse[1] ?? const []))),
+                  Expanded(child: AspectRatio(aspectRatio: cellAspect, child: _cell(2, planetsByHouse[2] ?? const []))),
+                ],
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 1,
+                    child: Column(
+                      children: [
+                        AspectRatio(aspectRatio: cellAspect, child: _cell(10, planetsByHouse[10] ?? const [])),
+                        AspectRatio(aspectRatio: cellAspect, child: _cell(9, planetsByHouse[9] ?? const [])),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    flex: 2,
+                    child: AspectRatio(
+                      aspectRatio: cellAspect,
+                      child: Container(
+                        decoration: BoxDecoration(border: Border.all(color: borderColor)),
+                        child: _centerCell(),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 1,
+                    child: Column(
+                      children: [
+                        AspectRatio(aspectRatio: cellAspect, child: _cell(3, planetsByHouse[3] ?? const [])),
+                        AspectRatio(aspectRatio: cellAspect, child: _cell(4, planetsByHouse[4] ?? const [])),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              Row(
+                children: [
+                  Expanded(child: AspectRatio(aspectRatio: cellAspect, child: _cell(8, planetsByHouse[8] ?? const []))),
+                  Expanded(child: AspectRatio(aspectRatio: cellAspect, child: _cell(7, planetsByHouse[7] ?? const []))),
+                  Expanded(child: AspectRatio(aspectRatio: cellAspect, child: _cell(6, planetsByHouse[6] ?? const []))),
+                  Expanded(child: AspectRatio(aspectRatio: cellAspect, child: _cell(5, planetsByHouse[5] ?? const []))),
+                ],
+              ),
+            ],
           ),
         ),
       ],
@@ -123,7 +146,6 @@ class SouthIndianChart extends StatelessWidget {
       // empty placeholders. We stretch the centre block visually by relying
       // on the surrounding empty cells.
       alignment: Alignment.center,
-      decoration: BoxDecoration(border: Border.all(color: borderColor)),
       padding: const EdgeInsets.all(2),
       child: SingleChildScrollView(
         physics: const NeverScrollableScrollPhysics(),
@@ -181,19 +203,20 @@ class SouthIndianChart extends StatelessWidget {
             ),
           ),
           Align(
-            alignment: Alignment.bottomLeft,
+            alignment: Alignment.center,
             child: Wrap(
-              spacing: 3,
+              spacing: 2,
               runSpacing: 2,
+              alignment: WrapAlignment.center,
               children: [
                 for (final abbr in occupants)
                   Text(
                     abbr,
                     style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      color: _planetColors[abbr] ?? Colors.black87,
-                      height: 1.05,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w900,
+                      color: _planetColors[abbr] ?? const Color(0xFF1F2937),
+                      height: 1.1,
                     ),
                   ),
               ],

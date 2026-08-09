@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'astrology.dart';
+import 'profile_scoring.dart';
 
 import 'match_utils.dart';
 import 'user_activity_tracker.dart';
@@ -69,6 +71,8 @@ class MatchPreview {
     this.subcaste,
     this.educationLevels = const [],
     this.photoVerified = false,
+    this.profileCode,
+    this.poruthamScore,
   }) : _interestTags = interestTags;
 
   final String userId;
@@ -111,11 +115,16 @@ class MatchPreview {
   final String? caste;
   final String? subcaste;
 
+  /// Computed 10-Porutham score against the signed-in user (0-10).
+  final int? poruthamScore;
+
   /// All `education_details.education` values for the member.
   final List<String> educationLevels;
 
   /// `photos.photo_verified` — drives the "Verified profile" filter.
   final bool photoVerified;
+
+  final String? profileCode;
 }
 
 
@@ -150,18 +159,21 @@ Future<UserMatchSets> loadUserMatchSections(
   final sex = (userRow['sex'] as String? ?? '').toLowerCase();
   final targetGender = sex.contains('male') && !sex.contains('female') ? 'Female' : 'Male';
 
-  final prefs = applyPreferences
-      ? await client.from('partner_preferences').select('min_age, max_age').eq('user_id', userId).maybeSingle()
-      : null;
-  final minAge = prefs != null ? prefs['min_age'] as int? : null;
-  final maxAge = prefs != null ? prefs['max_age'] as int? : null;
+  final myHoro = await client.from('horoscope_details').select('star, zodiac_sign').eq('user_id', userId).maybeSingle();
+
+  final prefs = await client.from('partner_preferences').select().eq('user_id', userId).maybeSingle();
+  final minAge = prefs != null ? prefs['preferred_age_min'] as int? : null;
+  final maxAge = prefs != null ? prefs['preferred_age_max'] as int? : null;
+  final prefCasteStr = prefs != null ? prefs['preferred_caste']?.toString() : null;
+  final casteCompulsory = prefs != null && prefs['caste_compulsory'] == true;
+  final prefCasteArr = prefCasteStr != null && prefCasteStr.isNotEmpty ? prefCasteStr.split(', ') : <String>[];
 
   // No explicit cap — matches the web Browse query, which fetches every
   // matching profile (both are bounded only by PostgREST's server-side
   // max-rows setting).
   final potential = await client
       .from('personal_details')
-      .select('user_id, name, age, sex, marital_status, created_at')
+      .select('user_id, name, age, sex, marital_status, created_at, photo_verified, profile_code')
       .ilike('sex', targetGender)
       .neq('user_id', userId)
       .neq('marital_status', 'Married');
@@ -180,12 +192,12 @@ Future<UserMatchSets> loadUserMatchSections(
   }
 
   final ids = filtered.map((p) => p['user_id'].toString()).toList();
-  final photosRes = await client.from('photos').select('user_id, user_photos, photo_verified').inFilter('user_id', ids);
-  final contactRes = await client.from('contact_details').select('user_id, current_district, current_state').inFilter('user_id', ids);
+  final photosRes = await client.from('photos').select('user_id, user_photos').inFilter('user_id', ids);
+  final contactRes = await client.from('contact_details').select('user_id, current_country, current_state, current_district').inFilter('user_id', ids);
   final settingsRes = await client.from('user_settings').select('user_id, is_premium').inFilter('user_id', ids);
-  final eduRes = await client.from('education_details').select('user_id, education').inFilter('user_id', ids);
-  final empRes = await client.from('profession_employee').select('user_id, designation, company').inFilter('user_id', ids);
-  final busRes = await client.from('profession_business').select('user_id, designation, business_name').inFilter('user_id', ids);
+  final eduRes = await client.from('education_details').select('user_id, education, degree, branch').inFilter('user_id', ids);
+  final empRes = await client.from('profession_employee').select('user_id, designation, company, employment_type, salary').inFilter('user_id', ids);
+  final busRes = await client.from('profession_business').select('user_id, designation, business_name, business_type, annual_returns').inFilter('user_id', ids);
   final stuRes = await client.from('profession_student').select('user_id, course, institution').inFilter('user_id', ids);
   final interestsRes = await client.from('interests').select('user_id, interests').inFilter('user_id', ids);
   // Tolerant fetch: `users` may be RLS-restricted on some deployments. If the
@@ -218,7 +230,7 @@ Future<UserMatchSets> loadUserMatchSections(
   try {
     horoscopeRes = await client
         .from('horoscope_details')
-        .select('user_id, star, zodiac_sign')
+        .select('user_id, star, zodiac_sign, dhosham')
         .inFilter('user_id', ids) as List<dynamic>?;
   } catch (_) {
     horoscopeRes = null;
@@ -228,6 +240,15 @@ Future<UserMatchSets> loadUserMatchSections(
     for (final r in horoscopeRows)
       if (r['user_id'] != null) r['user_id'].toString(): r,
   };
+
+  if (casteCompulsory && prefCasteArr.isNotEmpty && !prefCasteArr.contains('Any')) {
+    filtered = filtered.where((p) {
+      final uid = p['user_id'].toString();
+      final fam = familyByUser[uid];
+      final c = fam?['caste']?.toString();
+      return c != null && prefCasteArr.contains(c);
+    }).toList();
+  }
 
   final photoRows = (photosRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final contactRows = (contactRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
@@ -274,6 +295,56 @@ Future<UserMatchSets> loadUserMatchSections(
       if (r['user_id']?.toString() == uid) return r;
     }
     return null;
+  }
+
+  bool matchArrayOrCommaStr(dynamic prefValue, String? profileValue) {
+    if (prefValue == null) return true;
+    List<String> prefArr = [];
+    if (prefValue is List) {
+      prefArr = prefValue.map((e) => e.toString()).toList();
+    } else if (prefValue is String) {
+      if (prefValue == 'Any' || prefValue.trim().isEmpty) return true;
+      prefArr = prefValue.split(', ').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    }
+    if (prefArr.isEmpty || prefArr.contains('Any')) return true;
+    if (profileValue == null || profileValue.trim().isEmpty) return false;
+    return prefArr.contains(profileValue.trim());
+  }
+
+  if (applyPreferences && prefs != null) {
+    filtered = filtered.where((p) {
+      final uid = p['user_id'].toString();
+      final fam = familyByUser[uid];
+      final horo = horoscopeByUser[uid];
+      final con = firstRowFor(uid, contactRows);
+      final edu = firstRowFor(uid, eduRows);
+      final emp = firstRowFor(uid, empRows);
+      final bus = firstRowFor(uid, busRows);
+      
+      if (!matchArrayOrCommaStr(prefs['preferred_subcaste'], fam?['subcaste']?.toString())) return false;
+      if (!matchArrayOrCommaStr(prefs['preferred_star'], horo?['star']?.toString())) return false;
+      if (!matchArrayOrCommaStr(prefs['preferred_raasi'], horo?['zodiac_sign']?.toString())) return false;
+      if (!matchArrayOrCommaStr(prefs['preferred_dosham'], horo?['dhosham']?.toString())) return false;
+      
+      if (!matchArrayOrCommaStr(prefs['preferred_education'], edu?['education']?.toString())) return false;
+      if (!matchArrayOrCommaStr(prefs['preferred_degrees'], edu?['degree']?.toString())) return false;
+      if (!matchArrayOrCommaStr(prefs['preferred_branches'], edu?['branch']?.toString())) return false;
+      
+      final empIn = emp?['employment_type']?.toString() ?? bus?['business_type']?.toString();
+      if (!matchArrayOrCommaStr(prefs['preferred_employed_in'], empIn)) return false;
+      
+      final occ = emp?['designation']?.toString() ?? bus?['designation']?.toString();
+      if (!matchArrayOrCommaStr(prefs['preferred_occupation'], occ)) return false;
+      
+      final inc = emp?['salary']?.toString() ?? bus?['annual_returns']?.toString();
+      if (!matchArrayOrCommaStr(prefs['preferred_annual_income_min'], inc)) return false;
+      
+      if (!matchArrayOrCommaStr(prefs['preferred_country'], con?['current_country']?.toString())) return false;
+      if (!matchArrayOrCommaStr(prefs['preferred_state'], con?['current_state']?.toString())) return false;
+      if (!matchArrayOrCommaStr(prefs['preferred_city'], con?['current_district']?.toString())) return false;
+      
+      return true;
+    }).toList();
   }
 
   /// Short label for cards: job title / role (designation preferred over company name).
@@ -350,6 +421,19 @@ Future<UserMatchSets> loadUserMatchSections(
 
     final horo = horoscopeByUser[id];
     final fam = familyByUser[id];
+
+    int? poruthamScore;
+    if (myHoro != null && myHoro['star'] != null && horo != null && horo['star'] != null) {
+      final isFemale = p['sex']?.toString().toLowerCase() == 'female';
+      final scoreRes = checkTamilPorutham(
+        girlStar: isFemale ? horo['star'].toString() : myHoro['star'].toString(),
+        girlRashi: isFemale ? (horo['zodiac_sign']?.toString() ?? '') : (myHoro['zodiac_sign']?.toString() ?? ''),
+        boyStar: isFemale ? myHoro['star'].toString() : horo['star'].toString(),
+        boyRashi: isFemale ? (myHoro['zodiac_sign']?.toString() ?? '') : (horo['zodiac_sign']?.toString() ?? ''),
+      );
+      poruthamScore = scoreRes.score;
+    }
+
     return MatchPreview(
       userId: id,
       name: p['name']?.toString().trim().isNotEmpty == true ? p['name'].toString() : 'Member',
@@ -368,7 +452,9 @@ Future<UserMatchSets> loadUserMatchSections(
       caste: fam?['caste']?.toString(),
       subcaste: fam?['subcaste']?.toString(),
       educationLevels: eduByUser[id] ?? const [],
-      photoVerified: ph?['photo_verified'] == true,
+      photoVerified: p['photo_verified'] == true,
+      profileCode: p['profile_code']?.toString(),
+      poruthamScore: poruthamScore,
     );
   }
 
@@ -411,6 +497,18 @@ Future<List<MatchPreview>> loadMatchPreviewsByIds(
   final ids = orderedIds.where((s) => s.trim().isNotEmpty).toSet().toList();
   if (ids.isEmpty) return const [];
 
+  final myUid = client.auth.currentUser?.id;
+  Map<String, dynamic>? myHoro;
+  if (myUid != null) {
+    try {
+      myHoro = await client
+          .from('horoscope_details')
+          .select('star, zodiac_sign')
+          .eq('user_id', myUid)
+          .maybeSingle();
+    } catch (_) {}
+  }
+
   Future<List<dynamic>> safeIn(String table, String columns, String column) async {
     try {
       final r = await client.from(table).select(columns).inFilter(column, ids);
@@ -422,7 +520,7 @@ Future<List<MatchPreview>> loadMatchPreviewsByIds(
 
   final personalRes = await safeIn(
     'personal_details',
-    'user_id, name, age, sex, marital_status',
+    'user_id, name, age, sex, marital_status, profile_code',
     'user_id',
   );
   final personalRows =
@@ -438,6 +536,7 @@ Future<List<MatchPreview>> loadMatchPreviewsByIds(
   final stuRes = await safeIn('profession_student', 'user_id, course, institution', 'user_id');
   final interestsRes = await safeIn('interests', 'user_id, interests', 'user_id');
   final activityRes = await safeIn('users', 'id, last_active_at', 'id');
+  final horoRes = await safeIn('horoscope_details', 'user_id, star, zodiac_sign', 'user_id');
 
   final photoRows = photoRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final contactRows = contactRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
@@ -448,6 +547,7 @@ Future<List<MatchPreview>> loadMatchPreviewsByIds(
   final stuRows = stuRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final interestRows = interestsRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final activityRows = activityRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  final horoRows = horoRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
 
   final lastActiveByUser = <String, DateTime?>{
     for (final r in activityRows)
@@ -534,6 +634,19 @@ Future<List<MatchPreview>> loadMatchPreviewsByIds(
     final st = findFor(uid, settingsRows);
     if (st != null && st['is_premium'] == true) premium = true;
 
+    final targetHoroRow = findFor(uid, horoRows);
+    int? poruthamScore;
+    if (myHoro != null && myHoro['star'] != null && targetHoroRow != null && targetHoroRow['star'] != null) {
+      final isTargetFemale = (p['sex']?.toString().toLowerCase() == 'female') || (p['gender']?.toString().toLowerCase() == 'female');
+      final scoreRes = checkTamilPorutham(
+        girlStar: isTargetFemale ? targetHoroRow['star'].toString() : myHoro['star'].toString(),
+        girlRashi: isTargetFemale ? (targetHoroRow['zodiac_sign']?.toString() ?? '') : (myHoro['zodiac_sign']?.toString() ?? ''),
+        boyStar: isTargetFemale ? myHoro['star'].toString() : targetHoroRow['star'].toString(),
+        boyRashi: isTargetFemale ? (myHoro['zodiac_sign']?.toString() ?? '') : (targetHoroRow['zodiac_sign']?.toString() ?? ''),
+      );
+      poruthamScore = scoreRes.score;
+    }
+
     return MatchPreview(
       userId: uid,
       name: p['name']?.toString().trim().isNotEmpty == true ? p['name'].toString() : 'Member',
@@ -545,6 +658,8 @@ Future<List<MatchPreview>> loadMatchPreviewsByIds(
       jobTitle: jobLineFor(uid),
       interestTags: interestsFor(uid),
       lastActiveAt: lastActiveByUser[uid],
+      profileCode: p['profile_code']?.toString(),
+      poruthamScore: poruthamScore,
     );
   }
 

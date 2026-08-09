@@ -97,27 +97,17 @@ class ProfileSocialActions {
     }
   }
 
-  /// Block — [blocked_profiles] table (manavizha `/api/blocks` POST).
-  /// Permanently hides the target from the current user's feeds.
-  /// Returns `null` on success (or duplicate, treated as success), else error message.
+  /// Block — add to [blocked_profiles] via WebApi to bypass RLS.
   static Future<String?> blockProfile({
     required SupabaseClient client,
     required String currentUserId,
     required String targetUserId,
   }) async {
-    try {
-      await client.from('blocked_profiles').insert({
-        'user_id': currentUserId,
-        'blocked_user_id': targetUserId,
-      });
-      return null;
-    } on PostgrestException catch (e) {
-      // Already-blocked → still a success from the user's perspective.
-      if (e.code == '23505') return null;
-      return e.message;
-    } catch (e) {
-      return e.toString();
-    }
+    final res = await WebApi.post('/api/blocks', {
+      'targetUserId': targetUserId,
+    });
+    if (res.ok) return null;
+    return res.error;
   }
 
   /// Unblock — delete from [blocked_profiles] (manavizha `/api/blocks` DELETE).
@@ -126,18 +116,11 @@ class ProfileSocialActions {
     required String currentUserId,
     required String targetUserId,
   }) async {
-    try {
-      await client
-          .from('blocked_profiles')
-          .delete()
-          .eq('user_id', currentUserId)
-          .eq('blocked_user_id', targetUserId);
-      return null;
-    } on PostgrestException catch (e) {
-      return e.message;
-    } catch (e) {
-      return e.toString();
-    }
+    final res = await WebApi.delete('/api/blocks', {
+      'targetUserId': targetUserId,
+    });
+    if (res.ok) return null;
+    return res.error;
   }
 
   /// Send a 1:1 message — web POST /api/messages. The server enforces the

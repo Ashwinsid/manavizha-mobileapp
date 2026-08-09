@@ -48,7 +48,14 @@ class LikesData {
   Set<String> get mutualIds {
     final mine = iLiked.map((e) => e.otherUserId).toSet();
     final theirs = likedMe.map((e) => e.otherUserId).toSet();
-    return mine.intersection(theirs);
+    final mutual = mine.intersection(theirs);
+    
+    final acceptedMine = iLiked.where((e) => e.status == 'accepted').map((e) => e.otherUserId);
+    final acceptedTheirs = likedMe.where((e) => e.status == 'accepted').map((e) => e.otherUserId);
+    
+    return mutual
+      ..addAll(acceptedMine)
+      ..addAll(acceptedTheirs);
   }
 }
 
