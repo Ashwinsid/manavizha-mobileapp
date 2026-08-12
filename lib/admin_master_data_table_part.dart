@@ -13,6 +13,19 @@ mixin MasterDataListContentMixin<T extends StatefulWidget> on State<T> {
   List<_MasterRow> _rows = [];
   bool _loading = true;
   String? _error;
+  final TextEditingController _searchController = TextEditingController();
+
+  List<_MasterRow> get _filteredRows {
+    final q = _searchController.text.trim().toLowerCase();
+    if (q.isEmpty) return _rows;
+    return _rows.where((r) => r.value.toLowerCase().contains(q)).toList();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -205,34 +218,75 @@ mixin MasterDataListContentMixin<T extends StatefulWidget> on State<T> {
         ),
       );
     }
-    return RefreshIndicator(
-      color: AdminHomeScreen.brandPurple,
-      onRefresh: _fetch,
-      child: _rows.isEmpty
-          ? ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              children: [
-                SizedBox(height: MediaQuery.of(context).size.height * 0.15),
-                Icon(Icons.inbox_outlined, size: 56, color: Colors.black.withValues(alpha: 0.2)),
-                const SizedBox(height: 16),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 32),
-                  child: Text(
-                    'No ${masterDataConfig.title.toLowerCase()} values yet. Tap "${masterDataConfig.addButtonText}" to add one.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.black.withValues(alpha: 0.5), height: 1.4),
-                  ),
+    return Column(
+      children: [
+        if (_rows.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                hintText: 'Search ${masterDataConfig.title}...',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear_rounded),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {});
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: Colors.black.withValues(alpha: 0.1)),
                 ),
-              ],
-            )
-          : ListView.separated(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: EdgeInsets.fromLTRB(16, 8, 16, masterDataListBottomPadding),
-              itemCount: _rows.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final row = _rows[index];
-                final swatch = _tryParseHex(row.colourCode);
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: Colors.black.withValues(alpha: 0.1)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: AdminHomeScreen.brandPurple),
+                ),
+              ),
+            ),
+          ),
+        Expanded(
+          child: RefreshIndicator(
+            color: AdminHomeScreen.brandPurple,
+            onRefresh: _fetch,
+            child: _filteredRows.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(height: MediaQuery.of(context).size.height * 0.15),
+                      Icon(Icons.inbox_outlined, size: 56, color: Colors.black.withValues(alpha: 0.2)),
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Text(
+                          _rows.isEmpty
+                              ? 'No ${masterDataConfig.title.toLowerCase()} values yet. Tap "${masterDataConfig.addButtonText}" to add one.'
+                              : 'No matches found.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.black.withValues(alpha: 0.5), height: 1.4),
+                        ),
+                      ),
+                    ],
+                  )
+                : ListView.separated(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: EdgeInsets.fromLTRB(16, 8, 16, masterDataListBottomPadding),
+                    itemCount: _filteredRows.length,
+                    separatorBuilder: (context, index) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final row = _filteredRows[index];
+                      final swatch = _tryParseHex(row.colourCode);
                 return Material(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
@@ -318,6 +372,9 @@ mixin MasterDataListContentMixin<T extends StatefulWidget> on State<T> {
                 );
               },
             ),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -82,6 +82,7 @@ class ProfileExtendedRepository {
   static Future<void> saveProfession({
     required String userId,
     required String type,
+    required String employmentTypeLabel,
     required Map<String, dynamic> emp,
     required Map<String, dynamic> bus,
     required Map<String, dynamic> stu,
@@ -92,6 +93,11 @@ class ProfileExtendedRepository {
     await c.from('profession_student').delete().eq('user_id', userId);
 
     if (type == 'none') {
+      await c.from('profession_employee').upsert({
+        'user_id': userId,
+        'employment_type': 'Not Working',
+        'completion_percentage': 100,
+      });
       return;
     }
 
@@ -100,6 +106,7 @@ class ProfileExtendedRepository {
     if (type == 'employee') {
       final m = <String, dynamic>{
         'user_id': userId,
+        'employment_type': employmentTypeLabel,
         'sector': _s(emp['sector']),
         'company': _s(emp['company']),
         'designation': _s(emp['designation']),
@@ -1376,6 +1383,7 @@ class _ProfessionFormState extends State<_ProfessionForm> {
                 await ProfileExtendedRepository.saveProfession(
                   userId: uid,
                   type: cat,
+                  employmentTypeLabel: _employmentLabel,
                   emp: e,
                   bus: b,
                   stu: s,
