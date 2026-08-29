@@ -11,6 +11,8 @@ import 'update_password_screen.dart';
 /// URLs, and matches the intent-filter / CFBundleURLTypes platform config.
 const String kAuthRedirectUrl = 'manavizha://auth-callback';
 
+final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -58,6 +60,7 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      scaffoldMessengerKey: rootScaffoldMessengerKey,
       title: 'Manavizha App',
       debugShowCheckedModeBanner: false,
       navigatorKey: _navigatorKey,

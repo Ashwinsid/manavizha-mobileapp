@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -98,6 +100,42 @@ class _ReferralPartnerProfileEditScreenState extends State<ReferralPartnerProfil
     _accountHolder = TextEditingController();
     _ifsc = TextEditingController();
     _branch = TextEditingController();
+
+    _pincode.addListener(() async {
+      if (_pincode.text.trim().length == 6 && !_loading) {
+        try {
+          final res = await http.get(Uri.parse('https://api.postalpincode.in/pincode/${_pincode.text.trim()}'));
+          if (res.statusCode == 200) {
+            final json = jsonDecode(res.body);
+            if (json is List && json.isNotEmpty && json[0]['Status'] == 'Success') {
+              final pos = json[0]['PostOffice'] as List?;
+              if (pos != null && pos.isNotEmpty) {
+                final po = pos[0];
+                final name = po['Name']?.toString() ?? '';
+                final block = po['Block']?.toString() ?? '';
+                final district = po['District']?.toString() ?? '';
+                final state = po['State']?.toString() ?? '';
+                final country = po['Country']?.toString() ?? '';
+                final blockStr = (block.isNotEmpty && block.toLowerCase() != 'na') ? block : district;
+                final areaStr = name.isNotEmpty ? '$name ($blockStr)' : blockStr;
+                
+                if (mounted) {
+                  setState(() {
+                    _area.text = areaStr;
+                    _district.text = district;
+                    _state.text = state;
+                    _country.text = country;
+                  });
+                }
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('Pincode fetch error: $e');
+        }
+      }
+    });
+
     _load();
   }
 

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'dashboard_shell_service.dart';
@@ -43,6 +44,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
   List<DashboardShellMessageNotification> _notifMessages = [];
   int _notifMessageBadge = 0;
   Timer? _shellPollTimer;
+  bool _hideQuickMenu = false;
 
   late final List<Widget> _pages;
 
@@ -679,6 +681,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadUiPrefs();
     // Mirrors `manavizha/components/user-activity-tracker.tsx` — fire an
     // immediate heartbeat the moment the home shell mounts, then keep a
     // `Timer.periodic(1m)` running while we're in the foreground.
@@ -697,6 +700,15 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
       const LikesPage(),
       MessagesPage(key: messagesPageKey),
     ];
+  }
+
+  Future<void> _loadUiPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _hideQuickMenu = prefs.getBool('hide_quick_menu') ?? false;
+      });
+    }
   }
 
   @override
@@ -1305,7 +1317,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
           ),
         ],
       ),
-      floatingActionButton: Padding(
+      floatingActionButton: _hideQuickMenu ? null : Padding(
         padding: EdgeInsets.only(bottom: bottomFabInset),
         child: _buildFabAndArcStack(),
       ),

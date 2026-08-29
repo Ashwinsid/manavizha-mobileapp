@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'profile_extended_details.dart';
 import 'user_profile_completion.dart';
+import 'partner_preferences_screen.dart';
 
 class UserDetailsPage extends StatefulWidget {
   const UserDetailsPage({super.key});
@@ -17,6 +18,7 @@ class UserDetailsPage extends StatefulWidget {
 
 class _UserDetailsPageState extends State<UserDetailsPage> {
   String? _profilePhotoUrl;
+  Map<String, dynamic>? _contactData;
   bool _isLoadingPhoto = true;
   bool _isLoadingData = true;
 
@@ -29,6 +31,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
   final TextEditingController _aboutCtrl = TextEditingController();
 
   String? _selectedGender;
+  String? _selectedReligion;
   String? _selectedCreatedBy;
   String? _selectedPhysicalStatus;
   String? _selectedSkinColor;
@@ -39,6 +42,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
 
   // Master Data Lists
   List<String> _genderOptions = ['Male', 'Female'];
+  List<String> _religionOptions = [];
   List<String> _createdByOptions = ['Self', 'Parents', 'Sibling', 'Relative', 'Friend'];
   List<String> _physicalStatusOptions = ['Normal', 'Physically Challenged'];
   List<dynamic> _skinColorOptions = [
@@ -119,6 +123,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     switch (title) {
       case 'Basic Details':
         return s.basicDetails;
+      case 'Contact Details':
+        return s.contactDetails;
       case 'Educational Details':
         return s.educationalDetails;
       case 'Professional Details':
@@ -339,6 +345,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
         supabase.from('master_pubs').select('value'),
         supabase.from('master_hobbies').select('value'),
         supabase.from('master_interests').select('value'),
+        supabase.from('master_religion').select('value'),
       ]);
 
       if (mounted) {
@@ -350,6 +357,10 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
           if ((results[4] as List).isNotEmpty) _foodPreferenceOptions = (results[4] as List).map((e) => e['value'] as String).toList();
           if ((results[5] as List).isNotEmpty) _indianLanguages = (results[5] as List).map((e) => e['value'] as String).toList();
           if ((results[6] as List).isNotEmpty) _internationalLanguages = (results[6] as List).map((e) => e['value'] as String).toList();
+          
+          if (results[13] is List && (results[13] as List).isNotEmpty) {
+            _religionOptions = (results[13] as List).map((e) => e['value'] as String).toList();
+          }
           
           if (results[7] is List && (results[7] as List).isNotEmpty) {
             _smokingOptions = (results[7] as List).map((e) => e['value'] as String).toList();
@@ -387,6 +398,13 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
           .eq('user_id', userId)
           .maybeSingle();
 
+      final contactData = await Supabase.instance.client
+          .from('contact_details')
+          .select()
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (mounted) { _contactData = contactData; }
       if (data != null && mounted) {
         setState(() {
           _nameCtrl.text = data['name'] ?? '';
@@ -396,6 +414,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
           _weightCtrl.text = data['weight']?.toString() ?? '';
           _aboutCtrl.text = data['about'] ?? '';
           _selectedGender = data['sex'];
+          _selectedReligion = data['religion'];
           _selectedCreatedBy = data['created_by'];
           _selectedPhysicalStatus = data['physical_status'];
           _selectedSkinColor = data['skin_color'];
@@ -534,6 +553,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
         'created_by': _selectedCreatedBy,
         'physical_status': _selectedPhysicalStatus,
         'sex': _selectedGender,
+        'religion': _selectedReligion,
         'height': int.tryParse(_heightCtrl.text),
         'weight': int.tryParse(_weightCtrl.text),
         'skin_color': _selectedSkinColor,
@@ -958,6 +978,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                           ),
                           _buildTextField('Age', _ageCtrl, readOnly: true, isNumber: true),
                           _buildDropdownField('Gender', _selectedGender, _genderOptions, (val) => setModalState(() => _selectedGender = val)),
+                          _buildDropdownField('Religion', _selectedReligion, _religionOptions, (val) => setModalState(() => _selectedReligion = val)),
                           _buildDropdownField('Profile Created By', _selectedCreatedBy, _createdByOptions, (val) => setModalState(() => _selectedCreatedBy = val)),
                           
                           _buildSectionTitle('Physical Attributes'),
@@ -1187,10 +1208,10 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
           ),
         ),
         const SizedBox(height: 16),
-        const Text(
-          'User Details',
+        Text(
+          _nameCtrl.text.isNotEmpty ? _nameCtrl.text : 'My Profile',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 4),
         const Text(
@@ -1200,12 +1221,30 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
         ),
         const SizedBox(height: 32),
         _buildCategoryTile('Basic Details', Icons.info_outline),
+        _buildCategoryTile('Contact Details', Icons.contact_phone_outlined),
         _buildCategoryTile('Educational Details', Icons.school_outlined),
         _buildCategoryTile('Professional Details', Icons.work_outline),
         _buildCategoryTile('Family Details', Icons.family_restroom_outlined),
         _buildCategoryTile('Horoscope Details', Icons.auto_awesome_outlined),
         _buildCategoryTile('Interests', Icons.sports_esports_outlined),
         _buildCategoryTile('Social Habits', Icons.local_cafe_outlined),
+        Card(
+          elevation: 0,
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          color: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.black.withOpacity(0.05)),
+          ),
+          child: ListTile(
+            leading: const Icon(Icons.tune_outlined, color: Color(0xFF2FA086)),
+            title: const Text('Partner Preferences', style: TextStyle(fontWeight: FontWeight.w600)),
+            trailing: const Icon(Icons.chevron_right, color: Colors.black45),
+            onTap: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const PartnerPreferencesScreen()));
+            },
+          ),
+        ),
         const SizedBox(height: 100), // spacing for bottom dock
       ],
     );
@@ -1270,6 +1309,36 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       ),
                     ),
                   ),
+                ] else if (title == 'Contact Details') ...[
+                    _buildDataRow('Phone', _contactData?['phone']),
+                    _buildDataRow('WhatsApp', _contactData?['whatsapp_number']),
+                    _buildDataRow('Permanent City', _contactData?['permanent_district']),
+                    _buildDataRow('Permanent State', _contactData?['permanent_state']),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          showModalBottomSheet(
+                            context: context,
+                            isScrollControlled: true,
+                            useSafeArea: true,
+                            backgroundColor: Colors.white,
+                            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+                            builder: (ctx) => ContactDetailsEditorSheet(initialData: _contactData),
+                          ).then((_) {
+                            _fetchPersonalDetails();
+                            _fetchSectionCompletion();
+                          });
+                        },
+                        icon: const Icon(Icons.edit, size: 16, color: Color(0xFF2FA086)),
+                        label: const Text('Edit Contact Details', style: TextStyle(color: Color(0xFF2FA086))),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFF2FA086)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
                 ] else if (title == 'Interests') ...[
                   const Text(
                     'Hobbies',
@@ -1817,10 +1886,6 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please upload at least 3 profile photos')));
       return;
     }
-    if (familyPhoto == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Family photo is mandatory')));
-      return;
-    }
     if (aadharFront == null || aadharBack == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Aadhar Front & Back are mandatory')));
       return;
@@ -1838,7 +1903,20 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
         uploadedUserPhotos.add(url);
       }
 
-      final familyUrl = await _processUpload(familyPhoto, 'family-photos', 'family');
+      // Family photo is optional — only upload if a new one was selected,
+      // otherwise preserve the existing URL from the database.
+      String? familyUrl;
+      if (familyPhoto != null) {
+        familyUrl = await _processUpload(familyPhoto, 'family-photos', 'family');
+      } else {
+        // Keep existing value in DB (don't overwrite with null)
+        final existing = await Supabase.instance.client
+            .from('photos')
+            .select('family_photo')
+            .eq('user_id', userId)
+            .maybeSingle();
+        familyUrl = existing?['family_photo'] as String?;
+      }
       final aadharFrontUrl = await _processUpload(aadharFront, 'aadhar-photos', 'front');
       final aadharBackUrl = await _processUpload(aadharBack, 'aadhar-photos', 'back');
 
@@ -1915,7 +1993,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
         const SizedBox(height: 32),
         const Text('Family Photo', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        const Text('Mandatory. Max 5MB.', style: TextStyle(color: Colors.black54, fontSize: 12)),
+        const Text('Optional. Max 5MB.', style: TextStyle(color: Colors.black54, fontSize: 12)),
         const SizedBox(height: 16),
         Align(
           alignment: Alignment.centerLeft,
@@ -1958,24 +2036,354 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
   }
 }
 
-class ReferralDetailsPage extends StatelessWidget {
+class ReferralDetailsPage extends StatefulWidget {
   const ReferralDetailsPage({super.key});
 
   @override
+  State<ReferralDetailsPage> createState() => _ReferralDetailsPageState();
+}
+
+class _ReferralDetailsPageState extends State<ReferralDetailsPage> {
+  final TextEditingController _partnerIdCtrl = TextEditingController();
+
+  // State
+  String _partnerName = '';
+  String _partnerError = '';
+  bool _isLoadingPartner = false;
+  bool _isSaving = false;
+  bool _isLoading = true;
+  String _lastFetchedId = '';
+
+  // Debounce timer
+  Future<void>? _debounce;
+
+  // Pattern: 2 uppercase letters, 4 digits, 2 uppercase letters, 3 digits
+  final RegExp _partnerIdPattern = RegExp(r'^[A-Z]{2}\d{4}[A-Z]{2}\d{3}$');
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedReferral();
+    _partnerIdCtrl.addListener(_onPartnerIdChanged);
+  }
+
+  @override
+  void dispose() {
+    _partnerIdCtrl.removeListener(_onPartnerIdChanged);
+    _partnerIdCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadSavedReferral() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+      final data = await Supabase.instance.client
+          .from('referral_details')
+          .select('referral_partner_id, referral_partner_name')
+          .eq('user_id', userId)
+          .maybeSingle();
+      if (mounted && data != null) {
+        final savedId = (data['referral_partner_id'] as String?) ?? '';
+        final savedName = (data['referral_partner_name'] as String?) ?? '';
+        _partnerIdCtrl.text = savedId;
+        if (savedId.isNotEmpty) {
+          setState(() {
+            _partnerName = savedName;
+            _lastFetchedId = savedId;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading referral details: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _onPartnerIdChanged() {
+    // Enforce uppercase alphanumeric, max 11 chars
+    final raw = _partnerIdCtrl.text;
+    final cleaned = raw.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
+    final limited = cleaned.length > 11 ? cleaned.substring(0, 11) : cleaned;
+    if (limited != raw) {
+      _partnerIdCtrl.value = _partnerIdCtrl.value.copyWith(
+        text: limited,
+        selection: TextSelection.collapsed(offset: limited.length),
+      );
+      return;
+    }
+
+    // Reset display state if ID changed
+    if (limited != _lastFetchedId) {
+      setState(() {
+        _partnerName = '';
+        _partnerError = '';
+      });
+    }
+
+    // Debounce lookup by 500ms
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted && _partnerIdCtrl.text == limited) {
+        _fetchPartnerName(limited);
+      }
+    });
+  }
+
+  Future<void> _fetchPartnerName(String partnerId) async {
+    if (partnerId.isEmpty) {
+      if (mounted) setState(() { _partnerName = ''; _partnerError = ''; _lastFetchedId = ''; });
+      return;
+    }
+
+    // Already fetched for this ID
+    if (partnerId == _lastFetchedId && (partnerId.length == 11) && (_partnerName.isNotEmpty || _partnerError.isNotEmpty)) return;
+
+    if (!_partnerIdPattern.hasMatch(partnerId)) {
+      if (mounted) setState(() { _partnerName = ''; _partnerError = ''; _lastFetchedId = ''; });
+      return;
+    }
+
+    if (mounted) setState(() { _isLoadingPartner = true; _lastFetchedId = partnerId; });
+
+    try {
+      final data = await Supabase.instance.client
+          .from('referral_partners')
+          .select('name, partner_id')
+          .eq('partner_id', partnerId)
+          .maybeSingle();
+
+      if (!mounted) return;
+
+      if (data != null) {
+        setState(() {
+          _partnerName = (data['name'] as String?) ?? 'Partner found';
+          _partnerError = '';
+        });
+      } else {
+        setState(() {
+          _partnerName = '';
+          _partnerError = 'This partner ID is not valid. Please get the proper ID from the partner.';
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() { _partnerError = 'Error looking up partner. Please try again.'; });
+    } finally {
+      if (mounted) setState(() => _isLoadingPartner = false);
+    }
+  }
+
+  Future<void> _saveReferral() async {
+    final partnerId = _partnerIdCtrl.text.trim();
+
+    // Validate pattern if filled
+    if (partnerId.isNotEmpty && !_partnerIdPattern.hasMatch(partnerId)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Invalid ID format: 2 letters, 4 numbers, 2 letters, 3 numbers (e.g. AB1234CD567)'),
+      ));
+      return;
+    }
+
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    setState(() => _isSaving = true);
+    try {
+      await Supabase.instance.client.from('referral_details').upsert({
+        'user_id': userId,
+        'referral_partner_id': partnerId.isEmpty ? null : partnerId,
+        'referral_partner_name': _partnerName.isEmpty ? null : _partnerName,
+      }, onConflict: 'user_id');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Referral details saved successfully!'),
+          backgroundColor: Color(0xFF2FA086),
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  bool get _isValidPattern => _partnerIdPattern.hasMatch(_partnerIdCtrl.text);
+
+  @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.card_giftcard_outlined, size: 80, color: Color(0xFF2FA086)),
-          SizedBox(height: 16),
-          Text('Referral Details', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          Text('Track your referrals and rewards', style: TextStyle(color: Colors.black54)),
-        ],
-      ),
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator(color: Color(0xFF2FA086)));
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        // ── Header card ──────────────────────────────────────────────────
+        Card(
+          elevation: 0,
+          color: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.black.withOpacity(0.06)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Section header
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2FA086).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.handshake_outlined, color: Color(0xFF2FA086), size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Partner details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        Text('Enter your referral partner ID to link your profile',
+                            style: TextStyle(fontSize: 12, color: Colors.black54)),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+
+                // ── Referral Partner ID ───────────────────────────────────
+                const Text('REFERRAL PARTNER ID', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.black54, letterSpacing: 0.8)),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _partnerIdCtrl,
+                  textCapitalization: TextCapitalization.characters,
+                  maxLength: 11,
+                  decoration: InputDecoration(
+                    hintText: 'E.G., AB1234CD567',
+                    counterText: '',
+                    filled: true,
+                    fillColor: _isValidPattern && _partnerName.isNotEmpty
+                        ? const Color(0xFFE8F5F1)
+                        : _partnerError.isNotEmpty
+                            ? const Color(0xFFFFF0F0)
+                            : const Color(0xFFF8F8F8),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.black.withOpacity(0.1))),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: _isValidPattern && _partnerName.isNotEmpty
+                            ? const Color(0xFF2FA086).withOpacity(0.4)
+                            : _partnerError.isNotEmpty
+                                ? Colors.red.withOpacity(0.4)
+                                : Colors.black.withOpacity(0.1),
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF2FA086)),
+                    ),
+                    suffixIcon: _isLoadingPartner
+                        ? const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF2FA086))),
+                          )
+                        : null,
+                  ),
+                  style: const TextStyle(fontWeight: FontWeight.w600, letterSpacing: 1.5),
+                ),
+                const SizedBox(height: 4),
+                if (!_isValidPattern && _partnerIdCtrl.text.isNotEmpty)
+                  const Text('Format: 2 letters, 4 numbers, 2 letters, 3 numbers',
+                      style: TextStyle(fontSize: 11, color: Colors.orange)),
+                if (_isValidPattern && _partnerName.isNotEmpty && _partnerError.isEmpty)
+                  const Text('ID verified ✓', style: TextStyle(fontSize: 11, color: Color(0xFF2FA086), fontWeight: FontWeight.w600)),
+                const Text('Enter the ID of your referral partner (optional)',
+                    style: TextStyle(fontSize: 11, color: Colors.black45)),
+
+                const SizedBox(height: 20),
+                const Divider(height: 1, color: Color(0xFFF0EBE3)),
+                const SizedBox(height: 20),
+
+                // ── Partner Name ──────────────────────────────────────────
+                const Text('PARTNER NAME', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.black54, letterSpacing: 0.8)),
+                const SizedBox(height: 6),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: _partnerName.isNotEmpty
+                        ? const Color(0xFFF8FDFB)
+                        : const Color(0xFFF5F5F5),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: _partnerName.isNotEmpty
+                          ? const Color(0xFF2FA086).withOpacity(0.3)
+                          : Colors.black.withOpacity(0.08),
+                    ),
+                  ),
+                  child: Text(
+                    _isLoadingPartner
+                        ? 'Finding partner...'
+                        : _partnerError.isNotEmpty
+                            ? _partnerError
+                            : _partnerName.isNotEmpty
+                                ? _partnerName
+                                : 'Waiting for ID...',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: _partnerName.isNotEmpty ? FontWeight.w600 : FontWeight.normal,
+                      color: _partnerError.isNotEmpty
+                          ? Colors.red.shade700
+                          : _partnerName.isNotEmpty
+                              ? const Color(0xFF1F4068)
+                              : Colors.black38,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 24),
+
+        // ── Save button ───────────────────────────────────────────────────
+        SizedBox(
+          height: 52,
+          child: ElevatedButton(
+            onPressed: _isSaving ? null : _saveReferral,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2FA086),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              elevation: 0,
+            ),
+            child: _isSaving
+                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : const Text('Save Details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        // ── Skip note ─────────────────────────────────────────────────────
+        const Center(
+          child: Text('Referral partner is optional — you can skip this step.',
+              style: TextStyle(fontSize: 12, color: Colors.black38)),
+        ),
+        const SizedBox(height: 100),
+      ],
     );
   }
 }
+
 
 class ContactDetailsPage extends StatefulWidget {
   const ContactDetailsPage({super.key});

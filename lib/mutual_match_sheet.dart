@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'admin_home_screen.dart';
 import 'web_api.dart';
+import 'siblings_formatter.dart';
 
 /// Modal bottom sheet shown for **mutual** matches (both users liked each
 /// other). Mirrors the "Mutual Interest" sections inside
@@ -766,7 +767,7 @@ class _MutualMatchSheetState extends State<_MutualMatchSheet> {
       _row("Father's occupation", f['father_occupation']),
       _row("Mother's name", f['mother_name']),
       _row("Mother's occupation", f['mother_occupation']),
-      _row('Siblings', f['siblings']),
+      _row('Siblings', formatSiblings(f)),
       _row('Caste', f['caste']),
       _row('Subcaste', f['subcaste']),
       _row('Kulam', f['kulam']),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'e2e.dart';
@@ -37,6 +38,7 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
   static const Color _brand = Color(0xFF2FA086);
 
   static const List<_SettingsTab> _tabs = [
+    _SettingsTab('app_settings', 'App Settings', Icons.smartphone_rounded),
     _SettingsTab('alerts', 'Alerts & Updates', Icons.notifications_active_rounded),
     _SettingsTab('call_prefs', 'Call Preferences', Icons.phone_in_talk_rounded),
     _SettingsTab('privacy', 'Privacy Settings', Icons.shield_outlined),
@@ -91,6 +93,7 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
   String _photoVisibility = 'everyone';
   bool _isDeactivated = false;
   DateTime? _deactivatedUntil;
+  bool _hideQuickMenu = false;
 
   // Lists.
   List<_NamedRow> _ignored = const [];
@@ -103,6 +106,7 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
       _activeTab = widget.initialTab!;
     }
     _load();
+    _loadLocalPrefs();
   }
 
   bool get _isCurrentlyDeactivated =>
@@ -262,6 +266,22 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
         'deactivated_until': _deactivatedUntil?.toIso8601String(),
       };
 
+  Future<void> _loadLocalPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _hideQuickMenu = prefs.getBool('hide_quick_menu') ?? false;
+      });
+    }
+  }
+
+  Future<void> _saveUiPrefs(bool hide) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('hide_quick_menu', hide);
+    setState(() => _hideQuickMenu = hide);
+    _toast('App settings updated.');
+  }
+
   void _toast(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -270,6 +290,7 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
   Future<void> _onUnignore(_NamedRow row) async {
     final uid = _userId;
     if (uid == null) return;
+    final sm = ScaffoldMessenger.of(context);
     final err = await ProfileSocialActions.unignoreProfile(
       client: Supabase.instance.client,
       currentUserId: uid,
@@ -277,18 +298,19 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
     );
     if (!mounted) return;
     if (err != null) {
-      _toast(err);
+      sm.showSnackBar(SnackBar(content: Text(err)));
       return;
     }
     setState(() {
       _ignored = _ignored.where((r) => r.userId != row.userId).toList();
     });
-    _toast('Profile removed from ignored list.');
+    sm.showSnackBar(const SnackBar(content: Text('Profile removed from ignored list.')));
   }
 
   Future<void> _onUnblock(_NamedRow row) async {
     final uid = _userId;
     if (uid == null) return;
+    final sm = ScaffoldMessenger.of(context);
     final err = await ProfileSocialActions.unblockProfile(
       client: Supabase.instance.client,
       currentUserId: uid,
@@ -296,13 +318,13 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
     );
     if (!mounted) return;
     if (err != null) {
-      _toast(err);
+      sm.showSnackBar(SnackBar(content: Text(err)));
       return;
     }
     setState(() {
       _blocked = _blocked.where((r) => r.userId != row.userId).toList();
     });
-    _toast('Profile unblocked.');
+    sm.showSnackBar(const SnackBar(content: Text('Profile unblocked.')));
   }
 
   Future<void> _onSendPasswordReset() async {
@@ -607,6 +629,8 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
 
   Widget _buildActiveTab() {
     switch (_activeTab) {
+      case 'app_settings':
+        return _buildAppSettingsTab();
       case 'alerts':
         return _buildAlertsTab();
       case 'call_prefs':
@@ -734,6 +758,22 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildAppSettingsTab() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _sectionHeader('App settings', Icons.smartphone_rounded, iconColor: Colors.deepPurple.shade600),
+        _description('Manage device-specific application preferences.'),
+        _toggleRow(
+          'Hide Quick Menu',
+          'Hide the floating quick menu button (grid icon) shown in the bottom right corner of the matches screen.',
+          _hideQuickMenu,
+          (v) => _saveUiPrefs(v),
+        ),
+      ],
     );
   }
 

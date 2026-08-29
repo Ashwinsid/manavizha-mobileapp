@@ -809,6 +809,9 @@ class _MemberProfileFullscreenWrapperState
     final client = Supabase.instance.client;
     final uid = client.auth.currentUser?.id;
     if (uid == null) return;
+    final sm = ScaffoldMessenger.of(context);
+    final nav = Navigator.of(context);
+
     setState(() => _blocking = true);
     final err = await ProfileSocialActions.blockProfile(
       client: client,
@@ -818,19 +821,20 @@ class _MemberProfileFullscreenWrapperState
     if (!mounted) return;
     setState(() => _blocking = false);
     if (err != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      sm.showSnackBar(SnackBar(
+        content: Text(err),
+        backgroundColor: Colors.red.shade600,
+      ));
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(_targetName.isEmpty
-            ? 'Profile has been blocked.'
-            : '$_targetName has been blocked.'),
-      ),
-    );
+
+    sm.showSnackBar(SnackBar(
+      content: Text('${_targetName.isEmpty ? "This member" : _targetName} has been blocked.'),
+    ));
+
     // Match the web flow (`router.push('/dashboard/browse')`) by popping back
     // to the previous screen, since the row will no longer be visible there.
-    Navigator.of(context).pop();
+    nav.pop();
   }
 
   @override

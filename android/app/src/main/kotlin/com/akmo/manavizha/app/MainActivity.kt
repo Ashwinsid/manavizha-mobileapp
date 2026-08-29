@@ -1,4 +1,4 @@
-package com.manavizha.app
+package com.akmo.manavizha.app
 
 import io.flutter.embedding.android.FlutterActivity
 

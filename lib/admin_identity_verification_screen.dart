@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'main.dart';
+
 import 'admin_home_screen.dart';
 
 /// Pending photo verification queue (mirrors web `app/admin/verification/page.tsx`).
@@ -176,7 +178,7 @@ class _AdminIdentityVerificationScreenState
           .eq('user_id', userId);
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
         SnackBar(
           content: Text(
             verified
@@ -192,7 +194,7 @@ class _AdminIdentityVerificationScreenState
     } catch (e, st) {
       debugPrint('verification action error: $e\n$st');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
         const SnackBar(
           content: Text('Failed to process request'),
           behavior: SnackBarBehavior.floating,

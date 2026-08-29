@@ -9,6 +9,7 @@ import 'premium_utils.dart';
 class UserDetailsSectionCompletion {
   const UserDetailsSectionCompletion({
     required this.basicDetails,
+    required this.contactDetails,
     required this.educationalDetails,
     required this.professionalDetails,
     required this.familyDetails,
@@ -18,6 +19,7 @@ class UserDetailsSectionCompletion {
   });
 
   final int basicDetails;
+  final int contactDetails;
   final int educationalDetails;
   final int professionalDetails;
   final int familyDetails;
@@ -27,6 +29,7 @@ class UserDetailsSectionCompletion {
 
   UserDetailsSectionCompletion copyWith({
     int? basicDetails,
+    int? contactDetails,
     int? educationalDetails,
     int? professionalDetails,
     int? familyDetails,
@@ -36,6 +39,7 @@ class UserDetailsSectionCompletion {
   }) {
     return UserDetailsSectionCompletion(
       basicDetails: basicDetails ?? this.basicDetails,
+      contactDetails: contactDetails ?? this.contactDetails,
       educationalDetails: educationalDetails ?? this.educationalDetails,
       professionalDetails: professionalDetails ?? this.professionalDetails,
       familyDetails: familyDetails ?? this.familyDetails,
@@ -77,6 +81,13 @@ class UserProfileSnapshot {
   final String? maritalStatus;
   final int userPhotoCount;
   final bool hasFamilyPhoto;
+
+  bool get isCoreProfileComplete =>
+      sections.basicDetails == 100 &&
+      sections.contactDetails == 100 &&
+      sections.educationalDetails == 100 &&
+      sections.professionalDetails == 100 &&
+      sections.familyDetails == 100;
 }
 
 int _nonEmptyListItemCount(List<dynamic> list) =>
@@ -146,42 +157,38 @@ int computeContactCompletionPercent(Map<String, dynamic>? contact) {
 /// Same keys as the family form in `profile_extended_details.dart` so a fully filled sheet reaches 100%.
 int computeFamilyDetailsCompletionPercent(Map<String, dynamic>? family) {
   if (family == null) return 0;
-  const fields = [
+  // Only mandatory fields count toward completion.
+  // Optional fields (father_occupation, mother_occupation, address details,
+  // siblings, family_description, subcaste, kulam, gotram, ancestral_origin,
+  // family_status) are excluded so that filling the core mandatory fields
+  // results in 100%.
+  const mandatoryFields = [
     'father_name',
-    'father_occupation',
     'mother_name',
-    'mother_occupation',
-    'parents_address_line1',
-    'parents_address_line2',
-    'parents_pincode',
-    'parents_area',
-    'parents_district',
-    'parents_state',
-    'parents_country',
-    'siblings',
-    'family_description',
     'caste',
-    'subcaste',
     'family_type',
-    'family_status',
+    'parents_district',
   ];
   var filled = 0;
-  for (final f in fields) {
+  for (final f in mandatoryFields) {
     final val = family[f];
     if (val != null && val.toString().trim().isNotEmpty) filled++;
   }
-  return ((filled / fields.length) * 100).round();
+  return ((filled / mandatoryFields.length) * 100).round();
 }
 
 int computeHoroscopeCompletionPercent(Map<String, dynamic>? horoscope) {
   if (horoscope == null) return 0;
-  const fields = ['jaadhagam_url', 'time_of_birth', 'place_of_birth', 'zodiac_sign', 'star', 'lagnam', 'dhosham'];
+  // Only mandatory fields count toward completion.
+  // Optional fields (jaadhagam_url, dhosham) are excluded so that filling
+  // star, zodiac, lagnam, time and place of birth results in 100%.
+  const mandatoryFields = ['time_of_birth', 'place_of_birth', 'zodiac_sign', 'star', 'lagnam'];
   var filled = 0;
-  for (final f in fields) {
+  for (final f in mandatoryFields) {
     final val = horoscope[f];
     if (val != null && val.toString().trim().isNotEmpty) filled++;
   }
-  return ((filled / fields.length) * 100).round();
+  return ((filled / mandatoryFields.length) * 100).round();
 }
 
 bool _nonEmptyField(dynamic v) {
@@ -405,7 +412,7 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
     client
         .from('family_details')
         .select(
-          'father_name, father_occupation, mother_name, mother_occupation, parents_address_line1, parents_address_line2, parents_pincode, parents_area, parents_district, parents_state, parents_country, siblings, family_description, caste, subcaste, family_type, family_status',
+          'father_name, father_occupation, mother_name, mother_occupation, parents_address_line1, parents_address_line2, parents_pincode, parents_area, parents_district, parents_state, parents_country, siblings, family_description, caste, subcaste, kulam, gotram, ancestral_origin, family_type, family_status',
         )
         .eq('user_id', userId)
         .maybeSingle(),
@@ -429,6 +436,7 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
   final settings = results[11] as Map<String, dynamic>?;
 
   final personalProgress = computePersonalDetailsCompletionPercent(personal);
+  final contactProgress = computeContactCompletionPercent(results[1] as Map<String, dynamic>?);
 
   final eduRows = eduData.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final eduProgress = computeEducationDetailsCompletionPercent(eduRows);
@@ -471,6 +479,7 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
 
   final sections = UserDetailsSectionCompletion(
     basicDetails: personalProgress.clamp(0, 100),
+    contactDetails: contactProgress.clamp(0, 100),
     educationalDetails: eduProgress.clamp(0, 100),
     professionalDetails: profProgress.clamp(0, 100),
     familyDetails: familyProgress.clamp(0, 100),
@@ -481,13 +490,14 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
 
   final headlineCompletion = (
         sections.basicDetails +
+        sections.contactDetails +
         sections.educationalDetails +
         sections.professionalDetails +
         sections.familyDetails +
         sections.horoscopeDetails +
         sections.interests +
         sections.socialHabits) ~/
-      7;
+      8;
 
   return UserProfileSnapshot(
     completionPercent: headlineCompletion.clamp(0, 100),

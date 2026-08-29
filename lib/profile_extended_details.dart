@@ -7,9 +7,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_config.dart';
+import 'astrology.dart' as astro;
 import 'horoscope_location_options.dart';
 import 'horoscope_screen.dart';
 import 'user_profile_completion.dart';
+import 'widgets/global_location_selector.dart';
 
 const _brand = Color(0xFF2FA086);
 
@@ -238,6 +240,27 @@ class ProfileExtendedRepository {
       ),
     );
     return await client.storage.from('jaadhagam').createSignedUrl(path, 31536000);
+  }
+
+  static Future<String> uploadItrDocument(String userId, Uint8List bytes, String contentType) async {
+    final ext = contentType.contains('pdf')
+        ? 'pdf'
+        : contentType.contains('png')
+            ? 'png'
+            : contentType.contains('webp')
+                ? 'webp'
+                : 'jpg';
+    final path = '$userId/itr_document.$ext';
+    final client = Supabase.instance.client;
+    await client.storage.from('itr-documents').uploadBinary(
+      path,
+      bytes,
+      fileOptions: FileOptions(
+        upsert: true,
+        contentType: contentType.isNotEmpty ? contentType : 'application/pdf',
+      ),
+    );
+    return await client.storage.from('itr-documents').createSignedUrl(path, 31536000);
   }
 
   /// Master rows for [educational-details-step.tsx] parity (education + status dropdowns).
@@ -1069,6 +1092,36 @@ class _ProfessionFormState extends State<_ProfessionForm> {
   late Map<String, dynamic> e;
   late Map<String, dynamic> b;
   late Map<String, dynamic> s;
+  bool _isUploadingItr = false;
+
+  Future<void> _pickAndUploadItr() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (picked == null) return;
+    
+    setState(() => _isUploadingItr = true);
+    try {
+      final bytes = await picked.readAsBytes();
+      final uid = Supabase.instance.client.auth.currentUser?.id;
+      if (uid == null) throw Exception('Not logged in');
+      
+      final url = await ProfileExtendedRepository.uploadItrDocument(uid, bytes, 'image/jpeg');
+      setState(() {
+        b['itr_document'] = url;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ITR document uploaded')));
+      }
+    } catch (err) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $err')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingItr = false);
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -1363,6 +1416,25 @@ class _ProfessionFormState extends State<_ProfessionForm> {
                 _text(b, 'annual_returns', 'Annual returns'),
                 const SizedBox(height: 12),
                 _text(b, 'business_location', 'Business location *'),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('ITR Document (Optional)', style: TextStyle(fontSize: 14)),
+                  subtitle: Text(b['itr_document']?.toString().isNotEmpty == true ? 'Document uploaded' : 'No document uploaded', style: const TextStyle(fontSize: 12)),
+                  trailing: _isUploadingItr 
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      : ElevatedButton.icon(
+                          onPressed: _pickAndUploadItr,
+                          icon: const Icon(Icons.upload_file, size: 16),
+                          label: const Text('Upload'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: _brand,
+                            side: const BorderSide(color: _brand),
+                            elevation: 0,
+                          ),
+                        ),
+                ),
               ],
             ],
           ),
@@ -1414,6 +1486,135 @@ class _ProfessionFormState extends State<_ProfessionForm> {
             child: const Text('Save', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ),
+      ],
+    );
+  }
+}
+
+class _SiblingDetailsEditor extends StatefulWidget {
+  const _SiblingDetailsEditor({required this.familyData});
+  final Map<String, dynamic> familyData;
+
+  @override
+  State<_SiblingDetailsEditor> createState() => _SiblingDetailsEditorState();
+}
+
+class _SiblingDetailsEditorState extends State<_SiblingDetailsEditor> {
+  late List<Map<String, dynamic>> _siblings;
+
+  @override
+  void initState() {
+    super.initState();
+    final sd = widget.familyData['sibling_details'];
+    if (sd is List) {
+      _siblings = sd.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } else {
+      _siblings = [];
+    }
+  }
+
+  void _addSibling() {
+    setState(() {
+      _siblings.add({'gender': 'Male', 'maritalStatus': 'Never Married', 'profession': ''});
+      widget.familyData['sibling_details'] = _siblings;
+    });
+  }
+
+  void _removeSibling(int index) {
+    setState(() {
+      _siblings.removeAt(index);
+      widget.familyData['sibling_details'] = _siblings;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 16, bottom: 8),
+          child: Text('Sibling Details', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+        ),
+        if (_siblings.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: Text('No siblings added', style: TextStyle(color: Colors.black54, fontSize: 13)),
+          ),
+        ..._siblings.asMap().entries.map((e) {
+          final i = e.key;
+          final s = e.value;
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.02),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.black12),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Sibling ${i + 1}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 16, color: Colors.red),
+                      onPressed: () => _removeSibling(i),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: ['Male', 'Female'].contains(s['gender']) ? s['gender'] : 'Male',
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'Gender', isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
+                        items: ['Male', 'Female'].map((v) => DropdownMenuItem(value: v, child: Text(v, style: const TextStyle(fontSize: 13)))).toList(),
+                        onChanged: (v) {
+                          setState(() { s['gender'] = v; widget.familyData['sibling_details'] = _siblings; });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: ['Never Married', 'Married', 'Divorced', 'Widowed'].contains(s['maritalStatus']) ? s['maritalStatus'] : 'Never Married',
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'Status', isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
+                        items: ['Never Married', 'Married', 'Divorced', 'Widowed'].map((v) => DropdownMenuItem(value: v, child: Text(v, style: const TextStyle(fontSize: 13)))).toList(),
+                        onChanged: (v) {
+                          setState(() { s['maritalStatus'] = v; widget.familyData['sibling_details'] = _siblings; });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  initialValue: s['profession']?.toString() ?? '',
+                  decoration: const InputDecoration(labelText: 'Profession', isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
+                  style: const TextStyle(fontSize: 13),
+                  onChanged: (v) {
+                    s['profession'] = v;
+                    widget.familyData['sibling_details'] = _siblings;
+                  },
+                ),
+              ],
+            ),
+          );
+        }),
+        TextButton.icon(
+          onPressed: _addSibling,
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('Add Sibling'),
+          style: TextButton.styleFrom(padding: EdgeInsets.zero),
+        ),
+        const SizedBox(height: 8),
       ],
     );
   }
@@ -1475,13 +1676,36 @@ Future<void> showFamilyDetailsSheet(
                     _mapField(f, 'parents_address_line2', 'Parents address line 2'),
                     _mapField(f, 'parents_pincode', 'Pincode'),
                     _mapField(f, 'parents_area', 'Area'),
-                    _mapField(f, 'parents_district', 'District'),
-                    _mapField(f, 'parents_state', 'State'),
-                    _mapField(f, 'parents_country', 'Country'),
+                    _mapField(f, 'parents_taluk', 'Taluk'),
+                    _mapField(f, 'parents_division', 'Division'),
+                    _mapField(f, 'parents_region', 'Region'),
+                    _mapField(f, 'parents_landmark', 'Landmark'),
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text('Parents Location', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black54)),
+                    ),
+                    StatefulBuilder(
+                      builder: (context, setStateLocal) {
+                        return GlobalLocationSelector(
+                          initialCountry: f['parents_country']?.toString(),
+                          initialState: f['parents_state']?.toString(),
+                          initialCity: f['parents_district']?.toString(),
+                          onLocationChange: (country, state, city, lat, lon) {
+                            f['parents_country'] = country;
+                            f['parents_state'] = state;
+                            f['parents_district'] = city;
+                          },
+                        );
+                      },
+                    ),
                     _mapField(f, 'siblings', 'Siblings (short note)'),
+                    _SiblingDetailsEditor(familyData: f),
                     _mapField(f, 'family_description', 'Family description'),
                     _mapField(f, 'caste', 'Caste'),
                     _mapField(f, 'subcaste', 'Subcaste'),
+                    _mapField(f, 'kulam', 'Kulam / Kilai'),
+                    _mapField(f, 'gotram', 'Gotram'),
+                    _mapField(f, 'ancestral_origin', 'Native Place / Ancestral Origin'),
                     _mapField(f, 'family_type', 'Family type'),
                     _mapField(f, 'family_status', 'Family status'),
                   ],
@@ -1579,6 +1803,7 @@ TimeOfDay? _parseTimeOfBirth(String? s) {
 String _formatTimeOfBirth(TimeOfDay t) =>
     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
+/// Exact match against master list – used for displaying stored DB values.
 String? _masterFieldValue(List<Map<String, dynamic>> masters, dynamic current) {
   final vals = masters
       .map((o) => o['value']?.toString() ?? '')
@@ -1586,7 +1811,37 @@ String? _masterFieldValue(List<Map<String, dynamic>> masters, dynamic current) {
       .toList();
   final s = current?.toString().trim() ?? '';
   if (s.isEmpty) return null;
-  return vals.contains(s) ? s : null;
+  // Exact match first
+  if (vals.contains(s)) return s;
+  // Fuzzy: value stored may be the raw generated string; try to find a master
+  // entry that contains the same Tamil content (text inside parentheses).
+  return _fuzzyMatchMaster(vals, s);
+}
+
+/// Ports the web's `matchOption` logic:
+/// 1. Extract Tamil text inside () from [generated].
+/// 2. Find master option whose value .contains() that Tamil text.
+/// 3. Fall back to English prefix match.
+/// Returns the matched master value, or [generated] itself as a last resort.
+String _fuzzyMatchMaster(List<String> masterVals, String generated) {
+  if (generated.isEmpty) return generated;
+  // Step 1 – Tamil part inside ()
+  final parenMatch = RegExp(r'\(([^)]+)\)').firstMatch(generated);
+  if (parenMatch != null) {
+    final tamilPart = parenMatch.group(1)!.trim();
+    final byTamil = masterVals.firstWhere(
+      (v) => v.contains(tamilPart),
+      orElse: () => '',
+    );
+    if (byTamil.isNotEmpty) return byTamil;
+  }
+  // Step 2 – English prefix (first word)
+  final englishPrefix = generated.split(' ').first.toLowerCase();
+  final byEnglish = masterVals.firstWhere(
+    (v) => v.toLowerCase().contains(englishPrefix),
+    orElse: () => '',
+  );
+  return byEnglish.isNotEmpty ? byEnglish : generated;
 }
 
 Future<void> showHoroscopeDetailsSheet(
@@ -1756,7 +2011,9 @@ class _HoroscopeDetailsForm extends StatefulWidget {
 
 class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
   late Map<String, dynamic> _h;
-  late TextEditingController _cityCtrl;
+  String? _birthCity;
+  double? _birthLat;
+  double? _birthLon;
   late TextEditingController _dhoshamCtrl;
   String? _birthState;
   String? _birthCountry;
@@ -1772,9 +2029,12 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
   void initState() {
     super.initState();
     _h = Map<String, dynamic>.from(widget.initial);
-    _cityCtrl = TextEditingController(text: _h['place_of_birth']?.toString() ?? '');
     _birthState = _trimOrNull(_h['birth_state']?.toString());
     _birthCountry = _trimOrNull(_h['birth_country']?.toString());
+    final pob = _h['place_of_birth']?.toString() ?? '';
+    if (pob.isNotEmpty) {
+      _birthCity = pob.split(',').first.trim();
+    }
     _dhoshamCtrl = TextEditingController(text: _h['dhosham']?.toString() ?? '');
     _tob = _parseTimeOfBirth(_h['time_of_birth']?.toString());
     _networkJaadhagamUrl = _h['jaadhagam_url']?.toString().trim();
@@ -1785,7 +2045,6 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
 
   @override
   void dispose() {
-    _cityCtrl.dispose();
     _dhoshamCtrl.dispose();
     super.dispose();
   }
@@ -1802,7 +2061,7 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
   }
 
   String _composePlaceOfBirth() {
-    final c = _cityCtrl.text.trim();
+    final c = _birthCity?.trim() ?? '';
     final s = _birthState?.trim() ?? '';
     final co = _birthCountry?.trim() ?? '';
     final parts = <String>[];
@@ -1853,6 +2112,55 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
     });
   }
 
+  /// Returns true if star / rashi / lagnam are already filled.
+  bool _hasExistingHoroscope() {
+    final star = _h['star']?.toString().trim() ?? '';
+    final zodiac = _h['zodiac_sign']?.toString().trim() ?? '';
+    final lagnam = _h['lagnam']?.toString().trim() ?? '';
+    return star.isNotEmpty || zodiac.isNotEmpty || lagnam.isNotEmpty;
+  }
+
+  /// Show overwrite confirmation when data already exists, then call [action].
+  Future<void> _confirmAndCalculate(Future<void> Function() action) async {
+    if (_hasExistingHoroscope()) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Overwrite Horoscope?'),
+          content: const Text(
+            'A horoscope has already been generated for this profile. '
+            'Calculating again will overwrite the existing Star, Rashi, and Lagnam values.\n\n'
+            'Do you want to continue?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(backgroundColor: Colors.amber.shade700),
+              child: const Text('Overwrite'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+    await action();
+  }
+
+  /// Apply a generated raw star/rashi/lagnam value by fuzzy-matching it
+  /// against the master lists so the dropdowns show the correct option.
+  String _applyMasterMatch(List<Map<String, dynamic>> masters, String raw) {
+    final vals = masters
+        .map((o) => o['value']?.toString() ?? '')
+        .where((v) => v.isNotEmpty)
+        .toList();
+    if (vals.contains(raw)) return raw;
+    return _fuzzyMatchMaster(vals, raw);
+  }
+
   /// Push the in-app horoscope generator. When the user taps "Save" inside
   /// the result toolbar we receive a [HoroscopeSaveResult] and write the
   /// star / rashi / lagnam back into this form (the equivalent of the web
@@ -1867,32 +2175,83 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
         parsedDob = null;
       }
     }
-    final city = _cityCtrl.text.trim().isEmpty ? null : _cityCtrl.text.trim();
+    final city = _birthCity?.trim() ?? '';
+
+    if (preferredMethod != null) {
+      if (parsedDob == null || _tob == null || city.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select Date of Birth, Time of Birth, and Place of Birth to calculate.')),
+        );
+        return;
+      }
+      final lat = _birthLat ?? 13.0827;
+      final lon = _birthLon ?? 80.2707;
+      final birth = DateTime(
+        parsedDob.year, parsedDob.month, parsedDob.day,
+        _tob!.hour, _tob!.minute,
+      );
+      final location = astro.Location(latitude: lat, longitude: lon);
+      try {
+        final r = astro.generateHoroscope(
+          birthLocalDate: birth,
+          location: location,
+          timezoneOffset: const Duration(hours: 5, minutes: 30),
+          method: preferredMethod,
+        );
+        // Use fuzzy match so the dropdown value aligns with master table entries.
+        final starVal = _applyMasterMatch(widget.starMasters, r.star);
+        final zodiacVal = _applyMasterMatch(widget.zodiacMasters, r.rashi);
+        final lagnamVal = _applyMasterMatch(widget.lagnamMasters, r.lagnam);
+        setState(() {
+          _h['star'] = starVal;
+          _h['zodiac_sign'] = zodiacVal;
+          _h['lagnam'] = lagnamVal;
+          final pp = r.papaPulligal;
+          if (pp != null) {
+            final parts = <String>[];
+            if (pp.sevvaiDosham == 'தோஷம் உள்ளது') parts.add('செவ்வாய் தோஷம்');
+            if (pp.rahuDosham == 'தோஷம் உள்ளது') parts.add('ராகு தோஷம்');
+            _dhoshamCtrl.text = parts.isEmpty ? 'தோஷம் இல்லை' : parts.join(', ');
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(
+            '${preferredMethod == 'vakkiyam' ? 'Vakkiyam' : 'Thirukanitham'}: '
+            'Star=$starVal, Rasi=$zodiacVal',
+          )),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Calculation failed: $e')));
+      }
+      return;
+    }
+
     final result = await openHoroscope(
       context,
       dob: parsedDob,
       tob: _tob,
-      city: city,
+      city: city.isEmpty ? null : city,
       state: _birthState,
       country: _birthCountry,
       allowSaveToProfile: true,
     );
     if (!mounted || result == null) return;
 
+    // Fuzzy-match the returned values so dropdowns render correctly.
+    final starVal = _applyMasterMatch(widget.starMasters, result.star);
+    final zodiacVal = _applyMasterMatch(widget.zodiacMasters, result.rashi);
+    final lagnamVal = _applyMasterMatch(widget.lagnamMasters, result.lagnam);
     setState(() {
-      _h['star'] = result.star;
-      _h['zodiac_sign'] = result.rashi;
-      _h['lagnam'] = result.lagnam;
+      _h['star'] = starVal;
+      _h['zodiac_sign'] = zodiacVal;
+      _h['lagnam'] = lagnamVal;
       if (result.timeOfBirth.isNotEmpty) {
         _tob = _parseTimeOfBirth(result.timeOfBirth) ?? _tob;
       }
     });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          'Applied ${preferredMethod ?? result.method}: '
-          'star=${result.star}, rasi=${result.rashi}, lagnam=${result.lagnam}',
-        ),
+        content: Text('Applied: star=$starVal, rasi=$zodiacVal, lagnam=$lagnamVal'),
       ),
     );
   }
@@ -1905,7 +2264,7 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
     final dob = widget.dateOfBirth;
     if (dob == null || dob.trim().isEmpty) return;
     final tob = _tob != null ? _formatTimeOfBirth(_tob!) : '';
-    final city = _cityCtrl.text.trim();
+    final city = _birthCity?.trim() ?? '';
     if (tob.isEmpty || city.isEmpty) return;
     final base = AppConfig.webAppBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
     final uri = Uri.parse('$base/dashboard/horoscope').replace(
@@ -1916,7 +2275,7 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
 
   Future<void> _save() async {
     final tobStr = _tob != null ? _formatTimeOfBirth(_tob!) : '';
-    final city = _cityCtrl.text.trim();
+    final city = _birthCity?.trim() ?? '';
     final star = _h['star']?.toString().trim() ?? '';
 
     if (tobStr.isEmpty || city.isEmpty || star.isEmpty) {
@@ -2208,25 +2567,33 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
                         OutlinedButton.icon(
                           onPressed: _saving
                               ? null
-                              : () => _openWebHoroscope(preferredMethod: 'thirukanitham'),
+                              : () => _confirmAndCalculate(
+                                    () => _openWebHoroscope(preferredMethod: 'thirukanitham'),
+                                  ),
                           icon: const Icon(Icons.visibility_outlined, size: 18),
                           label: const Text('Thirukanitham'),
                         ),
                         OutlinedButton.icon(
                           onPressed: _saving
                               ? null
-                              : () => _openWebHoroscope(preferredMethod: 'vakkiyam'),
+                              : () => _confirmAndCalculate(
+                                    () => _openWebHoroscope(preferredMethod: 'vakkiyam'),
+                                  ),
                           icon: const Icon(Icons.visibility_outlined, size: 18),
                           label: const Text('Vakkiyam'),
                         ),
                         FilledButton.icon(
-                          onPressed: _saving ? null : () => _openWebHoroscope(),
+                          onPressed: _saving
+                              ? null
+                              : () => _confirmAndCalculate(
+                                    () => _openWebHoroscope(),
+                                  ),
                           style: FilledButton.styleFrom(
                             backgroundColor: Colors.amber.shade600,
                             foregroundColor: Colors.white,
                           ),
                           icon: const Icon(Icons.auto_fix_high, size: 18),
-                          label: const Text('Calculate'),
+                          label: const Text('Open Generator'),
                         ),
                       ],
                     ),
@@ -2257,95 +2624,21 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
               ),
               const SizedBox(height: 16),
               const Text('Place of birth *', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-              const SizedBox(height: 4),
-              Text(
-                'City is required; state and country help match the web form.',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-              ),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                // ignore: deprecated_member_use
-                value: _kHoroscopeQuickCities.contains(_cityCtrl.text.trim()) ? _cityCtrl.text.trim() : null,
-                isExpanded: true,
-                decoration: InputDecoration(
-                  labelText: 'Quick city (Tamil Nadu)',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                items: [
-                  const DropdownMenuItem<String>(value: null, child: Text('—')),
-                  ..._kHoroscopeQuickCities.map(
-                    (c) => DropdownMenuItem<String>(value: c, child: Text(c)),
-                  ),
-                ],
-                onChanged: _saving
-                    ? null
-                    : (v) {
-                        if (v != null) setState(() => _cityCtrl.text = v);
-                      },
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _cityCtrl,
-                enabled: !_saving,
-                decoration: InputDecoration(
-                  labelText: 'City *',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Builder(
-                builder: (context) {
-                  final stateOpts = optionListWithCurrent(kIndianStatesAndUTs, _birthState);
-                  final stateVal = _dropdownMatch(_birthState, stateOpts);
-                  return DropdownButtonFormField<String?>(
-                    // ignore: deprecated_member_use
-                    value: stateVal,
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      labelText: 'State',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    items: [
-                      const DropdownMenuItem<String?>(value: null, child: Text('—')),
-                      ...stateOpts.map(
-                        (s) => DropdownMenuItem<String?>(
-                          value: s,
-                          child: Text(s, overflow: TextOverflow.ellipsis),
-                        ),
-                      ),
-                    ],
-                    onChanged: _saving
-                        ? null
-                        : (v) => setState(() => _birthState = v),
-                  );
-                },
-              ),
-              const SizedBox(height: 10),
-              Builder(
-                builder: (context) {
-                  final countryOpts = optionListWithCurrent(kWorldCountries, _birthCountry);
-                  final countryVal = _dropdownMatch(_birthCountry, countryOpts);
-                  return DropdownButtonFormField<String?>(
-                    // ignore: deprecated_member_use
-                    value: countryVal,
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      labelText: 'Country',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    items: [
-                      const DropdownMenuItem<String?>(value: null, child: Text('—')),
-                      ...countryOpts.map(
-                        (s) => DropdownMenuItem<String?>(
-                          value: s,
-                          child: Text(s, overflow: TextOverflow.ellipsis),
-                        ),
-                      ),
-                    ],
-                    onChanged: _saving
-                        ? null
-                        : (v) => setState(() => _birthCountry = v),
-                  );
+              const SizedBox(height: 12),
+              GlobalLocationSelector(
+                initialCountry: _birthCountry,
+                initialState: _birthState,
+                initialCity: _birthCity,
+                onLocationChange: (country, state, city, lat, lon) {
+                  setState(() {
+                    _birthCountry = country;
+                    _birthState = state;
+                    _birthCity = city;
+                    if (lat != null && lon != null) {
+                      _birthLat = lat;
+                      _birthLon = lon;
+                    }
+                  });
                 },
               ),
               const SizedBox(height: 16),

@@ -8,8 +8,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 import 'astrology.dart' as astro;
-import 'horoscope_location_options.dart';
 import 'profile_extended_details.dart' show ProfileExtendedRepository;
+import 'widgets/global_location_selector.dart';
 import 'widgets/south_indian_chart.dart';
 
 const _kHoroscopeQuickCities = <String>[
@@ -97,10 +97,10 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
 
   late final TextEditingController _name;
   late final TextEditingController _city;
-  late final TextEditingController _lat;
-  late final TextEditingController _lon;
   String? _state;
   String? _country;
+  late final TextEditingController _lat;
+  late final TextEditingController _lon;
   DateTime? _dob;
   TimeOfDay? _tob;
   _EntryMode _mode = _EntryMode.auto;
@@ -129,10 +129,10 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
           ? widget.initialCity!.trim()
           : 'Chennai',
     );
+    _state = widget.initialState;
+    _country = widget.initialCountry;
     _lat = TextEditingController(text: '13.0827');
     _lon = TextEditingController(text: '80.2707');
-    _state = _matchOption(widget.initialState, kIndianStatesAndUTs) ?? 'Tamil Nadu';
-    _country = _matchOption(widget.initialCountry, kWorldCountries) ?? 'India';
     _dob = widget.initialDob;
     _tob = widget.initialTob ?? const TimeOfDay(hour: 12, minute: 0);
     _manual = {for (final p in astro.planets) p.abbr: <int>{}};
@@ -196,8 +196,6 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
       if (pob != null && pob.trim().isNotEmpty) {
         city = pob.split(',').first.trim();
       }
-      final birthState = _matchOption(horo?['birth_state']?.toString(), kIndianStatesAndUTs);
-      final birthCountry = _matchOption(horo?['birth_country']?.toString(), kWorldCountries);
 
       if (!mounted) return;
       setState(() {
@@ -207,8 +205,8 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
         if (dob != null) _dob = dob;
         if (tob != null) _tob = tob;
         if (city != null && city.isNotEmpty) _city.text = city;
-        if (birthState != null) _state = birthState;
-        if (birthCountry != null) _country = birthCountry;
+        _state = horo?['birth_state']?.toString();
+        _country = horo?['birth_country']?.toString();
         _memberLoading = false;
       });
     } catch (e, st) {
@@ -224,12 +222,6 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
     _lat.dispose();
     _lon.dispose();
     super.dispose();
-  }
-
-  String? _matchOption(String? raw, List<String> options) {
-    final t = raw?.trim();
-    if (t == null || t.isEmpty) return null;
-    return options.contains(t) ? t : null;
   }
 
   astro.HoroscopeDetails? get _active =>
@@ -440,8 +432,8 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
       'lagnam': result.lagnam,
       'time_of_birth': isAutoMode && _tob != null ? _formatTob(_tob!) : null,
       'place_of_birth': isAutoMode ? _placeLine() : 'Manual Entry',
-      'birth_state': isAutoMode ? _state : null,
-      'birth_country': isAutoMode ? _country : null,
+      'birth_state': _state,
+      'birth_country': _country,
       'manual_grid': manualGrid,
       'dhosham': dhosham,
     };
@@ -700,46 +692,21 @@ class _HoroscopeScreenState extends State<HoroscopeScreen> {
             onTap: _pickTob,
           ),
           const SizedBox(height: 10),
-          Autocomplete<String>(
-            optionsBuilder: (TextEditingValue textEditingValue) {
-              if (textEditingValue.text.isEmpty) return _kHoroscopeQuickCities;
-              return _kHoroscopeQuickCities.where((c) => c.toLowerCase().contains(textEditingValue.text.toLowerCase()));
+          GlobalLocationSelector(
+            initialCountry: _country,
+            initialState: _state,
+            initialCity: _city.text,
+            onLocationChange: (country, state, city, lat, lon) {
+              setState(() {
+                _country = country;
+                _state = state;
+                _city.text = city;
+                if (lat != null && lon != null) {
+                  _lat.text = lat.toString();
+                  _lon.text = lon.toString();
+                }
+              });
             },
-            onSelected: (String selection) => _city.text = selection,
-            fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
-              // Sync our outer controller with this inner one if needed, or just let it be.
-              // Actually, best to use our _city controller directly. But Autocomplete requires its own.
-              // Let's just listen to it.
-              controller.text = _city.text;
-              controller.addListener(() { _city.text = controller.text; });
-              return TextField(
-                controller: controller,
-                focusNode: focusNode,
-                decoration: _dec('Birth city', hint: 'Select or type a city'),
-              );
-            },
-          ),
-          const SizedBox(height: 10),
-          DropdownButtonFormField<String>(
-            isExpanded: true,
-            initialValue: _state,
-            decoration: _dec('Birth state / region'),
-            items: [
-              for (final s in kIndianStatesAndUTs)
-                DropdownMenuItem(value: s, child: Text(s, overflow: TextOverflow.ellipsis)),
-            ],
-            onChanged: (v) => setState(() => _state = v),
-          ),
-          const SizedBox(height: 10),
-          DropdownButtonFormField<String>(
-            isExpanded: true,
-            initialValue: _country,
-            decoration: _dec('Birth country'),
-            items: [
-              for (final c in kWorldCountries)
-                DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis)),
-            ],
-            onChanged: (v) => setState(() => _country = v),
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(

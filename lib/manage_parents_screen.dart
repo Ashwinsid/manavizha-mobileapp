@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 import 'app_config.dart';
+import 'web_api.dart';
 
 /// Flutter port of [manavizha/components/manage-parents.tsx] +
 /// [manavizha/app/dashboard/parents/page.tsx].
@@ -127,34 +128,17 @@ class _ManageParentsScreenState extends State<ManageParentsScreen> {
     }
 
     setState(() => _creating = true);
-    final base = AppConfig.webAppBaseUrl.trim().replaceAll(RegExp(r'/$'), '');
-    final uri = Uri.parse('$base/api/parents');
     try {
-      final res = await http
-          .post(
-            uri,
-            headers: const {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'role': _role,
-              'name': _name.text.trim(),
-              'email': _email.text.trim(),
-              'phone': _phone.text.trim().isEmpty ? null : _phone.text.trim(),
-              'password': _password.text,
-              'child_user_id': uid,
-            }),
-          )
-          .timeout(const Duration(seconds: 30));
+      final res = await WebApi.post('/api/parents', {
+        'role': _role,
+        'name': _name.text.trim(),
+        'email': _email.text.trim(),
+        'phone': _phone.text.trim().isEmpty ? null : _phone.text.trim(),
+        'password': _password.text,
+        'child_user_id': uid,
+      });
 
-      Map<String, dynamic> map;
-      try {
-        map = jsonDecode(res.body) as Map<String, dynamic>;
-      } catch (_) {
-        map = {
-          'error': 'Unexpected response (HTTP ${res.statusCode}).',
-        };
-      }
-
-      if (res.statusCode >= 200 && res.statusCode < 300 && map['success'] == true) {
+      if (res.ok) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$_role account created successfully!')),
@@ -163,18 +147,13 @@ class _ManageParentsScreenState extends State<ManageParentsScreen> {
         setState(() => _showForm = false);
         await _load();
       } else {
-        final err = map['error']?.toString() ?? 'Failed to create parent account';
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res.error ?? 'Failed to create parent account')));
       }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Network error: $e\n\nCheck that ${AppConfig.webAppBaseUrl}/api/parents is reachable.',
-          ),
-        ),
+        SnackBar(content: Text('Network error: $e')),
       );
     } finally {
       if (mounted) setState(() => _creating = false);
@@ -372,12 +351,13 @@ class _ManageParentsScreenState extends State<ManageParentsScreen> {
         ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(width: 4, color: _brand),
-          Expanded(
-            child: Padding(
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(width: 4, color: _brand),
+            Expanded(
+              child: Padding(
               padding: const EdgeInsets.fromLTRB(14, 14, 8, 14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -449,6 +429,7 @@ class _ManageParentsScreenState extends State<ManageParentsScreen> {
             ),
           ),
         ],
+      ),
       ),
     );
   }

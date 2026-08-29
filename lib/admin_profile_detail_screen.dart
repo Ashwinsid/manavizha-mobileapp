@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
+import 'siblings_formatter.dart';
 
 /// Admin / partner view/edit for one user — mirrors web
 /// `admin/dashboard/profiles/[userId]` and `referral-partner/profiles/[userId]`.
@@ -585,7 +588,15 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
           _textForm('District', _contact, 'permanent_district'),
           _textForm('State', _contact, 'permanent_state'),
           _textForm('Country', _contact, 'permanent_country'),
-          _textForm('Pincode', _contact, 'permanent_pincode'),
+          _pincodeForm(
+            'Pincode',
+            _contact,
+            'permanent_pincode',
+            areaKey: 'permanent_area',
+            districtKey: 'permanent_district',
+            stateKey: 'permanent_state',
+            countryKey: 'permanent_country',
+          ),
         ],
       ],
     );
@@ -718,7 +729,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
           _fieldView("Father's occupation", _family['father_occupation']),
           _fieldView("Mother's name", _family['mother_name']),
           _fieldView("Mother's occupation", _family['mother_occupation']),
-          _fieldView('Siblings', _family['siblings']),
+          _fieldView('Siblings', formatSiblings(_family)),
           _fieldView('Caste', _family['caste']),
           _fieldView('Subcaste', _family['subcaste']),
           _fieldView('Kulam', _family['kulam']),
@@ -1013,6 +1024,66 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
           isDense: true,
         ),
         onChanged: (v) => map[key] = v,
+      ),
+    );
+  }
+
+  Widget _pincodeForm(
+    String label,
+    Map<String, dynamic> map,
+    String key, {
+    required String areaKey,
+    required String districtKey,
+    required String stateKey,
+    required String countryKey,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: TextFormField(
+        key: ValueKey('tf-$key-${map[key]}'),
+        initialValue: map[key]?.toString() ?? '',
+        keyboardType: TextInputType.number,
+        maxLength: 6,
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+        onChanged: (v) async {
+          map[key] = v;
+          if (v.trim().length == 6) {
+            try {
+              final res = await http.get(Uri.parse('https://api.postalpincode.in/pincode/${v.trim()}'));
+              if (res.statusCode == 200) {
+                final json = jsonDecode(res.body);
+                if (json is List && json.isNotEmpty && json[0]['Status'] == 'Success') {
+                  final pos = json[0]['PostOffice'] as List?;
+                  if (pos != null && pos.isNotEmpty) {
+                    final po = pos[0];
+                    final name = po['Name']?.toString() ?? '';
+                    final block = po['Block']?.toString() ?? '';
+                    final district = po['District']?.toString() ?? '';
+                    final state = po['State']?.toString() ?? '';
+                    final country = po['Country']?.toString() ?? '';
+                    final blockStr = (block.isNotEmpty && block.toLowerCase() != 'na') ? block : district;
+                    final areaStr = name.isNotEmpty ? '$name ($blockStr)' : blockStr;
+                    
+                    if (mounted) {
+                      setState(() {
+                        map[areaKey] = areaStr;
+                        map[districtKey] = district;
+                        map[stateKey] = state;
+                        map[countryKey] = country;
+                      });
+                    }
+                  }
+                }
+              }
+            } catch (e) {
+              debugPrint('Pincode fetch error: $e');
+            }
+          }
+        },
       ),
     );
   }

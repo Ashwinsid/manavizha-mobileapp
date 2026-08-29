@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'e2e.dart';
 import 'welcome_screen.dart';
 import 'profile_pages.dart';
+import 'partner_preferences_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -13,12 +14,39 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   int _currentIndex = 0;
+  String _userName = 'User';
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUserName();
+  }
+
+  Future<void> _fetchUserName() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+      final data = await Supabase.instance.client
+          .from('personal_details')
+          .select('name')
+          .eq('user_id', userId)
+          .maybeSingle();
+      if (data != null && data['name'] != null && mounted) {
+        setState(() {
+          _userName = data['name'].toString().trim();
+          if (_userName.isEmpty) _userName = 'User';
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching user name: $e');
+    }
+  }
 
   List<Widget> get _pages => const [
     UserDetailsPage(),
     UserPhotosPage(),
     ReferralDetailsPage(),
-    ContactDetailsPage(),
+    PartnerPreferencesScreen(isEmbedded: true),
   ];
 
   @override
@@ -71,10 +99,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildNavItem(Icons.person, Icons.person_outline, 0, 'User Details'),
+              _buildNavItem(Icons.person, Icons.person_outline, 0, '$_userName Details'),
               _buildNavItem(Icons.photo_library, Icons.photo_library_outlined, 1, 'Photos'),
               _buildNavItem(Icons.card_giftcard, Icons.card_giftcard_outlined, 2, 'Referrals'),
-              _buildNavItem(Icons.contact_mail, Icons.contact_mail_outlined, 3, 'Contact'),
+              _buildNavItem(Icons.tune, Icons.tune_outlined, 3, 'Preferences'),
             ],
           ),
         ),

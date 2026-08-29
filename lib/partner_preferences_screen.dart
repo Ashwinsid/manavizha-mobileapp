@@ -9,7 +9,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// `master_*` tables the web loads via `useMasterData`, with the web's static
 /// fallbacks when a table is empty or unreadable.
 class PartnerPreferencesScreen extends StatefulWidget {
-  const PartnerPreferencesScreen({super.key});
+  final bool isEmbedded;
+  const PartnerPreferencesScreen({super.key, this.isEmbedded = false});
 
   @override
   State<PartnerPreferencesScreen> createState() =>
@@ -46,6 +47,7 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
   final _heightMaxCtrl = TextEditingController();
   String _maritalStatus = '';
   List<String> _languages = [];
+  String _motherTongue = '';       // preferred_mother_tongue
   String _physicalStatus = '';
   String _eatingHabits = '';
   String _smokingHabits = '';
@@ -60,8 +62,10 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
   List<String> _education = [];
   List<String> _degrees = [];
   List<String> _branchesSel = [];
+  String _employmentType = '';     // preferred_employment_type
   List<String> _employedIn = [];
   List<String> _occupation = [];
+  String _annualIncome = '';       // preferred_annual_income
   List<String> _incomeMin = [];
   List<String> _country = [];
   List<String> _state = [];
@@ -201,6 +205,7 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
         _heightMaxCtrl.text = str(pref['preferred_height_max']);
         _maritalStatus = firstOf(pref['preferred_marital_status']);
         _languages = strList(pref['preferred_languages']);
+        _motherTongue = str(pref['preferred_mother_tongue']);
         _physicalStatus = str(pref['preferred_physical_status']);
         _eatingHabits = firstOf(pref['preferred_eating_habits']);
         _smokingHabits = firstOf(pref['preferred_smoking_habits']);
@@ -215,8 +220,10 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
         _education = strList(pref['preferred_education']);
         _degrees = strList(pref['preferred_degrees']);
         _branchesSel = strList(pref['preferred_branches']);
+        _employmentType = firstOf(pref['preferred_employment_type']);
         _employedIn = strList(pref['preferred_employed_in']);
         _occupation = strList(pref['preferred_occupation']);
+        _annualIncome = str(pref['preferred_annual_income']);
         _incomeMin = commaList(pref['preferred_annual_income_min']);
         _country = commaList(pref['preferred_country']);
         _state = commaList(pref['preferred_state']);
@@ -316,6 +323,7 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
       'preferred_height_max': asInt(_heightMaxCtrl.text),
       'preferred_marital_status': orAny(_maritalStatus),
       'preferred_languages': _languages,
+      'preferred_mother_tongue': orNull(_motherTongue),
       'preferred_physical_status': orNull(_physicalStatus),
       'preferred_eating_habits': orAny(_eatingHabits),
       'preferred_smoking_habits': orAny(_smokingHabits),
@@ -329,8 +337,10 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
       'preferred_education': _education,
       'preferred_degrees': _degrees,
       'preferred_branches': _branchesSel,
+      'preferred_employment_type': orAny(_employmentType),
       'preferred_employed_in': _employedIn,
       'preferred_occupation': _occupation,
+      'preferred_annual_income': orNull(_annualIncome),
       'preferred_annual_income_min': _incomeMin.isNotEmpty ? _incomeMin.join(', ') : null,
       'preferred_country': _country.isNotEmpty ? _country.join(', ') : null,
       'preferred_state': _state.isNotEmpty ? _state.join(', ') : null,
@@ -663,20 +673,18 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FE),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        title: const Text('Partner Preferences',
-            style: TextStyle(fontWeight: FontWeight.w800)),
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: _brand))
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-              children: [
-                Padding(
+    final content = _loading
+        ? const Center(child: CircularProgressIndicator(color: _brand))
+        : ListView(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, widget.isEmbedded ? 120 : 32),
+            children: [
+              if (widget.isEmbedded) ...[
+                const SizedBox(height: 16),
+                const Text('Partner Preferences',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+              ],
+              Padding(
                   padding: const EdgeInsets.only(left: 4, bottom: 14),
                   child: Text(
                     'Set your criteria — we use this to find your best matches.',
@@ -710,6 +718,12 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
                             options: _motherTongues,
                             current: _languages,
                             onPicked: (v) => setState(() => _languages = v))),
+                    _selectTile('Mother Tongue', _motherTongue, () =>
+                        _pickSingle(
+                            title: 'Mother Tongue',
+                            options: _motherTongues,
+                            current: _motherTongue,
+                            onPicked: (v) => setState(() => _motherTongue = v))),
                     _selectTile('Eating Habits', _eatingHabits, () =>
                         _pickSingle(
                             title: 'Eating Habits',
@@ -813,6 +827,12 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
                             options: _branches,
                             current: _branchesSel,
                             onPicked: (v) => setState(() => _branchesSel = v))),
+                    _selectTile('Preferred Employment Type', _employmentType, () =>
+                        _pickSingle(
+                            title: 'Preferred Employment Type',
+                            options: const ['Any', 'Private', 'Government/PSU', 'Business', 'Defence', 'Self Employed', 'Not Working'],
+                            current: _employmentType,
+                            onPicked: (v) => setState(() => _employmentType = v))),
                     _multiTile('Preferred Employed In', _employedIn, () =>
                         _pickMulti(
                             title: 'Preferred Employed In',
@@ -831,6 +851,12 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
                             options: _incomeOptions,
                             current: _incomeMin,
                             onPicked: (v) => setState(() => _incomeMin = v))),
+                    _selectTile('Preferred Annual Income', _annualIncome, () =>
+                        _pickSingle(
+                            title: 'Preferred Annual Income',
+                            options: _incomeOptions,
+                            current: _annualIncome,
+                            onPicked: (v) => setState(() => _annualIncome = v))),
                     _multiTile('Country', _country, () => _pickMulti(
                         title: 'Country',
                         options: _countries,
@@ -864,7 +890,24 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
                   ),
                 ),
               ],
-            ),
+            );
+
+    if (widget.isEmbedded) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF8F9FE),
+        body: content,
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FE),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        title: const Text('Partner Preferences',
+            style: TextStyle(fontWeight: FontWeight.w800)),
+      ),
+      body: content,
     );
   }
 }

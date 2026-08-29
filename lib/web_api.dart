@@ -86,6 +86,13 @@ class WebApi {
 
   static Future<WebApiResult> _send(
       Future<http.Response> Function() request) async {
+    if (_base.contains('10.0.2.2') || _base.contains('localhost')) {
+      debugPrint('====================================================');
+      debugPrint('WARNING: WebApi is using local loopback: $_base');
+      debugPrint('Social actions will fail on a real physical device!');
+      debugPrint('Compile with --dart-define=WEB_APP_BASE_URL=https://...');
+      debugPrint('====================================================');
+    }
     try {
       final res = await request();
       Map<String, dynamic> data = const {};

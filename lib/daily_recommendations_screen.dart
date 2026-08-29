@@ -6,6 +6,7 @@ import 'member_profile_view_screen.dart';
 import 'profile_social_actions.dart';
 import 'user_activity_tracker.dart';
 import 'user_match_service.dart';
+import 'user_profile_completion.dart';
 import 'widgets/adaptive_network_photo.dart';
 
 /// Full-screen daily picks — aligned with [manavizha/app/dashboard/daily-recommendations/page.tsx].
@@ -45,7 +46,8 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
   List<MatchPreview> _recs = [];
   final Set<String> _shortlistedIds = {};
   final Set<String> _likedUserIds = {};
-  String? _actionBusyForUserId;
+  String? _busyActionId;
+  bool _profileIncomplete = false;
 
   @override
   void initState() {
@@ -74,6 +76,22 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
       if (ignored.isNotEmpty) {
         list = list.where((p) => !ignored.contains(p.userId)).toList();
       }
+      
+      bool incomplete = false;
+      try {
+        final snap = await loadUserProfileSnapshot(client, uid);
+        final s = snap.sections;
+        if (s.basicDetails < 100 ||
+            s.contactDetails < 100 ||
+            s.educationalDetails < 100 ||
+            s.professionalDetails < 100 ||
+            s.familyDetails < 100) {
+          incomplete = true;
+        }
+      } catch (_) {
+        incomplete = true;
+      }
+      
       final social = await _fetchShortlistAndLikeIds(client, uid, list);
       if (!mounted) return;
       setState(() {
@@ -84,6 +102,7 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
         _likedUserIds
           ..clear()
           ..addAll(social.likes);
+        _profileIncomplete = incomplete;
         _loading = false;
       });
       final initial = widget.initialUserId;
@@ -124,7 +143,7 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
     if (uid == null) return;
     final target = r.userId;
     final on = _shortlistedIds.contains(target);
-    setState(() => _actionBusyForUserId = target);
+    setState(() => _busyActionId = 'shortlist_$target');
     final err = await ProfileSocialActions.toggleShortlist(
       client: Supabase.instance.client,
       currentUserId: uid,
@@ -132,7 +151,7 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
       remove: on,
     );
     if (!mounted) return;
-    setState(() => _actionBusyForUserId = null);
+    setState(() => _busyActionId = null);
     if (err != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
       return;
@@ -159,14 +178,14 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
       );
       return;
     }
-    setState(() => _actionBusyForUserId = target);
+    setState(() => _busyActionId = 'interest_$target');
     final err = await ProfileSocialActions.sendInterest(
       client: Supabase.instance.client,
       currentUserId: uid,
       targetUserId: target,
     );
     if (!mounted) return;
-    setState(() => _actionBusyForUserId = null);
+    setState(() => _busyActionId = null);
     if (err != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
       return;
@@ -179,14 +198,14 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
     final uid = Supabase.instance.client.auth.currentUser?.id;
     if (uid == null) return;
     final target = r.userId;
-    setState(() => _actionBusyForUserId = target);
+    setState(() => _busyActionId = 'skip_$target');
     final err = await ProfileSocialActions.ignoreProfile(
       client: Supabase.instance.client,
       currentUserId: uid,
       targetUserId: target,
     );
     if (!mounted) return;
-    setState(() => _actionBusyForUserId = null);
+    setState(() => _busyActionId = null);
     if (err != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
       return;
@@ -203,6 +222,36 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    
+    if (_profileIncomplete) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Daily Recommendations')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.warning_amber_rounded, size: 64, color: Colors.orange),
+                const SizedBox(height: 16),
+                const Text(
+                  'Profile Incomplete',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Please complete your Basic, Contact, Education, Profession, and Family details to 100% to view daily recommendations.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.black54),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    
     return Scaffold(
       backgroundColor: const Color(0xFFFAFAFA),
       appBar: AppBar(
@@ -252,7 +301,7 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
   Widget _dailyCard(MatchPreview r) {
     final image = r.photoUrl;
     final eduJob = _educationJobLine(r);
-    final busy = _actionBusyForUserId == r.userId;
+    final isAnyActionBusy = _busyActionId != null && _busyActionId!.endsWith(r.userId);
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(22),
@@ -354,7 +403,7 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
                     const SizedBox(height: 10),
                     _interestsMiniCard(r),
                     const SizedBox(height: 10),
-                    _dailyActionRow(r, busy),
+                    _dailyActionRow(r, isAnyActionBusy),
                   ],
                 ),
               ),
@@ -365,9 +414,13 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
     );
   }
 
-  Widget _dailyActionRow(MatchPreview r, bool busy) {
+  Widget _dailyActionRow(MatchPreview r, bool isAnyActionBusy) {
     final short = _shortlistedIds.contains(r.userId);
     final liked = _likedUserIds.contains(r.userId);
+    final isShortlistBusy = _busyActionId == 'shortlist_${r.userId}';
+    final isInterestBusy = _busyActionId == 'interest_${r.userId}';
+    final isSkipBusy = _busyActionId == 'skip_${r.userId}';
+
     return Row(
       children: [
         Expanded(
@@ -376,8 +429,8 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
             icon: short ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
             foreground: short ? const Color(0xFFFF1493) : Colors.white,
             background: short ? Colors.white.withValues(alpha: 0.95) : Colors.white.withValues(alpha: 0.18),
-            busy: busy,
-            onTap: busy ? null : () => _onShortlist(r),
+            busy: isShortlistBusy,
+            onTap: isAnyActionBusy ? null : () => _onShortlist(r),
           ),
         ),
         const SizedBox(width: 8),
@@ -387,8 +440,8 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
             icon: Icons.favorite_rounded,
             foreground: Colors.white,
             background: liked ? _interestSentGreen : _interestYellow,
-            busy: busy,
-            onTap: busy ? null : () => _onSendInterest(r),
+            busy: isInterestBusy,
+            onTap: isAnyActionBusy ? null : () => _onSendInterest(r),
           ),
         ),
         const SizedBox(width: 8),
@@ -399,8 +452,8 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
             foreground: Colors.white.withValues(alpha: 0.95),
             background: Colors.white.withValues(alpha: 0.12),
             outline: true,
-            busy: busy,
-            onTap: busy ? null : () => _onSkip(r),
+            busy: isSkipBusy,
+            onTap: isAnyActionBusy ? null : () => _onSkip(r),
           ),
         ),
       ],

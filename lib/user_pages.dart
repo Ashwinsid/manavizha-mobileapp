@@ -154,6 +154,7 @@ class _MatchesPageState extends State<MatchesPage> {
   Set<String> _blockedIds = <String>{};
 
   bool _isPremium = false;
+  bool _profileIncomplete = false;
   String? _busyAction; // userId currently doing a like/shortlist call.
 
   @override
@@ -199,7 +200,23 @@ class _MatchesPageState extends State<MatchesPage> {
       final shortlists = results[2] as ({Set<String> byMe, Set<String> ofMe});
       final ignored = results[3] as Set<String>;
       final premium = results[4] as bool;
+      final snapshot = results[5] as UserProfileSnapshot?;
       final blocked = results[6] as Set<String>;
+      
+      bool incomplete = false;
+      if (snapshot != null) {
+        final s = snapshot.sections;
+        if (s.basicDetails < 100 ||
+            s.contactDetails < 100 ||
+            s.educationalDetails < 100 ||
+            s.professionalDetails < 100 ||
+            s.familyDetails < 100) {
+          incomplete = true;
+        }
+      } else {
+        incomplete = true; // No profile data found at all
+      }
+      
       if (!mounted) return;
       setState(() {
         _all = sets.allMatches;
@@ -211,6 +228,7 @@ class _MatchesPageState extends State<MatchesPage> {
         _ignoredIds = ignored;
         _blockedIds = blocked;
         _isPremium = premium;
+        _profileIncomplete = incomplete;
         _loading = false;
       });
     } catch (e, st) {
@@ -575,19 +593,32 @@ class _MatchesPageState extends State<MatchesPage> {
             final safeValue = options.contains(value) ? value : 'Any';
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: DropdownButtonFormField<String>(
-                // Re-create the field whenever the selection or option set
-                // changes so the FormField state never holds a stale value
-                // that is missing from the new items list.
-                key: ValueKey('$label:$safeValue:${options.length}'),
-                initialValue: safeValue,
-                isExpanded: true,
-                decoration: deco(label),
-                items: [
-                  for (final o in options)
-                    DropdownMenuItem(value: o, child: Text(o, overflow: TextOverflow.ellipsis)),
-                ],
-                onChanged: enabled ? (v) => onChanged(v ?? 'Any') : null,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return DropdownMenu<String>(
+                    width: constraints.maxWidth,
+                    enabled: enabled,
+                    initialSelection: safeValue,
+                    label: Text(label),
+                    enableSearch: true,
+                    enableFilter: true,
+                    requestFocusOnTap: true,
+                    inputDecorationTheme: InputDecorationTheme(
+                      filled: true,
+                      fillColor: const Color(0xFFF5F6FA),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    ),
+                    dropdownMenuEntries: [
+                      for (final o in options)
+                        DropdownMenuEntry(value: o, label: o)
+                    ],
+                    onSelected: enabled ? (v) => onChanged(v ?? 'Any') : null,
+                  );
+                },
               ),
             );
           }

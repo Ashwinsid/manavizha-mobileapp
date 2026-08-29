@@ -125,11 +125,13 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
     setState(() => _activityLoading = true);
     try {
       final counts = await loadInteractionCounts(client, userId);
-      // Cap to a reasonable preview window per carousel (most-recent first).
-      final cutoff = DateTime.now().subtract(const Duration(days: 30));
-      final viewedIds = counts.viewedMeIds.take(20).toList();
-      final interestedIds = counts.likedMeIds.take(20).toList();
-      final iViewedIds = counts.iViewedIds.take(20).toList();
+      final ignored = await loadIgnoredProfileIds(client, userId);
+      final blocked = await loadBlockedProfileIds(client, userId);
+      final excluded = {...ignored, ...blocked};
+
+      final viewedIds = counts.viewedMeIds.where((id) => !excluded.contains(id)).take(20).toList();
+      final interestedIds = counts.likedMeIds.where((id) => !excluded.contains(id)).take(20).toList();
+      final iViewedIds = counts.iViewedIds.where((id) => !excluded.contains(id)).take(20).toList();
 
       final results = await Future.wait([
         loadMatchPreviewsByIds(client, viewedIds),
@@ -229,11 +231,15 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
     setState(() => _sectionsLoading = true);
     try {
       final sets = await loadUserMatchSections(client, userId, applyPreferences: false);
+      final ignored = await loadIgnoredProfileIds(client, userId);
+      final blocked = await loadBlockedProfileIds(client, userId);
+      final excluded = {...ignored, ...blocked};
+      
       if (!mounted) return;
       setState(() {
-        _daily = List<MatchPreview>.from(sets.daily);
-        _allMatches = List<MatchPreview>.from(sets.allMatches);
-        _newMatches = List<MatchPreview>.from(sets.newMatches);
+        _daily = sets.daily.where((m) => !excluded.contains(m.userId)).toList();
+        _allMatches = sets.allMatches.where((m) => !excluded.contains(m.userId)).toList();
+        _newMatches = sets.newMatches.where((m) => !excluded.contains(m.userId)).toList();
         _sectionsLoading = false;
       });
     } catch (e, st) {
@@ -429,59 +435,117 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
                 ),
               ),
             ),
-          SliverPadding(
-            padding: EdgeInsets.fromLTRB(20, carouselTop, 20, 4),
-            sliver: SliverToBoxAdapter(
-              child: _CarouselSection(
-                title: 'Daily recommendations',
-                subtitle: 'Recommended matches for today',
-                items: _daily,
-                loading: _sectionsLoading,
-                onViewAll: () => _openDailyRecommendations(),
-                onProfileTap: (m) => _openDailyRecommendations(initialUserId: m.userId),
-                onProfileLongPress: _openCompatibility,
+          if (!snap.isCoreProfileComplete)
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(20, carouselTop, 20, 24),
+              sliver: SliverToBoxAdapter(
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFFCD34D), width: 1.5),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(16)),
+                        child: const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 28),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text('Complete your profile first', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Color(0xFF1F4068))),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Fill in your personal, contact, education, profession, and family details to view matches.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 14, color: Colors.black54, height: 1.4),
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 44,
+                        child: ElevatedButton(
+                          onPressed: _openEditor,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFE87898),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: const Text('Complete now', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          else ...[
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(20, carouselTop, 20, 4),
+              sliver: SliverToBoxAdapter(
+                child: _CarouselSection(
+                  title: 'Daily recommendations',
+                  subtitle: 'Recommended matches for today',
+                  items: _daily,
+                  loading: _sectionsLoading,
+                  onViewAll: () => _openDailyRecommendations(),
+                  onProfileTap: (m) => _openDailyRecommendations(initialUserId: m.userId),
+                  onProfileLongPress: _openCompatibility,
+                ),
               ),
             ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-            sliver: SliverToBoxAdapter(
-              child: _CarouselSection(
-                title: 'All matches',
-                subtitle: 'Based on your preferences',
-                items: _allMatches,
-                loading: _sectionsLoading,
-                onProfileTap: (m) => pushMemberProfileFullscreen(context, m.userId),
-                onProfileLongPress: _openCompatibility,
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+              sliver: SliverToBoxAdapter(
+                child: _CarouselSection(
+                  title: 'All matches',
+                  subtitle: 'Based on your preferences',
+                  items: _allMatches,
+                  loading: _sectionsLoading,
+                  onProfileTap: (m) async {
+                    await pushMemberProfileFullscreen(context, m.userId);
+                    _refresh();
+                  },
+                  onProfileLongPress: _openCompatibility,
+                ),
               ),
             ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-            sliver: SliverToBoxAdapter(
-              child: _CarouselSection(
-                title: 'New members',
-                subtitle: 'Joined in the last 30 days',
-                items: _newMatches,
-                loading: _sectionsLoading,
-                onProfileTap: (m) => pushMemberProfileFullscreen(context, m.userId),
-                onProfileLongPress: _openCompatibility,
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+              sliver: SliverToBoxAdapter(
+                child: _CarouselSection(
+                  title: 'New members',
+                  subtitle: 'Joined in the last 30 days',
+                  items: _newMatches,
+                  loading: _sectionsLoading,
+                  onProfileTap: (m) async {
+                    await pushMemberProfileFullscreen(context, m.userId);
+                    _refresh();
+                  },
+                  onProfileLongPress: _openCompatibility,
+                ),
               ),
             ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-            sliver: SliverToBoxAdapter(
-              child: _CarouselSection(
-                title: 'Who viewed me',
-                subtitle: 'Members who recently looked at your profile',
-                items: _whoViewedMe,
-                loading: _activityLoading,
-                onProfileTap: (m) => pushMemberProfileFullscreen(context, m.userId),
-                onProfileLongPress: _openCompatibility,
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+              sliver: SliverToBoxAdapter(
+                child: _CarouselSection(
+                  title: 'Who viewed me',
+                  subtitle: 'Members who recently looked at your profile',
+                  items: _whoViewedMe,
+                  loading: _activityLoading,
+                  onProfileTap: (m) async {
+                    await pushMemberProfileFullscreen(context, m.userId);
+                    _refresh();
+                  },
+                  onProfileLongPress: _openCompatibility,
+                ),
               ),
             ),
-          ),
+          ],
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
             sliver: SliverToBoxAdapter(
@@ -490,7 +554,10 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
                 subtitle: 'Members who recently liked you',
                 items: _whoExpressedInterest,
                 loading: _activityLoading,
-                onProfileTap: (m) => pushMemberProfileFullscreen(context, m.userId),
+                onProfileTap: (m) async {
+                  await pushMemberProfileFullscreen(context, m.userId);
+                  _refresh();
+                },
                 onProfileLongPress: _openCompatibility,
               ),
             ),
@@ -503,7 +570,10 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
                 subtitle: 'People you recently checked out',
                 items: _profilesIViewed,
                 loading: _activityLoading,
-                onProfileTap: (m) => pushMemberProfileFullscreen(context, m.userId),
+                onProfileTap: (m) async {
+                  await pushMemberProfileFullscreen(context, m.userId);
+                  _refresh();
+                },
                 onProfileLongPress: _openCompatibility,
               ),
             ),

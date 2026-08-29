@@ -654,7 +654,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
           ('Ancestral origin', _dashIfEmpty(fm['ancestral_origin']?.toString())),
           ('Father occupation', _dashIfEmpty(fm['father_occupation']?.toString())),
           ('Mother occupation', _dashIfEmpty(fm['mother_occupation']?.toString())),
-          ('Siblings', _dashIfEmpty(fm['siblings']?.toString())),
+          ('Siblings', _dashIfEmpty(_formatSiblings(fm))),
         ]);
         final fd = fm['family_description']?.toString().trim();
         if (fd != null && fd.isNotEmpty) familyDescription = fd;
@@ -985,7 +985,15 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         .eq('user_id', widget.targetUserId)
         .eq('liked_user_id', uid)
         .maybeSingle();
-    final accept = theirLike != null && _likedMeStatus != 'declined';
+    final accept = theirLike != null && _likedMeStatus == 'pending';
+    if (accept) {
+      await WebApi.patch('/api/likes', {
+        'userId': widget.targetUserId,
+        'likedUserId': uid,
+        'status': 'accepted',
+      });
+    }
+    
     final err = await ProfileSocialActions.sendInterest(
       client: client,
       currentUserId: uid,
@@ -2627,4 +2635,20 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       ),
     );
   }
+}
+
+String? _formatSiblings(Map<String, dynamic>? fm) {
+  if (fm == null) return null;
+  final countStr = fm['siblings']?.toString().trim();
+  final details = fm['sibling_details'] as List?;
+  if (details != null && details.isNotEmpty) {
+    int brothers = details.where((e) => e['type'] == 'brother').length;
+    int sisters = details.where((e) => e['type'] == 'sister').length;
+    List<String> parts = [];
+    if (brothers > 0) parts.add('$brothers Brother${brothers > 1 ? 's' : ''}');
+    if (sisters > 0) parts.add('$sisters Sister${sisters > 1 ? 's' : ''}');
+    if (parts.isNotEmpty) return parts.join(', ');
+  }
+  if (countStr != null && countStr.isNotEmpty) return countStr;
+  return null;
 }
