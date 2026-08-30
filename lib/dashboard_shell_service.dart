@@ -298,7 +298,7 @@ Future<({
   try {
     final idList = ids.toList();
     final batch = await Future.wait<dynamic>([
-      client.from('personal_details').select('user_id, name, age').inFilter('user_id', idList),
+      client.from('personal_details').select('user_id, name, age').inFilter('user_id', idList).neq('is_hidden', true),
       client.from('contact_details').select('user_id, current_district').inFilter('user_id', idList),
       client.from('profession_employee').select('user_id, designation, company').inFilter('user_id', idList),
     ]);
@@ -348,7 +348,8 @@ Future<({
     final oid = r['user_id']?.toString() ?? '';
     if (oid.isEmpty) continue;
     final p = personalByUser[oid];
-    final name = p != null && p['name']?.toString().trim().isNotEmpty == true ? p['name'].toString() : 'Member';
+    if (p == null) continue;
+    final name = p['name']?.toString().trim().isNotEmpty == true ? p['name'].toString() : 'Member';
     final at = _parseTs(r['created_at']) ?? DateTime.now();
     interests.add(
       DashboardShellNotification(
@@ -367,7 +368,8 @@ Future<({
     final oid = r['viewer_user_id']?.toString() ?? '';
     if (oid.isEmpty) continue;
     final p = personalByUser[oid];
-    final name = p != null && p['name']?.toString().trim().isNotEmpty == true ? p['name'].toString() : 'Member';
+    if (p == null) continue;
+    final name = p['name']?.toString().trim().isNotEmpty == true ? p['name'].toString() : 'Member';
     final at = _parseTs(r['created_at']) ?? DateTime.now();
     views.add(
       DashboardShellNotification(
@@ -385,6 +387,7 @@ Future<({
   for (final r in notifRows.take(8)) {
     final oid = r['actor_id']?.toString() ?? '';
     final p = personalByUser[oid];
+    if (oid.isNotEmpty && p == null) continue;
     final name = p != null && p['name']?.toString().trim().isNotEmpty == true ? p['name'].toString() : 'Member';
     final at = _parseTs(r['created_at']) ?? DateTime.now();
     generics.add(

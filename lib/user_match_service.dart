@@ -176,7 +176,8 @@ Future<UserMatchSets> loadUserMatchSections(
       .select('user_id, name, age, sex, marital_status, created_at, photo_verified, profile_code')
       .ilike('sex', targetGender)
       .neq('user_id', userId)
-      .neq('marital_status', 'Married');
+      .neq('marital_status', 'Married')
+      .neq('is_hidden', true);
 
   final rows = (potential as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   if (rows.isEmpty) {
