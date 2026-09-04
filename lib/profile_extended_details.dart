@@ -1,4 +1,6 @@
 import 'dart:math' as math;
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -52,6 +54,9 @@ class ProfileExtendedRepository {
       if (m['year_of_graduation'] != null && m['year_of_graduation'] is String) {
         final y = int.tryParse(m['year_of_graduation'] as String);
         if (y != null) m['year_of_graduation'] = y;
+      }
+      if (m['status'] != null && m['status'] is String) {
+        m['status'] = (m['status'] as String).toLowerCase();
       }
       return m;
     }).toList();
@@ -1637,115 +1642,329 @@ Widget _mapField(Map<String, dynamic> m, String key, String label) {
 Future<void> showFamilyDetailsSheet(
   BuildContext context, {
   required Map<String, dynamic> initial,
+  Map<String, dynamic>? userData,
   required void Function(Map<String, dynamic> savedData) onSaved,
 }) async {
-  final f = Map<String, dynamic>.from(initial);
-
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.white,
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
     builder: (ctx) {
-      return Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: SizedBox(
-          height: MediaQuery.of(ctx).size.height * 0.9,
-          child: Column(
-            children: [
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Family details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    _mapField(f, 'father_name', 'Father name'),
-                    _mapField(f, 'father_occupation', 'Father occupation'),
-                    _mapField(f, 'mother_name', 'Mother name'),
-                    _mapField(f, 'mother_occupation', 'Mother occupation'),
-                    _mapField(f, 'parents_address_line1', 'Parents address line 1'),
-                    _mapField(f, 'parents_address_line2', 'Parents address line 2'),
-                    _mapField(f, 'parents_pincode', 'Pincode'),
-                    _mapField(f, 'parents_area', 'Area'),
-                    _mapField(f, 'parents_taluk', 'Taluk'),
-                    _mapField(f, 'parents_division', 'Division'),
-                    _mapField(f, 'parents_region', 'Region'),
-                    _mapField(f, 'parents_landmark', 'Landmark'),
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 8),
-                      child: Text('Parents Location', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black54)),
-                    ),
-                    StatefulBuilder(
-                      builder: (context, setStateLocal) {
-                        return GlobalLocationSelector(
-                          initialCountry: f['parents_country']?.toString(),
-                          initialState: f['parents_state']?.toString(),
-                          initialCity: f['parents_district']?.toString(),
-                          onLocationChange: (country, state, city, lat, lon) {
-                            f['parents_country'] = country;
-                            f['parents_state'] = state;
-                            f['parents_district'] = city;
-                          },
-                        );
-                      },
-                    ),
-                    _mapField(f, 'siblings', 'Siblings (short note)'),
-                    _SiblingDetailsEditor(familyData: f),
-                    _mapField(f, 'family_description', 'Family description'),
-                    _mapField(f, 'caste', 'Caste'),
-                    _mapField(f, 'subcaste', 'Subcaste'),
-                    _mapField(f, 'kulam', 'Kulam / Kilai'),
-                    _mapField(f, 'gotram', 'Gotram'),
-                    _mapField(f, 'ancestral_origin', 'Native Place / Ancestral Origin'),
-                    _mapField(f, 'family_type', 'Family type'),
-                    _mapField(f, 'family_status', 'Family status'),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: ElevatedButton(
-                  onPressed: () async {
-                    final uid = Supabase.instance.client.auth.currentUser?.id;
-                    if (uid == null) return;
-                    try {
-                      await ProfileExtendedRepository.saveFamily(uid, f);
-                      final saved = Map<String, dynamic>.from(f);
-                      if (!ctx.mounted) return;
-                      onSaved(saved);
-                      if (ctx.mounted) {
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Family details saved')));
-                      }
-                    } catch (e) {
-                      if (ctx.mounted) {
-                        ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('Save failed: $e')));
-                      }
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _brand,
-                    minimumSize: const Size(double.infinity, 48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: const Text('Save', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                ),
-              ),
-            ],
-          ),
-        ),
+      return _FamilyDetailsSheetScaffold(
+        initial: initial,
+        userData: userData,
+        onSaved: onSaved,
       );
     },
   );
+}
+
+class _FamilyDetailsSheetScaffold extends StatefulWidget {
+  const _FamilyDetailsSheetScaffold({
+    required this.initial,
+    this.userData,
+    required this.onSaved,
+  });
+
+  final Map<String, dynamic> initial;
+  final Map<String, dynamic>? userData;
+  final void Function(Map<String, dynamic> savedData) onSaved;
+
+  @override
+  State<_FamilyDetailsSheetScaffold> createState() => _FamilyDetailsSheetScaffoldState();
+}
+
+class _FamilyDetailsSheetScaffoldState extends State<_FamilyDetailsSheetScaffold> {
+  late Map<String, dynamic> f;
+  bool _sameAsMine = false;
+  bool _isLoadingPincode = false;
+
+  final _line1 = TextEditingController();
+  final _line2 = TextEditingController();
+  final _pincode = TextEditingController();
+  final _area = TextEditingController();
+  final _taluk = TextEditingController();
+  final _district = TextEditingController();
+  final _division = TextEditingController();
+  final _region = TextEditingController();
+  final _state = TextEditingController();
+  final _country = TextEditingController();
+  final _landmark = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    f = Map<String, dynamic>.from(widget.initial);
+    _line1.text = f['parents_address_line1']?.toString() ?? '';
+    _line2.text = f['parents_address_line2']?.toString() ?? '';
+    _pincode.text = f['parents_pincode']?.toString() ?? '';
+    _area.text = f['parents_area']?.toString() ?? '';
+    _taluk.text = f['parents_taluk']?.toString() ?? '';
+    _district.text = f['parents_district']?.toString() ?? '';
+    _division.text = f['parents_division']?.toString() ?? '';
+    _region.text = f['parents_region']?.toString() ?? '';
+    _state.text = f['parents_state']?.toString() ?? '';
+    _country.text = f['parents_country']?.toString() ?? '';
+    _landmark.text = f['parents_landmark']?.toString() ?? '';
+
+    _pincode.addListener(_onPincodeChanged);
+  }
+
+  @override
+  void dispose() {
+    _pincode.removeListener(_onPincodeChanged);
+    _line1.dispose();
+    _line2.dispose();
+    _pincode.dispose();
+    _area.dispose();
+    _taluk.dispose();
+    _district.dispose();
+    _division.dispose();
+    _region.dispose();
+    _state.dispose();
+    _country.dispose();
+    _landmark.dispose();
+    super.dispose();
+  }
+
+  void _onPincodeChanged() {
+    if (_pincode.text.length == 6 && !_sameAsMine && !_isLoadingPincode) {
+      _fetchAreas(_pincode.text);
+    }
+  }
+
+  Future<void> _fetchAreas(String pin) async {
+    setState(() => _isLoadingPincode = true);
+    try {
+      final res = await http.get(Uri.parse('https://api.postalpincode.in/pincode/$pin'));
+      if (res.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(res.body);
+        if (data.isNotEmpty && data[0]['Status'] == 'Success') {
+          final postOffice = data[0]['PostOffice'][0];
+          setState(() {
+            _area.text = postOffice['Name'] ?? '';
+            _taluk.text = postOffice['Block'] ?? '';
+            _district.text = postOffice['District'] ?? '';
+            _division.text = postOffice['Division'] ?? '';
+            _region.text = postOffice['Region'] ?? '';
+            _state.text = postOffice['State'] ?? '';
+            _country.text = postOffice['Country'] ?? 'India';
+            _updateMapFields();
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching pincode: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingPincode = false);
+    }
+  }
+
+  void _updateMapFields() {
+    f['parents_address_line1'] = _line1.text;
+    f['parents_address_line2'] = _line2.text;
+    f['parents_pincode'] = _pincode.text;
+    f['parents_area'] = _area.text;
+    f['parents_taluk'] = _taluk.text;
+    f['parents_district'] = _district.text;
+    f['parents_division'] = _division.text;
+    f['parents_region'] = _region.text;
+    f['parents_state'] = _state.text;
+    f['parents_country'] = _country.text;
+    f['parents_landmark'] = _landmark.text;
+  }
+
+  void _toggleSameAsMine(bool? val) async {
+    if (val == null) return;
+    setState(() => _sameAsMine = val);
+    
+    if (val) {
+      if (widget.userData != null) {
+        final u = widget.userData!;
+        _line1.text = u['permanent_address_line1']?.toString() ?? '';
+        _line2.text = u['permanent_address_line2']?.toString() ?? '';
+        _pincode.text = u['permanent_pincode']?.toString() ?? '';
+        _area.text = u['permanent_area']?.toString() ?? '';
+        _taluk.text = u['permanent_taluk']?.toString() ?? '';
+        _district.text = u['permanent_district']?.toString() ?? '';
+        _division.text = u['permanent_division']?.toString() ?? '';
+        _region.text = u['permanent_region']?.toString() ?? '';
+        _state.text = u['permanent_state']?.toString() ?? '';
+        _country.text = u['permanent_country']?.toString() ?? '';
+        _landmark.text = u['permanent_landmark']?.toString() ?? '';
+        _updateMapFields();
+      } else {
+        setState(() => _isLoadingPincode = true);
+        try {
+          final uid = Supabase.instance.client.auth.currentUser?.id;
+          if (uid != null) {
+            final res = await Supabase.instance.client.from('users').select().eq('id', uid).maybeSingle();
+            if (res != null) {
+              setState(() {
+                _line1.text = res['permanent_address_line1']?.toString() ?? '';
+                _line2.text = res['permanent_address_line2']?.toString() ?? '';
+                _pincode.text = res['permanent_pincode']?.toString() ?? '';
+                _area.text = res['permanent_area']?.toString() ?? '';
+                _taluk.text = res['permanent_taluk']?.toString() ?? '';
+                _district.text = res['permanent_district']?.toString() ?? '';
+                _division.text = res['permanent_division']?.toString() ?? '';
+                _region.text = res['permanent_region']?.toString() ?? '';
+                _state.text = res['permanent_state']?.toString() ?? '';
+                _country.text = res['permanent_country']?.toString() ?? '';
+                _landmark.text = res['permanent_landmark']?.toString() ?? '';
+                _updateMapFields();
+              });
+            }
+          }
+        } catch (e) {
+          debugPrint('Error fetching user data: $e');
+        } finally {
+          if (mounted) setState(() => _isLoadingPincode = false);
+        }
+      }
+    }
+  }
+
+  Widget _buildField(String label, TextEditingController ctrl, {int? max, TextInputType? type}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: ctrl,
+        maxLength: max,
+        keyboardType: type,
+        readOnly: _sameAsMine,
+        decoration: InputDecoration(
+          labelText: label,
+          counterText: '',
+          isDense: true,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+        onChanged: (v) => _updateMapFields(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.9,
+        child: Column(
+          children: [
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Family details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  _mapField(f, 'father_name', 'Father name'),
+                  _mapField(f, 'father_occupation', 'Father occupation'),
+                  _mapField(f, 'mother_name', 'Mother name'),
+                  _mapField(f, 'mother_occupation', 'Mother occupation'),
+                  const SizedBox(height: 8),
+                  CheckboxListTile(
+                      title: const Text('Parents address same as mine'),
+                      value: _sameAsMine,
+                      onChanged: _toggleSameAsMine,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  _buildField('Parents address line 1', _line1),
+                  _buildField('Parents address line 2', _line2),
+                  Stack(
+                    alignment: Alignment.centerRight,
+                    children: [
+                      _buildField('Pincode (6 digits)', _pincode, max: 6, type: TextInputType.number),
+                      if (_isLoadingPincode)
+                        const Padding(
+                          padding: EdgeInsets.only(right: 12, bottom: 12),
+                          child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                        ),
+                    ],
+                  ),
+                  _buildField('Area', _area),
+                  _buildField('Taluk', _taluk),
+                  _buildField('Division', _division),
+                  _buildField('Region', _region),
+                  _buildField('Landmark', _landmark),
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 8),
+                    child: Text('Parents Location', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black54)),
+                  ),
+                  GlobalLocationSelector(
+                    initialCountry: f['parents_country']?.toString(),
+                    initialState: f['parents_state']?.toString(),
+                    initialCity: f['parents_district']?.toString(),
+                    onLocationChange: (country, state, city, lat, lon) {
+                      setState(() {
+                        f['parents_country'] = country;
+                        f['parents_state'] = state;
+                        f['parents_district'] = city;
+                        _country.text = country ?? '';
+                        _state.text = state ?? '';
+                        _district.text = city ?? '';
+                        _updateMapFields();
+                      });
+                    },
+                  ),
+                  _mapField(f, 'siblings', 'Siblings (short note)'),
+                  _SiblingDetailsEditor(familyData: f),
+                  _mapField(f, 'family_description', 'Family description'),
+                  _mapField(f, 'caste', 'Caste'),
+                  _mapField(f, 'subcaste', 'Subcaste'),
+                  _mapField(f, 'kulam', 'Kulam / Kilai'),
+                  _mapField(f, 'gotram', 'Gotram'),
+                  _mapField(f, 'ancestral_origin', 'Native Place / Ancestral Origin'),
+                  _mapField(f, 'family_type', 'Family type'),
+                  _mapField(f, 'family_status', 'Family status'),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: ElevatedButton(
+                onPressed: () async {
+                  final uid = Supabase.instance.client.auth.currentUser?.id;
+                  if (uid == null) return;
+                  try {
+                    await ProfileExtendedRepository.saveFamily(uid, f);
+                    final saved = Map<String, dynamic>.from(f);
+                    if (!context.mounted) return;
+                    widget.onSaved(saved);
+                    if (context.mounted) {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Family details saved')));
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e')));
+                    }
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _brand,
+                  minimumSize: const Size(double.infinity, 48),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Save', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// Tamil Nadu cities for quick place pick (aligned with [horoscope-generator-dialog.tsx]).

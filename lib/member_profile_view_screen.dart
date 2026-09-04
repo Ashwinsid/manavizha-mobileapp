@@ -979,19 +979,25 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
 
     setState(() => _socialBusy = true);
     final client = Supabase.instance.client;
-    final theirLike = await client
-        .from('likes')
-        .select('user_id')
-        .eq('user_id', widget.targetUserId)
-        .eq('liked_user_id', uid)
-        .maybeSingle();
-    final accept = theirLike != null && _likedMeStatus == 'pending';
-    if (accept) {
-      await WebApi.patch('/api/likes', {
-        'userId': widget.targetUserId,
-        'likedUserId': uid,
-        'status': 'accepted',
-      });
+    
+    bool accept = false;
+    try {
+      final theirLike = await client
+          .from('likes')
+          .select('user_id')
+          .eq('user_id', widget.targetUserId)
+          .eq('liked_user_id', uid)
+          .maybeSingle();
+      accept = theirLike != null && _likedMeStatus == 'pending';
+      if (accept) {
+        await WebApi.patch('/api/likes', {
+          'userId': widget.targetUserId,
+          'likedUserId': uid,
+          'status': 'accepted',
+        });
+      }
+    } catch (e) {
+      debugPrint('Error checking mutual like: $e');
     }
     
     final err = await ProfileSocialActions.sendInterest(
