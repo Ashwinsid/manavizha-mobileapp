@@ -1,1 +1,8 @@
-import "dart:convert"; import "package:http/http.dart" as http; void main() async { try { final res = await http.get(Uri.parse("https://countriesnow.space/api/v0.1/countries/state/cities/q?country=India&state=Tamil%20Nadu")); print(res.statusCode); final data = json.decode(res.body); final list = (data["data"] as List).map((e) => e.toString()).toList(); print(list.take(5).toList()); } catch(e) { print("ERROR: $e"); } }
+import 'dart:convert';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+Future<void> main() async {
+  // We don't have a full flutter environment to init Supabase easily from command line.
+  // Wait, scratch.dart can't run Supabase.instance.client if it hasn't called Supabase.initialize().
+  print('Need to find db schema');
+}

@@ -1,6 +1,4 @@
 import 'dart:io';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -8,6 +6,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'profile_extended_details.dart';
 import 'user_profile_completion.dart';
 import 'partner_preferences_screen.dart';
+import 'personal_details_qa_sheet.dart';
+import 'contact_details_logic.dart';
+import 'contact_details_qa_sheet.dart';
 
 class UserDetailsPage extends StatefulWidget {
   const UserDetailsPage({super.key});
@@ -212,7 +213,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
   }
 
   void _openEducationEditor() {
-    showEducationDetailsSheet(
+    showEducationDetailsQASheet(
       context,
       initialRows: List<Map<String, dynamic>>.from(_educationRows.map((e) => Map<String, dynamic>.from(e))),
       onSaved: (savedRows) {
@@ -236,24 +237,31 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
         return 'Business';
       case 'employee':
         return 'Private';
+      case 'not_working':
+        return 'Not Working';
       default:
         return 'Private';
     }
   }
 
   void _openProfessionEditor() {
-    showProfessionDetailsSheet(
+    showProfessionDetailsQASheet(
       context,
       initialEmploymentType: _employmentLabel,
       emp: Map<String, dynamic>.from(_empProf),
       bus: Map<String, dynamic>.from(_busProf),
       stu: Map<String, dynamic>.from(_stuProf),
       onSaved: (category, employmentLabel, emp, bus, stu) {
-        final pct = computeProfessionSectionPercentForType(category, emp, bus, stu);
+        // The sheet reports "Not Working" as category 'none' (its save bucket);
+        // distinguish it from "nothing saved" so it counts as complete, like web.
+        final effectiveType = category == 'none' && employmentLabel.trim().toLowerCase() == 'not working'
+            ? 'not_working'
+            : category;
+        final pct = computeProfessionSectionPercentForType(effectiveType, emp, bus, stu);
         if (mounted) {
           setState(() {
             _employmentLabel = employmentLabel;
-            _professionType = category;
+            _professionType = effectiveType;
             _empProf = Map<String, dynamic>.from(emp);
             _busProf = Map<String, dynamic>.from(bus);
             _stuProf = Map<String, dynamic>.from(stu);
@@ -271,7 +279,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
   }
 
   void _openFamilyEditor() {
-    showFamilyDetailsSheet(
+    showFamilyDetailsQASheet(
       context,
       initial: Map<String, dynamic>.from(_familyMap),
       onSaved: (saved) {
@@ -290,7 +298,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
   }
 
   void _openHoroscopeEditor() {
-    showHoroscopeDetailsSheet(
+    showHoroscopeDetailsQASheet(
       context,
       initial: Map<String, dynamic>.from(_horoscopeMap),
       onSaved: (saved) {
@@ -514,8 +522,6 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     _ageCtrl.text = age.toString();
   }
 
-  final _socialFormKey = GlobalKey<FormState>();
-
   Future<void> _savePersonalDetails() async {
     // Validation
     if (_nameCtrl.text.isEmpty) {
@@ -588,7 +594,9 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
   }
 
   Future<void> _saveSocialHabits() async {
-    if (!(_socialFormKey.currentState?.validate() ?? false)) {
+    final allSelected = [_selectedSmoking, _selectedDrinking, _selectedParties, _selectedPubs]
+        .every((v) => (v?.trim() ?? '').isNotEmpty);
+    if (!allSelected) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select all social habits')));
       return;
     }
@@ -692,9 +700,15 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     }
   }
 
+  /// One-question-at-a-time editor for Interests, mirroring
+  /// manavizha/components/profile-steps/interests-qa.tsx (hobbies, then
+  /// interests). Keeps the mobile "at least 3 of each" rule and the same
+  /// `_saveInterests()` write path as before.
   void _showInterestsEditor() {
     List<String> localHobbies = List<String>.from(_selectedHobbies);
     List<String> localInterests = List<String>.from(_selectedInterests);
+    int qIndex = 0;
+    const brand = Color(0xFF2FA086);
 
     showModalBottomSheet(
       context: context,
@@ -706,158 +720,141 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            Widget chipGrid(List<String> options, List<String> selectedList, String emptyMsg) {
+              if (options.isEmpty) {
+                return Text(emptyMsg, style: const TextStyle(color: Colors.black45, fontSize: 13));
+              }
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: options.map((item) {
+                  final selected = selectedList.contains(item);
+                  return FilterChip(
+                    label: Text(item, style: const TextStyle(fontSize: 13)),
+                    selected: selected,
+                    onSelected: (v) {
+                      setModalState(() {
+                        if (v) {
+                          if (!selectedList.contains(item)) selectedList.add(item);
+                        } else {
+                          selectedList.remove(item);
+                        }
+                      });
+                    },
+                    selectedColor: brand.withOpacity(0.2),
+                    checkmarkColor: brand,
+                  );
+                }).toList(),
+              );
+            }
+
+            final isHobbies = qIndex == 0;
+            final title = isHobbies ? 'What are your hobbies?' : 'What are you interested in?';
+            final selectedList = isHobbies ? localHobbies : localInterests;
+            final canContinue = selectedList.length >= 3;
+
             return Padding(
               padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
               child: Container(
                 height: MediaQuery.of(context).size.height * 0.88,
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const SizedBox(height: 12),
-                    Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.black12,
-                        borderRadius: BorderRadius.circular(2),
+                    const SizedBox(height: 4),
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2)),
                       ),
                     ),
-                    const SizedBox(height: 20),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Edit Interests',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                        ),
-                        IconButton(
-                          onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.close),
-                        ),
+                        Text('Question ${qIndex + 1} of 2',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: brand)),
+                        IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
                       ],
                     ),
-                    const Text(
-                      'Choose at least 3 hobbies and 3 interests (same as web profile setup).',
-                      style: TextStyle(color: Colors.black54, fontSize: 13),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: (qIndex + 1) / 2,
+                        minHeight: 6,
+                        backgroundColor: Colors.black12,
+                        valueColor: const AlwaysStoppedAnimation(brand),
+                      ),
                     ),
-                    const Divider(height: 24),
+                    const SizedBox(height: 20),
                     Expanded(
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.only(bottom: 40),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildSectionTitle('Hobbies'),
-                            if (_hobbyMasterOptions.isEmpty)
-                              const Padding(
-                                padding: EdgeInsets.only(bottom: 16),
-                                child: Text(
-                                  'No hobby options loaded. Check master_hobbies in Supabase.',
-                                  style: TextStyle(color: Colors.black45, fontSize: 13),
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 200),
+                          child: Column(
+                            key: ValueKey(qIndex),
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 6),
+                              const Text('Select at least 3.', style: TextStyle(color: Colors.black54, fontSize: 13)),
+                              const SizedBox(height: 20),
+                              chipGrid(
+                                isHobbies ? _hobbyMasterOptions : _interestMasterOptions,
+                                selectedList,
+                                isHobbies
+                                    ? 'No hobby options loaded. Check master_hobbies in Supabase.'
+                                    : 'No interest options loaded. Check master_interests in Supabase.',
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '${selectedList.length} selected (min 3)',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: selectedList.length < 3 ? Colors.orange : Colors.grey,
                                 ),
-                              )
-                            else
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: _hobbyMasterOptions.map((h) {
-                                  final selected = localHobbies.contains(h);
-                                  return FilterChip(
-                                    label: Text(h, style: const TextStyle(fontSize: 13)),
-                                    selected: selected,
-                                    onSelected: (v) {
-                                      setModalState(() {
-                                        if (v) {
-                                          if (!localHobbies.contains(h)) localHobbies.add(h);
-                                        } else {
-                                          localHobbies.remove(h);
-                                        }
-                                      });
-                                    },
-                                    selectedColor: const Color(0xFF2FA086).withOpacity(0.2),
-                                    checkmarkColor: const Color(0xFF2FA086),
-                                  );
-                                }).toList(),
                               ),
-                            const SizedBox(height: 8),
-                            Text(
-                              '${localHobbies.length} selected (min 3)',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: localHobbies.length < 3 ? Colors.orange : Colors.grey,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        if (qIndex > 0)
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => setModalState(() => qIndex = 0),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               ),
+                              child: const Text('Back'),
                             ),
-                            const SizedBox(height: 24),
-                            _buildSectionTitle('Interests'),
-                            if (_interestMasterOptions.isEmpty)
-                              const Padding(
-                                padding: EdgeInsets.only(bottom: 16),
-                                child: Text(
-                                  'No interest options loaded. Check master_interests in Supabase.',
-                                  style: TextStyle(color: Colors.black45, fontSize: 13),
-                                ),
-                              )
-                            else
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: _interestMasterOptions.map((item) {
-                                  final selected = localInterests.contains(item);
-                                  return FilterChip(
-                                    label: Text(item, style: const TextStyle(fontSize: 13)),
-                                    selected: selected,
-                                    onSelected: (v) {
-                                      setModalState(() {
-                                        if (v) {
-                                          if (!localInterests.contains(item)) localInterests.add(item);
-                                        } else {
-                                          localInterests.remove(item);
-                                        }
-                                      });
-                                    },
-                                    selectedColor: const Color(0xFF2FA086).withOpacity(0.2),
-                                    checkmarkColor: const Color(0xFF2FA086),
-                                  );
-                                }).toList(),
-                              ),
-                            const SizedBox(height: 8),
-                            Text(
-                              '${localInterests.length} selected (min 3)',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: localInterests.length < 3 ? Colors.orange : Colors.grey,
-                              ),
-                            ),
-                            const SizedBox(height: 32),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: _isLoadingData
-                                    ? null
+                          ),
+                        if (qIndex > 0) const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: ElevatedButton(
+                            onPressed: !canContinue || _isLoadingData
+                                ? null
+                                : isHobbies
+                                    ? () => setModalState(() => qIndex = 1)
                                     : () => _saveInterests(
                                           hobbies: localHobbies,
                                           interests: localInterests,
                                         ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF2FA086),
-                                  padding: const EdgeInsets.all(16),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                ),
-                                child: const Text(
-                                  'Save Interests',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: brand,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             ),
-                          ],
+                            child: Text(isHobbies ? 'Next' : 'Save'),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ],
                 ),
@@ -923,6 +920,66 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
+    );
+  }
+
+  /// One-question-at-a-time entry point for editing Basic Details. Reuses
+  /// the same `_savePersonalDetails()` validation/save path as the
+  /// all-fields editor below — this only changes how the answers are
+  /// collected before that method runs.
+  void _showBasicDetailsEditorQA() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) {
+        return PersonalDetailsQASheet(
+          name: _nameCtrl.text,
+          dob: _dobCtrl.text,
+          age: _ageCtrl.text,
+          gender: _selectedGender,
+          religion: _selectedReligion,
+          createdBy: _selectedCreatedBy,
+          physicalStatus: _selectedPhysicalStatus,
+          height: _heightCtrl.text,
+          weight: _weightCtrl.text,
+          skinColor: _selectedSkinColor,
+          bodyType: _selectedBodyType,
+          maritalStatus: _selectedMaritalStatus,
+          foodPreference: _selectedFoodPreference,
+          languages: _selectedLanguages,
+          about: _aboutCtrl.text,
+          genderOptions: _genderOptions,
+          religionOptions: _religionOptions,
+          createdByOptions: _createdByOptions,
+          physicalStatusOptions: _physicalStatusOptions,
+          skinColorOptions: _skinColorOptions,
+          bodyTypeOptions: _bodyTypeOptions,
+          maritalStatusOptions: _maritalStatusOptions,
+          foodPreferenceOptions: _foodPreferenceOptions,
+          indianLanguages: _indianLanguages,
+          internationalLanguages: _internationalLanguages,
+          onSubmit: (values) {
+            _nameCtrl.text = values['name'] as String;
+            _dobCtrl.text = values['dob'] as String;
+            _ageCtrl.text = values['age'] as String;
+            _selectedGender = values['gender'] as String?;
+            _selectedReligion = values['religion'] as String?;
+            _selectedCreatedBy = values['createdBy'] as String?;
+            _selectedPhysicalStatus = values['physicalStatus'] as String?;
+            _heightCtrl.text = values['height'] as String;
+            _weightCtrl.text = values['weight'] as String;
+            _selectedSkinColor = values['skinColor'] as String?;
+            _selectedBodyType = values['bodyType'] as String?;
+            _selectedMaritalStatus = values['maritalStatus'] as String?;
+            _selectedFoodPreference = values['foodPreference'] as String?;
+            _selectedLanguages = List<String>.from(values['languages'] as List);
+            _aboutCtrl.text = values['about'] as String;
+            _savePersonalDetails();
+          },
+        );
+      },
     );
   }
 
@@ -1104,7 +1161,14 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     );
   }
 
+  /// One-question-at-a-time editor for Social Habits, mirroring
+  /// manavizha/components/profile-steps/social-habits-qa.tsx (smoking,
+  /// drinking, parties, pubs — all required). Same `_saveSocialHabits()`
+  /// write path as before.
   void _showSocialHabitsEditor() {
+    int qIndex = 0;
+    const brand = Color(0xFF2FA086);
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1113,54 +1177,139 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            return Container(
-              height: MediaQuery.of(context).size.height * 0.6,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(
-                children: [
-                  const SizedBox(height: 12),
-                  Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2))),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Edit Social Habits', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                      IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
-                    ],
-                  ),
-                  const Divider(),
-                  Expanded(
-                    child: Form(
-                      key: _socialFormKey,
+            final questions = <({String title, String? value, List<String> options, void Function(String?) onChanged})>[
+              (
+                title: 'Do you smoke?',
+                value: _selectedSmoking,
+                options: _smokingOptions,
+                onChanged: (val) => setModalState(() => _selectedSmoking = val),
+              ),
+              (
+                title: 'Do you drink?',
+                value: _selectedDrinking,
+                options: _drinkingOptions,
+                onChanged: (val) => setModalState(() => _selectedDrinking = val),
+              ),
+              (
+                title: 'How do you feel about socializing / parties?',
+                value: _selectedParties,
+                options: _partiesOptions,
+                onChanged: (val) => setModalState(() => _selectedParties = val),
+              ),
+              (
+                title: 'What about entertainment / pubs?',
+                value: _selectedPubs,
+                options: _pubsOptions,
+                onChanged: (val) => setModalState(() => _selectedPubs = val),
+              ),
+            ];
+            final safeIndex = qIndex >= questions.length ? questions.length - 1 : qIndex;
+            final q = questions[safeIndex];
+            final isLast = safeIndex == questions.length - 1;
+            final canContinue = (q.value?.trim() ?? '').isNotEmpty;
+
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              child: Container(
+                height: MediaQuery.of(context).size.height * 0.6,
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 4),
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2)),
+                      ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Question ${safeIndex + 1} of ${questions.length}',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: brand)),
+                        IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                      ],
+                    ),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: (safeIndex + 1) / questions.length,
+                        minHeight: 6,
+                        backgroundColor: Colors.black12,
+                        valueColor: const AlwaysStoppedAnimation(brand),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Expanded(
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.only(bottom: 40, top: 10),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildDropdownField('Smoking', _selectedSmoking, _smokingOptions, (val) => setModalState(() => _selectedSmoking = val)),
-                            _buildDropdownField('Drinking', _selectedDrinking, _drinkingOptions, (val) => setModalState(() => _selectedDrinking = val)),
-                            _buildDropdownField('Parties', _selectedParties, _partiesOptions, (val) => setModalState(() => _selectedParties = val)),
-                            _buildDropdownField('Pubs', _selectedPubs, _pubsOptions, (val) => setModalState(() => _selectedPubs = val)),
-                            
-                            const SizedBox(height: 32),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: _saveSocialHabits,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF2FA086),
-                                  padding: const EdgeInsets.all(16),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 200),
+                          child: Column(
+                            key: ValueKey(safeIndex),
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(q.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 20),
+                              DropdownButtonFormField<String>(
+                                value: (q.value != null && q.options.contains(q.value)) ? q.value : null,
+                                isExpanded: true,
+                                hint: const Text('Select'),
+                                decoration: InputDecoration(
+                                  isDense: true,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                                 ),
-                                child: const Text('Save Social Habits', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                                items: q.options
+                                    .map((opt) => DropdownMenuItem<String>(
+                                          value: opt,
+                                          child: Text(opt, style: const TextStyle(color: Colors.black87)),
+                                        ))
+                                    .toList(),
+                                onChanged: q.onChanged,
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        if (safeIndex > 0)
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => setModalState(() => qIndex = safeIndex - 1),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              child: const Text('Back'),
+                            ),
+                          ),
+                        if (safeIndex > 0) const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: ElevatedButton(
+                            onPressed: !canContinue || _isLoadingData
+                                ? null
+                                : isLast
+                                    ? _saveSocialHabits
+                                    : () => setModalState(() => qIndex = safeIndex + 1),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: brand,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: Text(isLast ? 'Save' : 'Next'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             );
           },
@@ -1299,7 +1448,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: _showBasicDetailsEditor,
+                      onPressed: _showBasicDetailsEditorQA,
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit Details'),
                       style: OutlinedButton.styleFrom(
@@ -1325,7 +1474,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                             useSafeArea: true,
                             backgroundColor: Colors.white,
                             shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-                            builder: (ctx) => ContactDetailsEditorSheet(initialData: _contactData),
+                            builder: (ctx) => const ContactDetailsQASheet(),
                           ).then((_) {
                             _fetchPersonalDetails();
                             _fetchSectionCompletion();
@@ -1464,7 +1613,9 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                     'Type',
                     _professionType == 'none'
                         ? null
-                        : _professionType[0].toUpperCase() + _professionType.substring(1),
+                        : _professionType == 'not_working'
+                            ? 'Not Working'
+                            : _professionType[0].toUpperCase() + _professionType.substring(1),
                   ),
                   if (_professionSummaryLine().isNotEmpty) _buildDataRow('Summary', _professionSummaryLine()),
                   const SizedBox(height: 16),
@@ -1943,11 +2094,167 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
     }
   }
 
+  /// One-question-at-a-time editor, mirroring
+  /// manavizha/components/profile-steps/photos-qa.tsx: photos (min 3),
+  /// family photo (optional), Aadhar front, Aadhar back. Same
+  /// `_savePhotos()` validation and upload path as before.
+  int _qIndex = 0;
+
+  Widget _buildQAEditor() {
+    const brand = Color(0xFF2FA086);
+    final questions = <({String title, String subtitle, bool Function() isValid, Widget child})>[
+      (
+        title: 'Add your photos',
+        subtitle: '${profilePhotos.length} / 6 uploaded · minimum 3 required · max 5MB each. '
+            'The first photo acts as your display picture.',
+        isValid: () => profilePhotos.length >= 3,
+        child: GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: 6,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+          ),
+          itemBuilder: (context, index) => _buildProfilePhotoSlot(index),
+        ),
+      ),
+      (
+        title: 'Have a family photo to share?',
+        subtitle: 'Optional. Max 5MB.',
+        isValid: () => true,
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: _buildPhotoSlot(familyPhoto, 'Family\nPhoto', 'family', size: 140),
+        ),
+      ),
+      (
+        title: 'Upload the front of your Aadhar card',
+        subtitle: 'For internal verification only — never shown to other members.',
+        isValid: () => aadharFront != null,
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: _buildPhotoSlot(aadharFront, 'Aadhar\nFront', 'aadhar_front', size: 140),
+        ),
+      ),
+      (
+        title: 'Now the back of your Aadhar card',
+        subtitle: 'For internal verification only — never shown to other members.',
+        isValid: () => aadharBack != null,
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: _buildPhotoSlot(aadharBack, 'Aadhar\nBack', 'aadhar_back', size: 140),
+        ),
+      ),
+    ];
+    final safeIndex = _qIndex >= questions.length ? questions.length - 1 : _qIndex;
+    final q = questions[safeIndex];
+    final isLast = safeIndex == questions.length - 1;
+    final canContinue = q.isValid();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Question ${safeIndex + 1} of ${questions.length}',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: brand)),
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.redAccent),
+                onPressed: () {
+                  // Abort editing: refetch to reset local un-verified edits.
+                  setState(() {
+                    _isEditing = false;
+                    _isLoading = true;
+                  });
+                  _fetchPhotos();
+                },
+              ),
+            ],
+          ),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: (safeIndex + 1) / questions.length,
+              minHeight: 6,
+              backgroundColor: Colors.black12,
+              valueColor: const AlwaysStoppedAnimation(brand),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Expanded(
+            child: SingleChildScrollView(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: Column(
+                  key: ValueKey(safeIndex),
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(q.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    Text(q.subtitle, style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                    const SizedBox(height: 20),
+                    q.child,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              if (safeIndex > 0)
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _isSaving ? null : () => setState(() => _qIndex = safeIndex - 1),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('Back'),
+                  ),
+                ),
+              if (safeIndex > 0) const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: ElevatedButton(
+                  onPressed: !canContinue || _isSaving
+                      ? null
+                      : isLast
+                          ? _savePhotos
+                          : () => setState(() => _qIndex = safeIndex + 1),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: brand,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: _isSaving
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : Text(isLast ? 'Verify & Save Uploads' : 'Next'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator(color: Color(0xFF2FA086)));
     }
+
+    if (_isEditing) return _buildQAEditor();
 
     return ListView(
       padding: const EdgeInsets.all(16.0),
@@ -1957,17 +2264,11 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
           children: [
             const Text('Your Gallery', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
             IconButton(
-              icon: Icon(_isEditing ? Icons.close : Icons.edit, color: _isEditing ? Colors.redAccent : Colors.black54),
-              onPressed: () {
-                setState(() {
-                  _isEditing = !_isEditing;
-                  // Refetch to reset local un-verified edits if they abort!
-                  if (!_isEditing) {
-                     setState(() => _isLoading = true);
-                     _fetchPhotos();
-                  }
-                });
-              },
+              icon: const Icon(Icons.edit, color: Colors.black54),
+              onPressed: () => setState(() {
+                _isEditing = true;
+                _qIndex = 0;
+              }),
             ),
           ],
         ),
@@ -1979,7 +2280,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          itemCount: _isEditing ? 6 : profilePhotos.length,
+          itemCount: profilePhotos.length,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 3,
             crossAxisSpacing: 10,
@@ -1989,7 +2290,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
             return _buildProfilePhotoSlot(index);
           },
         ),
-        
+
         const SizedBox(height: 32),
         const Text('Family Photo', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
@@ -2012,24 +2313,6 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
             Expanded(child: _buildPhotoSlot(aadharBack, 'Aadhar\nBack', 'aadhar_back', size: 120)),
           ],
         ),
-
-        if (_isEditing) ...[
-          const SizedBox(height: 48),
-          SizedBox(
-            height: 56,
-            child: ElevatedButton(
-              onPressed: _isSaving ? null : _savePhotos,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2FA086),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-              child: _isSaving 
-                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : const Text('Verify & Save Uploads', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            ),
-          ),
-        ],
         const SizedBox(height: 100), // Spacing for bottom dock
       ],
     );
@@ -2218,10 +2501,41 @@ class _ReferralDetailsPageState extends State<ReferralDetailsPage> {
       return const Center(child: CircularProgressIndicator(color: Color(0xFF2FA086)));
     }
 
+    // Single-question presentation, mirroring
+    // manavizha/components/profile-steps/referral-qa.tsx — there's only one
+    // real field here, entirely optional. Same lookup and save path as before.
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        // ── Header card ──────────────────────────────────────────────────
+        const Padding(
+          padding: EdgeInsets.only(left: 4, bottom: 8),
+          child: Text('Question 1 of 1',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
+        ),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: const LinearProgressIndicator(
+            value: 1,
+            minHeight: 6,
+            backgroundColor: Colors.black12,
+            valueColor: AlwaysStoppedAnimation(Color(0xFF2FA086)),
+          ),
+        ),
+        const SizedBox(height: 20),
+        const Padding(
+          padding: EdgeInsets.only(left: 4),
+          child: Text('Were you referred by a partner?',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        ),
+        const SizedBox(height: 6),
+        const Padding(
+          padding: EdgeInsets.only(left: 4, bottom: 16),
+          child: Text(
+            'Optional — you can skip this step. Enter the referral partner ID if you have one.',
+            style: TextStyle(color: Colors.black54, fontSize: 13),
+          ),
+        ),
+        // ── Input card ───────────────────────────────────────────────────
         Card(
           elevation: 0,
           color: Colors.white,
@@ -2234,29 +2548,6 @@ class _ReferralDetailsPageState extends State<ReferralDetailsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Section header
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2FA086).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(Icons.handshake_outlined, color: Color(0xFF2FA086), size: 20),
-                    ),
-                    const SizedBox(width: 12),
-                    const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Partner details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        Text('Enter your referral partner ID to link your profile',
-                            style: TextStyle(fontSize: 12, color: Colors.black54)),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
 
                 // ── Referral Partner ID ───────────────────────────────────
                 const Text('REFERRAL PARTNER ID', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.black54, letterSpacing: 0.8)),
@@ -2554,314 +2845,24 @@ class ContactDetailsEditorSheet extends StatefulWidget {
   State<ContactDetailsEditorSheet> createState() => _ContactDetailsEditorSheetState();
 }
 
-class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
-  bool _isLoadingData = true;
-
-  final _phoneCtrl = TextEditingController(text: '+91');
-  final _whatsappCtrl = TextEditingController(text: '+91');
-  bool _sameAsPhone = false;
-
-  final _permLine1Ctrl = TextEditingController();
-  final _permLine2Ctrl = TextEditingController();
-  final _permPincodeCtrl = TextEditingController();
-  final _permTalukCtrl = TextEditingController();
-  final _permDistrictCtrl = TextEditingController();
-  final _permDivisionCtrl = TextEditingController();
-  final _permRegionCtrl = TextEditingController();
-  final _permStateCtrl = TextEditingController();
-  final _permCountryCtrl = TextEditingController();
-  final _permLandmarkCtrl = TextEditingController();
-  String _permArea = '';
-  List<dynamic> _permAreasList = [];
-  bool _isLoadingPerm = false;
-
-  bool _sameAsPerm = false;
-
-  final _currLine1Ctrl = TextEditingController();
-  final _currLine2Ctrl = TextEditingController();
-  final _currPincodeCtrl = TextEditingController();
-  final _currTalukCtrl = TextEditingController();
-  final _currDistrictCtrl = TextEditingController();
-  final _currDivisionCtrl = TextEditingController();
-  final _currRegionCtrl = TextEditingController();
-  final _currStateCtrl = TextEditingController();
-  final _currCountryCtrl = TextEditingController();
-  final _currLandmarkCtrl = TextEditingController();
-  String _currArea = '';
-  List<dynamic> _currAreasList = [];
-  bool _isLoadingCurr = false;
-
+class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> with ContactDetailsLogic {
   @override
   void initState() {
     super.initState();
-    _fetchUserData();
-
-    _phoneCtrl.addListener(() {
-      if (_sameAsPhone) {
-        _whatsappCtrl.text = _phoneCtrl.text;
-      }
-    });
-
-    _permPincodeCtrl.addListener(() {
-      if (_permPincodeCtrl.text.length == 6 && !_isLoadingData) {
-        _fetchAreas(_permPincodeCtrl.text, true);
-      } else {
-        setState(() { _permAreasList.clear(); if (!_isLoadingData) _permArea = ''; });
-      }
-    });
-
-    _currPincodeCtrl.addListener(() {
-      if (_currPincodeCtrl.text.length == 6 && !_sameAsPerm && !_isLoadingData) {
-        _fetchAreas(_currPincodeCtrl.text, false);
-      } else {
-        setState(() { _currAreasList.clear(); if (!_isLoadingData) _currArea = ''; });
-      }
-    });
-
-    _permLine1Ctrl.addListener(_conditionalSync);
-    _permLine2Ctrl.addListener(_conditionalSync);
-    _permLandmarkCtrl.addListener(_conditionalSync);
-  }
-
-  void _conditionalSync() {
-    if (_sameAsPerm) _syncPermToCurr();
-  }
-
-  Future<void> _fetchUserData() async {
-    try {
-      final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) {
-        setState(() { _isLoadingData = false; });
-        return;
-      }
-
-      final data = await Supabase.instance.client
-          .from('contact_details')
-          .select()
-          .eq('user_id', userId)
-          .maybeSingle();
-
-      if (data != null && mounted) {
-        setState(() {
-          _phoneCtrl.text = data['phone'] ?? '+91';
-          _whatsappCtrl.text = data['whatsapp_number'] ?? '+91';
-          if (_whatsappCtrl.text == _phoneCtrl.text && _phoneCtrl.text != '+91') {
-             _sameAsPhone = true;
-          }
-
-          _permLine1Ctrl.text = data['permanent_address_line1'] ?? '';
-          _permLine2Ctrl.text = data['permanent_address_line2'] ?? '';
-          _permPincodeCtrl.text = data['permanent_pincode'] ?? '';
-          _permArea = data['permanent_area'] ?? '';
-          _permTalukCtrl.text = data['permanent_taluk'] ?? '';
-          _permDistrictCtrl.text = data['permanent_district'] ?? '';
-          _permDivisionCtrl.text = data['permanent_division'] ?? '';
-          _permRegionCtrl.text = data['permanent_region'] ?? '';
-          _permStateCtrl.text = data['permanent_state'] ?? '';
-          _permCountryCtrl.text = data['permanent_country'] ?? '';
-          _permLandmarkCtrl.text = data['permanent_landmark'] ?? '';
-
-          _currLine1Ctrl.text = data['current_address_line1'] ?? '';
-          _currLine2Ctrl.text = data['current_address_line2'] ?? '';
-          _currPincodeCtrl.text = data['current_pincode'] ?? '';
-          _currArea = data['current_area'] ?? '';
-          _currTalukCtrl.text = data['current_taluk'] ?? '';
-          _currDistrictCtrl.text = data['current_district'] ?? '';
-          _currDivisionCtrl.text = data['current_division'] ?? '';
-          _currRegionCtrl.text = data['current_region'] ?? '';
-          _currStateCtrl.text = data['current_state'] ?? '';
-          _currCountryCtrl.text = data['current_country'] ?? '';
-          _currLandmarkCtrl.text = data['current_landmark'] ?? '';
-
-          if (_currPincodeCtrl.text.isNotEmpty && _currPincodeCtrl.text == _permPincodeCtrl.text && _currLine1Ctrl.text == _permLine1Ctrl.text) {
-             _sameAsPerm = true;
-          }
-        });
-      }
-    } catch (e) {
-      debugPrint('Error fetching contact details: $e');
-    } finally {
-      if (mounted) setState(() { _isLoadingData = false; });
-    }
-  }
-
-  Future<void> _saveUserData() async {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
-
-    setState(() { _isLoadingData = true; });
-
-    try {
-      final contactRow = <String, dynamic>{
-        'user_id': userId,
-        'phone': _phoneCtrl.text,
-        'whatsapp_number': _whatsappCtrl.text,
-        'permanent_address_line1': _permLine1Ctrl.text,
-        'permanent_address_line2': _permLine2Ctrl.text,
-        'permanent_pincode': _permPincodeCtrl.text,
-        'permanent_area': _permArea,
-        'permanent_taluk': _permTalukCtrl.text,
-        'permanent_district': _permDistrictCtrl.text,
-        'permanent_division': _permDivisionCtrl.text,
-        'permanent_region': _permRegionCtrl.text,
-        'permanent_state': _permStateCtrl.text,
-        'permanent_country': _permCountryCtrl.text,
-        'permanent_landmark': _permLandmarkCtrl.text,
-        'current_address_line1': _currLine1Ctrl.text,
-        'current_address_line2': _currLine2Ctrl.text,
-        'current_pincode': _currPincodeCtrl.text,
-        'current_area': _currArea,
-        'current_taluk': _currTalukCtrl.text,
-        'current_district': _currDistrictCtrl.text,
-        'current_division': _currDivisionCtrl.text,
-        'current_region': _currRegionCtrl.text,
-        'current_state': _currStateCtrl.text,
-        'current_country': _currCountryCtrl.text,
-        'current_landmark': _currLandmarkCtrl.text,
-        'updated_at': DateTime.now().toIso8601String(),
-      };
-      contactRow['completion_percentage'] = computeContactCompletionPercent(contactRow);
-      await Supabase.instance.client.from('contact_details').upsert(contactRow);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact details successfully synced to backend!')));
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      if (mounted) {
-        debugPrint('Error saving contact details: $e');
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to save to Supabase!')));
-      }
-    } finally {
-      if (mounted) setState(() { _isLoadingData = false; });
-    }
+    initContactDetailsLogic();
   }
 
   @override
   void dispose() {
-    _phoneCtrl.dispose();
-    _whatsappCtrl.dispose();
-    _permLine1Ctrl.dispose();
-    _permLine2Ctrl.dispose();
-    _permPincodeCtrl.dispose();
-    _permTalukCtrl.dispose();
-    _permDistrictCtrl.dispose();
-    _permDivisionCtrl.dispose();
-    _permRegionCtrl.dispose();
-    _permStateCtrl.dispose();
-    _permCountryCtrl.dispose();
-    _permLandmarkCtrl.dispose();
-    _currLine1Ctrl.dispose();
-    _currLine2Ctrl.dispose();
-    _currPincodeCtrl.dispose();
-    _currTalukCtrl.dispose();
-    _currDistrictCtrl.dispose();
-    _currDivisionCtrl.dispose();
-    _currRegionCtrl.dispose();
-    _currStateCtrl.dispose();
-    _currCountryCtrl.dispose();
-    _currLandmarkCtrl.dispose();
+    disposeContactDetailsLogic();
     super.dispose();
   }
 
-  Future<void> _fetchAreas(String pincode, bool isPermanent) async {
-    if (isPermanent) {
-      if (!mounted) return;
-      setState(() { _isLoadingPerm = true; _permAreasList = []; _permArea = ''; });
-    } else {
-      if (!mounted) return;
-      setState(() { _isLoadingCurr = true; _currAreasList = []; _currArea = ''; });
-    }
-
-    try {
-      final response = await http.get(Uri.parse('https://api.postalpincode.in/pincode/$pincode'));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data.isNotEmpty && data[0]['Status'] == 'Success' && data[0]['PostOffice'] != null) {
-          final List postOffices = data[0]['PostOffice'];
-          if (mounted) {
-            setState(() {
-              if (isPermanent) {
-                _permAreasList = postOffices;
-                if (postOffices.length == 1) _selectArea(postOffices[0], true);
-              } else {
-                _currAreasList = postOffices;
-                if (postOffices.length == 1) _selectArea(postOffices[0], false);
-              }
-            });
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('Error fetching pincode: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          if (isPermanent) _isLoadingPerm = false;
-          else _isLoadingCurr = false;
-        });
-      }
-    }
-  }
-
-  void _selectArea(dynamic postOffice, bool isPermanent) {
-    setState(() {
-      if (isPermanent) {
-        _permArea = postOffice['Name'] ?? '';
-        _permTalukCtrl.text = postOffice['Taluk'] ?? postOffice['Tehsil'] ?? postOffice['Block'] ?? '';
-        _permDistrictCtrl.text = postOffice['District'] ?? '';
-        _permDivisionCtrl.text = postOffice['Division'] ?? '';
-        _permRegionCtrl.text = postOffice['Circle'] ?? postOffice['Region'] ?? '';
-        _permStateCtrl.text = postOffice['State'] ?? '';
-        _permCountryCtrl.text = postOffice['Country'] ?? '';
-        if (_sameAsPerm) _syncPermToCurr();
-      } else {
-        _currArea = postOffice['Name'] ?? '';
-        _currTalukCtrl.text = postOffice['Taluk'] ?? postOffice['Tehsil'] ?? postOffice['Block'] ?? '';
-        _currDistrictCtrl.text = postOffice['District'] ?? '';
-        _currDivisionCtrl.text = postOffice['Division'] ?? '';
-        _currRegionCtrl.text = postOffice['Circle'] ?? postOffice['Region'] ?? '';
-        _currStateCtrl.text = postOffice['State'] ?? '';
-        _currCountryCtrl.text = postOffice['Country'] ?? '';
-      }
-    });
-  }
-
-  void _syncPermToCurr() {
-    if (_sameAsPerm) {
-      _currLine1Ctrl.text = _permLine1Ctrl.text;
-      _currLine2Ctrl.text = _permLine2Ctrl.text;
-      _currPincodeCtrl.text = _permPincodeCtrl.text;
-      _currTalukCtrl.text = _permTalukCtrl.text;
-      _currDistrictCtrl.text = _permDistrictCtrl.text;
-      _currDivisionCtrl.text = _permDivisionCtrl.text;
-      _currRegionCtrl.text = _permRegionCtrl.text;
-      _currStateCtrl.text = _permStateCtrl.text;
-      _currCountryCtrl.text = _permCountryCtrl.text;
-      _currLandmarkCtrl.text = _permLandmarkCtrl.text;
-      _currArea = _permArea;
-      _currAreasList = List.from(_permAreasList);
-    } else {
-      _currLine1Ctrl.clear();
-      _currLine2Ctrl.clear();
-      _currPincodeCtrl.clear();
-      _currTalukCtrl.clear();
-      _currDistrictCtrl.clear();
-      _currDivisionCtrl.clear();
-      _currRegionCtrl.clear();
-      _currStateCtrl.clear();
-      _currCountryCtrl.clear();
-      _currLandmarkCtrl.clear();
-      _currArea = '';
-      _currAreasList = [];
-    }
-  }
-
   void _showAreaPicker(bool isPermanent) {
-    if ((isPermanent && _permAreasList.isEmpty) || (!isPermanent && _currAreasList.isEmpty)) return;
-    if (!isPermanent && _sameAsPerm) return;
+    if ((isPermanent && permAreasList.isEmpty) || (!isPermanent && currAreasList.isEmpty)) return;
+    if (!isPermanent && sameAsPerm) return;
 
-    final list = isPermanent ? _permAreasList : _currAreasList;
+    final list = isPermanent ? permAreasList : currAreasList;
 
     showModalBottomSheet(
       context: context,
@@ -2885,7 +2886,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
                       title: Text(list[i]['Name']),
                       onTap: () {
                         Navigator.pop(ctx);
-                        _selectArea(list[i], isPermanent);
+                        selectArea(list[i], isPermanent);
                       },
                     );
                   },
@@ -2920,7 +2921,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
   }
 
   Widget _buildAreaDropdown(String label, String value, bool isPermanent, bool isLoading) {
-    bool disabled = !isPermanent && _sameAsPerm;
+    bool disabled = !isPermanent && sameAsPerm;
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: GestureDetector(
@@ -2951,7 +2952,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
   Widget build(BuildContext context) {
     final double modalHeight = MediaQuery.of(context).size.height * 0.75;
 
-    if (_isLoadingData) {
+    if (isLoadingData) {
       return SizedBox(
         height: modalHeight,
         child: const Center(
@@ -2990,19 +2991,19 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 24.0),
               children: [
-                _buildTextField('Phone Number', _phoneCtrl, isNumber: true, maxLength: 13),
+                _buildTextField('Phone Number', phoneCtrl, isNumber: true, maxLength: 13),
         Row(
           children: [
             Checkbox(
-              value: _sameAsPhone,
+              value: sameAsPhone,
               activeColor: const Color(0xFF2FA086),
               onChanged: (val) {
                 setState(() {
-                  _sameAsPhone = val ?? false;
-                  if (_sameAsPhone) {
-                    _whatsappCtrl.text = _phoneCtrl.text;
+                  sameAsPhone = val ?? false;
+                  if (sameAsPhone) {
+                    whatsappCtrl.text = phoneCtrl.text;
                   } else {
-                    _whatsappCtrl.text = '+91 ';
+                    whatsappCtrl.text = '+91 ';
                   }
                 });
               },
@@ -3010,23 +3011,23 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
             const Text('WhatsApp same as Phone Number'),
           ],
         ),
-        if (!_sameAsPhone)
-          _buildTextField('WhatsApp Number', _whatsappCtrl, isNumber: true, maxLength: 13),
-        
+        if (!sameAsPhone)
+          _buildTextField('WhatsApp Number', whatsappCtrl, isNumber: true, maxLength: 13),
+
         const Divider(height: 48),
         const Text('Permanent Address', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 16),
-        _buildTextField('Address Line 1', _permLine1Ctrl),
-        _buildTextField('Address Line 2 (Optional)', _permLine2Ctrl),
-        _buildTextField('Pincode (6 Digits)', _permPincodeCtrl, isNumber: true, maxLength: 6),
-        _buildAreaDropdown('Select Area / Post Office', _permArea, true, _isLoadingPerm),
-        _buildTextField('Taluk / Tehsil', _permTalukCtrl, readOnly: true),
-        _buildTextField('District', _permDistrictCtrl, readOnly: true),
-        _buildTextField('Division', _permDivisionCtrl, readOnly: true),
-        _buildTextField('Region / Circle', _permRegionCtrl, readOnly: true),
-        _buildTextField('State', _permStateCtrl, readOnly: true),
-        _buildTextField('Country', _permCountryCtrl, readOnly: true),
-        _buildTextField('Landmark (Optional)', _permLandmarkCtrl),
+        _buildTextField('Address Line 1', permLine1Ctrl),
+        _buildTextField('Address Line 2 (Optional)', permLine2Ctrl),
+        _buildTextField('Pincode (6 Digits)', permPincodeCtrl, isNumber: true, maxLength: 6),
+        _buildAreaDropdown('Select Area / Post Office', permArea, true, isLoadingPerm),
+        _buildTextField('Taluk / Tehsil', permTalukCtrl, readOnly: true),
+        _buildTextField('District', permDistrictCtrl, readOnly: true),
+        _buildTextField('Division', permDivisionCtrl, readOnly: true),
+        _buildTextField('Region / Circle', permRegionCtrl, readOnly: true),
+        _buildTextField('State', permStateCtrl, readOnly: true),
+        _buildTextField('Country', permCountryCtrl, readOnly: true),
+        _buildTextField('Landmark (Optional)', permLandmarkCtrl),
 
         const Divider(height: 48),
         const Text('Current Address', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -3034,12 +3035,12 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
         Row(
           children: [
             Checkbox(
-              value: _sameAsPerm,
+              value: sameAsPerm,
               activeColor: const Color(0xFF2FA086),
               onChanged: (val) {
                 setState(() {
-                  _sameAsPerm = val ?? false;
-                  _syncPermToCurr();
+                  sameAsPerm = val ?? false;
+                  syncPermToCurr();
                 });
               },
             ),
@@ -3047,25 +3048,25 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> {
           ],
         ),
         const SizedBox(height: 16),
-        if (!_sameAsPerm) ...[
-          _buildTextField('Address Line 1', _currLine1Ctrl),
-          _buildTextField('Address Line 2 (Optional)', _currLine2Ctrl),
-          _buildTextField('Pincode (6 Digits)', _currPincodeCtrl, isNumber: true, maxLength: 6),
-          _buildAreaDropdown('Select Area / Post Office', _currArea, false, _isLoadingCurr),
-          _buildTextField('Taluk / Tehsil', _currTalukCtrl, readOnly: true),
-          _buildTextField('District', _currDistrictCtrl, readOnly: true),
-          _buildTextField('Division', _currDivisionCtrl, readOnly: true),
-          _buildTextField('Region / Circle', _currRegionCtrl, readOnly: true),
-          _buildTextField('State', _currStateCtrl, readOnly: true),
-          _buildTextField('Country', _currCountryCtrl, readOnly: true),
-          _buildTextField('Landmark (Optional)', _currLandmarkCtrl),
+        if (!sameAsPerm) ...[
+          _buildTextField('Address Line 1', currLine1Ctrl),
+          _buildTextField('Address Line 2 (Optional)', currLine2Ctrl),
+          _buildTextField('Pincode (6 Digits)', currPincodeCtrl, isNumber: true, maxLength: 6),
+          _buildAreaDropdown('Select Area / Post Office', currArea, false, isLoadingCurr),
+          _buildTextField('Taluk / Tehsil', currTalukCtrl, readOnly: true),
+          _buildTextField('District', currDistrictCtrl, readOnly: true),
+          _buildTextField('Division', currDivisionCtrl, readOnly: true),
+          _buildTextField('Region / Circle', currRegionCtrl, readOnly: true),
+          _buildTextField('State', currStateCtrl, readOnly: true),
+          _buildTextField('Country', currCountryCtrl, readOnly: true),
+          _buildTextField('Landmark (Optional)', currLandmarkCtrl),
         ],
 
         const SizedBox(height: 32),
         SizedBox(
           height: 56,
           child: ElevatedButton(
-            onPressed: _saveUserData,
+            onPressed: () => saveUserData(),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF2FA086),
               foregroundColor: Colors.white,

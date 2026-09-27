@@ -532,57 +532,6 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
 
   // ── UI helpers ───────────────────────────────────────────────────────────
 
-  Widget _sectionCard(
-      {required IconData icon,
-      required String title,
-      required String subtitle,
-      required List<Widget> children}) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
-      ),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: _brand.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, size: 18, color: _brand),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title,
-                        style: const TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.w900)),
-                    Text(subtitle,
-                        style: TextStyle(
-                            fontSize: 11.5,
-                            color: Colors.black.withValues(alpha: 0.5))),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          ...children,
-        ],
-      ),
-    );
-  }
-
   Widget _selectTile(String label, String value, VoidCallback onTap) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -669,233 +618,387 @@ class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
     );
   }
 
-  // ── Build ────────────────────────────────────────────────────────────────
+  // ── Build (one question at a time) ───────────────────────────────────────
+  //
+  // Question order and grouping mirror
+  // manavizha/components/profile-steps/partner-preferences-qa.tsx. Every
+  // preference defaults to "Any" and none are required, so every question is
+  // skippable (Next is never disabled). The mobile-only fields (mother
+  // tongue, employment type, annual income) are grouped into the nearest
+  // related question. Same load / save paths as before.
+
+  int _qIndex = 0;
+
+  List<({String title, String subtitle, List<Widget> children})> _questions() {
+    return [
+      (
+        title: 'What age range are you looking for?',
+        subtitle: 'Optional.',
+        children: [_rangeRow('Age range', _ageMinCtrl, _ageMaxCtrl)],
+      ),
+      (
+        title: 'What height range?',
+        subtitle: 'In centimeters. Optional.',
+        children: [_rangeRow('Height range (cm)', _heightMinCtrl, _heightMaxCtrl)],
+      ),
+      (
+        title: 'Preferred marital status?',
+        subtitle: 'Optional.',
+        children: [
+          _selectTile('Marital Status', _maritalStatus, () => _pickSingle(
+              title: 'Marital Status',
+              options: _maritalOptions,
+              current: _maritalStatus,
+              onPicked: (v) => setState(() => _maritalStatus = v))),
+        ],
+      ),
+      (
+        title: 'Preferred physical status?',
+        subtitle: 'Optional.',
+        children: [
+          _selectTile('Physical Status', _physicalStatus, () => _pickSingle(
+              title: 'Physical Status',
+              options: const ['Any', 'Normal', 'Physically Challenged'],
+              current: _physicalStatus,
+              onPicked: (v) => setState(() => _physicalStatus = v))),
+        ],
+      ),
+      (
+        title: 'Preferred languages?',
+        subtitle: 'Optional.',
+        children: [
+          _multiTile('Preferred Languages', _languages, () => _pickMulti(
+              title: 'Preferred Languages',
+              options: _motherTongues,
+              current: _languages,
+              onPicked: (v) => setState(() => _languages = v))),
+          _selectTile('Mother Tongue', _motherTongue, () => _pickSingle(
+              title: 'Mother Tongue',
+              options: _motherTongues,
+              current: _motherTongue,
+              onPicked: (v) => setState(() => _motherTongue = v))),
+        ],
+      ),
+      (
+        title: 'Preferred eating habits?',
+        subtitle: 'Optional.',
+        children: [
+          _selectTile('Eating Habits', _eatingHabits, () => _pickSingle(
+              title: 'Eating Habits',
+              options: _foodOptions,
+              current: _eatingHabits,
+              onPicked: (v) => setState(() => _eatingHabits = v))),
+        ],
+      ),
+      (
+        title: 'Preferred smoking & drinking habits?',
+        subtitle: 'Optional.',
+        children: [
+          _selectTile('Smoking Habit', _smokingHabits, () => _pickSingle(
+              title: 'Smoking Habit',
+              options: const ['Any', 'Never', 'Occasionally'],
+              current: _smokingHabits,
+              onPicked: (v) => setState(() => _smokingHabits = v))),
+          _selectTile('Drinking Habit', _drinkingHabits, () => _pickSingle(
+              title: 'Drinking Habit',
+              options: const ['Any', 'Never', 'Occasionally'],
+              current: _drinkingHabits,
+              onPicked: (v) => setState(() => _drinkingHabits = v))),
+        ],
+      ),
+      (
+        title: 'Preferred religion?',
+        subtitle: 'Optional.',
+        children: [
+          _selectTile('Religion', _religion, () => _pickSingle(
+              title: 'Religion',
+              options: _religionOptions,
+              current: _religion,
+              onPicked: (v) => setState(() => _religion = v))),
+        ],
+      ),
+      (
+        title: 'Preferred caste & subcaste?',
+        subtitle: 'Optional — you can also make caste compulsory for matches.',
+        children: [
+          _multiTile('Caste', _caste, () => _pickMulti(
+              title: 'Caste',
+              options: _casteOptions,
+              current: _caste,
+              onPicked: (v) => setState(() {
+                    _caste = v;
+                    _subcaste = ['Any'];
+                    if (v.isEmpty || v.contains('Any')) _casteCompulsory = false;
+                  }))),
+          _multiTile('Subcaste', _subcaste, () {
+            if (_caste.isEmpty) return;
+            _pickMulti(
+                title: 'Subcaste',
+                options: _filteredSubcastes,
+                current: _subcaste,
+                onPicked: (v) => setState(() => _subcaste = v));
+          }),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            activeThumbColor: _brand,
+            title: const Text('Caste is compulsory for matches',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+            subtitle: const Text(
+                'When enabled, only profiles matching your caste and subcaste preferences are shown.',
+                style: TextStyle(fontSize: 11.5)),
+            value: _casteCompulsory,
+            onChanged: _caste.isEmpty || _caste.contains('Any')
+                ? null
+                : (v) => setState(() => _casteCompulsory = v),
+          ),
+        ],
+      ),
+      (
+        title: 'Preferred star (Nakshatra)?',
+        subtitle: 'Optional.',
+        children: [
+          _multiTile('Star (Nakshatra)', _star, () => _pickMulti(
+              title: 'Star (Nakshatra)',
+              options: _stars,
+              current: _star,
+              onPicked: (v) => setState(() => _star = v))),
+        ],
+      ),
+      (
+        title: 'Preferred raasi / zodiac sign?',
+        subtitle: 'Optional.',
+        children: [
+          _multiTile('Raasi / Zodiac Sign', _raasiValue, () => _pickMulti(
+              title: 'Raasi / Zodiac Sign',
+              options: _raasi,
+              current: _raasiValue,
+              onPicked: (v) => setState(() => _raasiValue = v))),
+        ],
+      ),
+      (
+        title: 'Preference on dhosham?',
+        subtitle: 'Optional.',
+        children: [
+          _multiTile('Dosham', _dosham, () => _pickMulti(
+              title: 'Dosham',
+              options: const ['Any', 'No', 'Yes', "Doesn't Matter"],
+              current: _dosham,
+              onPicked: (v) => setState(() => _dosham = v))),
+        ],
+      ),
+      (
+        title: 'Preferred education level?',
+        subtitle: 'Optional.',
+        children: [
+          _multiTile('Preferred Education Level', _education, () => _pickMulti(
+              title: 'Preferred Education Level',
+              options: _educationLevelOptions,
+              current: _education,
+              onPicked: (v) => setState(() => _education = v))),
+        ],
+      ),
+      (
+        title: 'Preferred degree?',
+        subtitle: 'Optional.',
+        children: [
+          _multiTile('Preferred Degree / Qualification', _degrees, () => _pickMulti(
+              title: 'Preferred Degree',
+              options: _degreeOptions,
+              current: _degrees,
+              onPicked: (v) => setState(() => _degrees = v))),
+        ],
+      ),
+      (
+        title: 'Preferred specialization?',
+        subtitle: 'Optional.',
+        children: [
+          _multiTile('Preferred Specialization', _branchesSel, () => _pickMulti(
+              title: 'Preferred Specialization',
+              options: _branches,
+              current: _branchesSel,
+              onPicked: (v) => setState(() => _branchesSel = v))),
+        ],
+      ),
+      (
+        title: 'Preferred employment type?',
+        subtitle: 'Optional.',
+        children: [
+          _selectTile('Preferred Employment Type', _employmentType, () => _pickSingle(
+              title: 'Preferred Employment Type',
+              options: const ['Any', 'Private', 'Government/PSU', 'Business', 'Defence', 'Self Employed', 'Not Working'],
+              current: _employmentType,
+              onPicked: (v) => setState(() => _employmentType = v))),
+          _multiTile('Preferred Employed In', _employedIn, () => _pickMulti(
+              title: 'Preferred Employed In',
+              options: _employmentTypes,
+              current: _employedIn,
+              onPicked: (v) => setState(() => _employedIn = v))),
+        ],
+      ),
+      (
+        title: 'Preferred occupation?',
+        subtitle: 'Optional.',
+        children: [
+          _multiTile('Preferred Occupation', _occupation, () => _pickMulti(
+              title: 'Preferred Occupation',
+              options: _occupations,
+              current: _occupation,
+              onPicked: (v) => setState(() => _occupation = v))),
+        ],
+      ),
+      (
+        title: 'Minimum preferred annual income?',
+        subtitle: 'Optional.',
+        children: [
+          _multiTile('Preferred Annual Income (From)', _incomeMin, () => _pickMulti(
+              title: 'Preferred Annual Income (From)',
+              options: _incomeOptions,
+              current: _incomeMin,
+              onPicked: (v) => setState(() => _incomeMin = v))),
+          _selectTile('Preferred Annual Income', _annualIncome, () => _pickSingle(
+              title: 'Preferred Annual Income',
+              options: _incomeOptions,
+              current: _annualIncome,
+              onPicked: (v) => setState(() => _annualIncome = v))),
+        ],
+      ),
+      (
+        title: 'Preferred location?',
+        subtitle: 'Optional.',
+        children: [
+          _multiTile('Country', _country, () => _pickMulti(
+              title: 'Country',
+              options: _countries,
+              current: _country,
+              onPicked: (v) => setState(() => _country = v))),
+          _multiTile('State', _state, () => _pickMulti(
+              title: 'State',
+              options: _states,
+              current: _state,
+              onPicked: (v) => setState(() => _state = v))),
+          _multiTile('City', _city, () => _pickMulti(
+              title: 'City',
+              options: _cities,
+              current: _city,
+              onPicked: (v) => setState(() => _city = v))),
+        ],
+      ),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
-    final content = _loading
-        ? const Center(child: CircularProgressIndicator(color: _brand))
-        : ListView(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, widget.isEmbedded ? 120 : 32),
-            children: [
-              if (widget.isEmbedded) ...[
-                const SizedBox(height: 16),
-                const Text('Partner Preferences',
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-              ],
-              Padding(
-                  padding: const EdgeInsets.only(left: 4, bottom: 14),
-                  child: Text(
-                    'Set your criteria — we use this to find your best matches.',
+    Widget content;
+    if (_loading) {
+      content = const Center(child: CircularProgressIndicator(color: _brand));
+    } else {
+      final questions = _questions();
+      final safeIndex = _qIndex >= questions.length ? questions.length - 1 : _qIndex;
+      final q = questions[safeIndex];
+      final isLast = safeIndex == questions.length - 1;
+
+      content = Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Question ${safeIndex + 1} of ${questions.length}',
+                    style: const TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.bold, color: _brand)),
+                Text('Skippable',
                     style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.black.withValues(alpha: 0.55)),
+                        fontSize: 11, color: Colors.black.withValues(alpha: 0.4))),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: (safeIndex + 1) / questions.length,
+                minHeight: 6,
+                backgroundColor: Colors.black12,
+                valueColor: const AlwaysStoppedAnimation(_brand),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Expanded(
+              child: SingleChildScrollView(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  child: Column(
+                    key: ValueKey(safeIndex),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(q.title,
+                          style: const TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 6),
+                      Text(q.subtitle,
+                          style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                      const SizedBox(height: 20),
+                      ...q.children,
+                    ],
                   ),
                 ),
-                _sectionCard(
-                  icon: Icons.tune_rounded,
-                  title: 'Basic & lifestyle preferences',
-                  subtitle: 'Age, height, marital status, and lifestyle habits',
-                  children: [
-                    _rangeRow('Age range', _ageMinCtrl, _ageMaxCtrl),
-                    _rangeRow('Height range (cm)', _heightMinCtrl, _heightMaxCtrl),
-                    _selectTile('Marital Status', _maritalStatus, () =>
-                        _pickSingle(
-                            title: 'Marital Status',
-                            options: _maritalOptions,
-                            current: _maritalStatus,
-                            onPicked: (v) => setState(() => _maritalStatus = v))),
-                    _selectTile('Physical Status', _physicalStatus, () =>
-                        _pickSingle(
-                            title: 'Physical Status',
-                            options: const ['Any', 'Normal', 'Physically Challenged'],
-                            current: _physicalStatus,
-                            onPicked: (v) => setState(() => _physicalStatus = v))),
-                    _multiTile('Preferred Languages', _languages, () =>
-                        _pickMulti(
-                            title: 'Preferred Languages',
-                            options: _motherTongues,
-                            current: _languages,
-                            onPicked: (v) => setState(() => _languages = v))),
-                    _selectTile('Mother Tongue', _motherTongue, () =>
-                        _pickSingle(
-                            title: 'Mother Tongue',
-                            options: _motherTongues,
-                            current: _motherTongue,
-                            onPicked: (v) => setState(() => _motherTongue = v))),
-                    _selectTile('Eating Habits', _eatingHabits, () =>
-                        _pickSingle(
-                            title: 'Eating Habits',
-                            options: _foodOptions,
-                            current: _eatingHabits,
-                            onPicked: (v) => setState(() => _eatingHabits = v))),
-                    _selectTile('Smoking Habit', _smokingHabits, () =>
-                        _pickSingle(
-                            title: 'Smoking Habit',
-                            options: const ['Any', 'Never', 'Occasionally'],
-                            current: _smokingHabits,
-                            onPicked: (v) => setState(() => _smokingHabits = v))),
-                    _selectTile('Drinking Habit', _drinkingHabits, () =>
-                        _pickSingle(
-                            title: 'Drinking Habit',
-                            options: const ['Any', 'Never', 'Occasionally'],
-                            current: _drinkingHabits,
-                            onPicked: (v) => setState(() => _drinkingHabits = v))),
-                  ],
-                ),
-                _sectionCard(
-                  icon: Icons.nightlight_round,
-                  title: 'Religious & horoscope preferences',
-                  subtitle: 'Religion, caste, and astrological details',
-                  children: [
-                    _selectTile('Religion', _religion, () => _pickSingle(
-                        title: 'Religion',
-                        options: _religionOptions,
-                        current: _religion,
-                        onPicked: (v) => setState(() => _religion = v))),
-                    _multiTile('Caste', _caste, () => _pickMulti(
-                        title: 'Caste',
-                        options: _casteOptions,
-                        current: _caste,
-                        onPicked: (v) => setState(() {
-                              _caste = v;
-                              _subcaste = ['Any'];
-                              if (v.isEmpty || v.contains('Any')) _casteCompulsory = false;
-                            }))),
-                    _multiTile('Subcaste', _subcaste, () {
-                      if (_caste.isEmpty) return;
-                      _pickMulti(
-                          title: 'Subcaste',
-                          options: _filteredSubcastes,
-                          current: _subcaste,
-                          onPicked: (v) => setState(() => _subcaste = v));
-                    }),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      activeThumbColor: _brand,
-                      title: const Text('Caste is compulsory for matches',
-                          style: TextStyle(
-                              fontSize: 14, fontWeight: FontWeight.w700)),
-                      subtitle: const Text(
-                          'When enabled, only profiles matching your caste and subcaste preferences are shown.',
-                          style: TextStyle(fontSize: 11.5)),
-                      value: _casteCompulsory,
-                      onChanged: _caste.isEmpty || _caste.contains('Any')
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                if (safeIndex > 0)
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _saving
                           ? null
-                          : (v) => setState(() => _casteCompulsory = v),
+                          : () => setState(() => _qIndex = safeIndex - 1),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Back'),
                     ),
-                    const SizedBox(height: 4),
-                    _multiTile('Star (Nakshatra)', _star, () => _pickMulti(
-                        title: 'Star (Nakshatra)',
-                        options: _stars,
-                        current: _star,
-                        onPicked: (v) => setState(() => _star = v))),
-                    _multiTile('Raasi / Zodiac Sign', _raasiValue, () =>
-                        _pickMulti(
-                            title: 'Raasi / Zodiac Sign',
-                            options: _raasi,
-                            current: _raasiValue,
-                            onPicked: (v) => setState(() => _raasiValue = v))),
-                    _multiTile('Dosham', _dosham, () => _pickMulti(
-                        title: 'Dosham',
-                        options: const ['Any', 'No', 'Yes', "Doesn't Matter"],
-                        current: _dosham,
-                        onPicked: (v) => setState(() => _dosham = v))),
-                  ],
-                ),
-                _sectionCard(
-                  icon: Icons.work_outline_rounded,
-                  title: 'Professional & location',
-                  subtitle: 'Education, career, income, and location preferences',
-                  children: [
-                    _multiTile('Preferred Education Level', _education, () =>
-                        _pickMulti(
-                            title: 'Preferred Education Level',
-                            options: _educationLevelOptions,
-                            current: _education,
-                            onPicked: (v) => setState(() => _education = v))),
-                    _multiTile('Preferred Degree / Qualification', _degrees, () =>
-                        _pickMulti(
-                            title: 'Preferred Degree',
-                            options: _degreeOptions,
-                            current: _degrees,
-                            onPicked: (v) => setState(() => _degrees = v))),
-                    _multiTile('Preferred Specialization', _branchesSel, () =>
-                        _pickMulti(
-                            title: 'Preferred Specialization',
-                            options: _branches,
-                            current: _branchesSel,
-                            onPicked: (v) => setState(() => _branchesSel = v))),
-                    _selectTile('Preferred Employment Type', _employmentType, () =>
-                        _pickSingle(
-                            title: 'Preferred Employment Type',
-                            options: const ['Any', 'Private', 'Government/PSU', 'Business', 'Defence', 'Self Employed', 'Not Working'],
-                            current: _employmentType,
-                            onPicked: (v) => setState(() => _employmentType = v))),
-                    _multiTile('Preferred Employed In', _employedIn, () =>
-                        _pickMulti(
-                            title: 'Preferred Employed In',
-                            options: _employmentTypes,
-                            current: _employedIn,
-                            onPicked: (v) => setState(() => _employedIn = v))),
-                    _multiTile('Preferred Occupation', _occupation, () =>
-                        _pickMulti(
-                            title: 'Preferred Occupation',
-                            options: _occupations,
-                            current: _occupation,
-                            onPicked: (v) => setState(() => _occupation = v))),
-                    _multiTile('Preferred Annual Income (From)', _incomeMin,
-                        () => _pickMulti(
-                            title: 'Preferred Annual Income (From)',
-                            options: _incomeOptions,
-                            current: _incomeMin,
-                            onPicked: (v) => setState(() => _incomeMin = v))),
-                    _selectTile('Preferred Annual Income', _annualIncome, () =>
-                        _pickSingle(
-                            title: 'Preferred Annual Income',
-                            options: _incomeOptions,
-                            current: _annualIncome,
-                            onPicked: (v) => setState(() => _annualIncome = v))),
-                    _multiTile('Country', _country, () => _pickMulti(
-                        title: 'Country',
-                        options: _countries,
-                        current: _country,
-                        onPicked: (v) => setState(() => _country = v))),
-                    _multiTile('State', _state, () => _pickMulti(
-                        title: 'State',
-                        options: _states,
-                        current: _state,
-                        onPicked: (v) => setState(() => _state = v))),
-                    _multiTile('City', _city, () => _pickMulti(
-                        title: 'City',
-                        options: _cities,
-                        current: _city,
-                        onPicked: (v) => setState(() => _city = v))),
-                  ],
-                ),
-                SizedBox(
-                  height: 52,
-                  child: FilledButton.icon(
-                    onPressed: _saving ? null : _save,
-                    icon: const Icon(Icons.save_rounded),
-                    label: Text(_saving ? 'Saving…' : 'Save preferences'),
-                    style: FilledButton.styleFrom(
+                  ),
+                if (safeIndex > 0) const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: _saving
+                        ? null
+                        : isLast
+                            ? _save
+                            : () => setState(() => _qIndex = safeIndex + 1),
+                    style: ElevatedButton.styleFrom(
                       backgroundColor: _brand,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16)),
-                      textStyle: const TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.w800),
+                          borderRadius: BorderRadius.circular(12)),
                     ),
+                    child: _saving
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
+                          )
+                        : Text(isLast ? 'Save preferences' : 'Next'),
                   ),
                 ),
               ],
-            );
+            ),
+          ],
+        ),
+      );
+    }
 
     if (widget.isEmbedded) {
       return Scaffold(
         backgroundColor: const Color(0xFFF8F9FE),
-        body: content,
+        body: SafeArea(child: content),
       );
     }
 

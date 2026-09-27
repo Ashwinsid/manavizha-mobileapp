@@ -267,6 +267,7 @@ String snapshotProfessionType(Map<String, dynamic>? emp, Map<String, dynamic>? b
   }
   if (_rowHasAnyKey(bus, ['business_name', 'designation'])) return 'business';
   if (_rowHasAnyKey(stu, ['course', 'institution'])) return 'student';
+  if ((emp?['employment_type']?.toString().trim().toLowerCase() ?? '') == 'not working') return 'not_working';
   return 'none';
 }
 
@@ -284,6 +285,9 @@ int computeProfessionSectionPercentForType(
       return _professionBusinessCompletionPercent(bus);
     case 'student':
       return _professionStudentCompletionPercent(stu);
+    // Web treats "Not Working" as a complete professional section.
+    case 'not_working':
+      return 100;
     default:
       return 0;
   }
@@ -394,7 +398,7 @@ Future<UserProfileSnapshot> loadUserProfileSnapshot(SupabaseClient client, Strin
         .eq('user_id', userId),
     client
         .from('profession_employee')
-        .select('sector, sector_other, company, designation, salary, salary_range, work_location')
+        .select('employment_type, sector, sector_other, company, designation, salary, salary_range, work_location')
         .eq('user_id', userId)
         .maybeSingle(),
     client

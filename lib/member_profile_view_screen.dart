@@ -393,6 +393,8 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       Map<String, dynamic>? viewerPersonal;
       Map<String, dynamic>? viewerHoro;
       List<Map<String, dynamic>> viewerEducation = [];
+      Map<String, dynamic>? viewerContact;
+      DateTime? lastActiveAt;
 
       final viewerId = c.auth.currentUser?.id;
       var viewerPremium = false;
@@ -416,107 +418,124 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         }
       }
 
-      await runOptional('contact_details', () async {
-        final r = await c.from('contact_details').select().eq('user_id', uid).maybeSingle();
-        contact = _asStringKeyedMap(r);
-      });
-      await runOptional('photos', () async {
-        final r = await c.from('photos').select('user_photos').eq('user_id', uid).maybeSingle();
-        photosRow = _asStringKeyedMap(r);
-      });
-      await runOptional('education_details', () async {
-        final r = await c.from('education_details').select().eq('user_id', uid);
-        eduRes = _asDynamicList(r);
-      });
-      await runOptional('profession_employee', () async {
-        final r = await c.from('profession_employee').select().eq('user_id', uid).maybeSingle();
-        emp = _asStringKeyedMap(r);
-      });
-      await runOptional('profession_business', () async {
-        final r = await c.from('profession_business').select().eq('user_id', uid).maybeSingle();
-        bus = _asStringKeyedMap(r);
-      });
-      await runOptional('profession_student', () async {
-        final r = await c.from('profession_student').select().eq('user_id', uid).maybeSingle();
-        stu = _asStringKeyedMap(r);
-      });
-      await runOptional('family_details', () async {
-        final r = await c.from('family_details').select().eq('user_id', uid).maybeSingle();
-        fam = _asStringKeyedMap(r);
-      });
-      await runOptional('horoscope_details', () async {
-        final r = await c.from('horoscope_details').select().eq('user_id', uid).maybeSingle();
-        horo = _asStringKeyedMap(r);
-      });
-      await runOptional('interests', () async {
-        final r = await c.from('interests').select().eq('user_id', uid).maybeSingle();
-        intRow = _asStringKeyedMap(r);
-      });
-      await runOptional('social_habits', () async {
-        final r = await c.from('social_habits').select('smoking, drinking, parties, pubs').eq('user_id', uid).maybeSingle();
-        soc = _asStringKeyedMap(r);
-      });
-      await runOptional('partner_preferences', () async {
-        final r = await c.from('partner_preferences').select().eq('user_id', uid).maybeSingle();
-        partnerPrefs = _asStringKeyedMap(r);
-      });
-      await runOptional('target_user_settings', () async {
-        final r = await c.from('user_settings').select('is_premium, premium_plan, premium_expires_at').eq('user_id', uid).maybeSingle();
-        final m = _asStringKeyedMap(r);
-        if (m != null) {
-          targetPremium = isPremiumActive(m);
-          targetPlan = m['premium_plan']?.toString();
-        }
-      });
-      if (viewerId != null && viewerId != uid) {
-        await runOptional('viewer_premium', () async {
-          final r = await c.from('user_settings').select('is_premium, premium_expires_at').eq('user_id', viewerId).maybeSingle();
+      await Future.wait([
+        runOptional('contact_details', () async {
+          final r = await c.from('contact_details').select().eq('user_id', uid).maybeSingle();
+          contact = _asStringKeyedMap(r);
+        }),
+        runOptional('photos', () async {
+          final r = await c.from('photos').select('user_photos').eq('user_id', uid).maybeSingle();
+          photosRow = _asStringKeyedMap(r);
+        }),
+        runOptional('education_details', () async {
+          final r = await c.from('education_details').select().eq('user_id', uid);
+          eduRes = _asDynamicList(r);
+        }),
+        runOptional('profession_employee', () async {
+          final r = await c.from('profession_employee').select().eq('user_id', uid).maybeSingle();
+          emp = _asStringKeyedMap(r);
+        }),
+        runOptional('profession_business', () async {
+          final r = await c.from('profession_business').select().eq('user_id', uid).maybeSingle();
+          bus = _asStringKeyedMap(r);
+        }),
+        runOptional('profession_student', () async {
+          final r = await c.from('profession_student').select().eq('user_id', uid).maybeSingle();
+          stu = _asStringKeyedMap(r);
+        }),
+        runOptional('family_details', () async {
+          final r = await c.from('family_details').select().eq('user_id', uid).maybeSingle();
+          fam = _asStringKeyedMap(r);
+        }),
+        runOptional('horoscope_details', () async {
+          final r = await c.from('horoscope_details').select().eq('user_id', uid).maybeSingle();
+          horo = _asStringKeyedMap(r);
+        }),
+        runOptional('interests', () async {
+          final r = await c.from('interests').select().eq('user_id', uid).maybeSingle();
+          intRow = _asStringKeyedMap(r);
+        }),
+        runOptional('social_habits', () async {
+          final r = await c.from('social_habits').select('smoking, drinking, parties, pubs').eq('user_id', uid).maybeSingle();
+          soc = _asStringKeyedMap(r);
+        }),
+        runOptional('partner_preferences', () async {
+          final r = await c.from('partner_preferences').select().eq('user_id', uid).maybeSingle();
+          partnerPrefs = _asStringKeyedMap(r);
+        }),
+        runOptional('target_user_settings', () async {
+          final r = await c.from('user_settings').select('is_premium, premium_plan, premium_expires_at').eq('user_id', uid).maybeSingle();
           final m = _asStringKeyedMap(r);
-          if (m != null) viewerPremium = isPremiumActive(m);
-        });
-        await runOptional('likes', () async {
-          final myLikeRow = await c.from('likes').select('status, created_at').eq('user_id', viewerId).eq('liked_user_id', uid).maybeSingle();
-          final theirLikeRow = await c.from('likes').select('status, created_at').eq('user_id', uid).eq('liked_user_id', viewerId).maybeSingle();
-          isLiked = myLikeRow != null;
-          iLikedStatus = myLikeRow != null ? myLikeRow['status']?.toString() : null;
-          if (myLikeRow != null && myLikeRow['created_at'] != null) {
-            iLikedDate = DateTime.tryParse(myLikeRow['created_at'].toString())?.toLocal();
+          if (m != null) {
+            targetPremium = isPremiumActive(m);
+            targetPlan = m['premium_plan']?.toString();
           }
-          likedMeStatus = theirLikeRow != null ? theirLikeRow['status']?.toString() : null;
-          isMutual = myLikeRow != null && theirLikeRow != null;
-        });
-        await runOptional('shortlist', () async {
-          final r = await c
-              .from('shortlists')
-              .select('user_id, created_at')
-              .eq('user_id', viewerId)
-              .eq('shortlisted_user_id', uid)
-              .maybeSingle();
-          isShortlisted = r != null;
-          if (r != null && r['created_at'] != null) {
-            shortlistedDate = DateTime.tryParse(r['created_at'].toString())?.toLocal();
-          }
-        });
-        if (partnerPrefs != null) {
-          await runOptional('viewer_personal', () async {
+        }),
+        runOptional('users.last_active_at', () async {
+          final r = await c.from('users').select('last_active_at').eq('id', uid).maybeSingle();
+          final m = _asStringKeyedMap(r);
+          lastActiveAt = parseLastActive(m?['last_active_at']);
+        }),
+        if (viewerId != null && viewerId != uid) ...[
+          runOptional('viewer_premium', () async {
+            final r = await c.from('user_settings').select('is_premium, premium_expires_at').eq('user_id', viewerId).maybeSingle();
+            final m = _asStringKeyedMap(r);
+            if (m != null) viewerPremium = isPremiumActive(m);
+          }),
+          runOptional('likes', () async {
+            final res = await Future.wait([
+              c.from('likes').select('status, created_at').eq('user_id', viewerId).eq('liked_user_id', uid).maybeSingle(),
+              c.from('likes').select('status, created_at').eq('user_id', uid).eq('liked_user_id', viewerId).maybeSingle(),
+            ]);
+            final myLikeRow = res[0];
+            final theirLikeRow = res[1];
+            isLiked = myLikeRow != null;
+            iLikedStatus = myLikeRow != null ? myLikeRow['status']?.toString() : null;
+            if (myLikeRow != null && myLikeRow['created_at'] != null) {
+              iLikedDate = DateTime.tryParse(myLikeRow['created_at'].toString())?.toLocal();
+            }
+            likedMeStatus = theirLikeRow != null ? theirLikeRow['status']?.toString() : null;
+            isMutual = myLikeRow != null && theirLikeRow != null;
+          }),
+          runOptional('shortlist', () async {
+            final r = await c
+                .from('shortlists')
+                .select('user_id, created_at')
+                .eq('user_id', viewerId)
+                .eq('shortlisted_user_id', uid)
+                .maybeSingle();
+            isShortlisted = r != null;
+            if (r != null && r['created_at'] != null) {
+              shortlistedDate = DateTime.tryParse(r['created_at'].toString())?.toLocal();
+            }
+          }),
+          runOptional('viewer_personal', () async {
             final r = await c.from('personal_details').select().eq('user_id', viewerId).maybeSingle();
             viewerPersonal = _asStringKeyedMap(r);
-          });
-          Map<String, dynamic>? viewerContact;
-          await runOptional('viewer_contact', () async {
+          }),
+          runOptional('viewer_contact', () async {
             final r = await c
                 .from('contact_details')
                 .select('current_district, current_state')
                 .eq('user_id', viewerId)
                 .maybeSingle();
             viewerContact = _asStringKeyedMap(r);
-          });
-          await runOptional('viewer_education', () async {
+          }),
+          runOptional('viewer_education', () async {
             final r = await c.from('education_details').select().eq('user_id', viewerId);
             viewerEducation = (r as List<dynamic>)
                 .map((e) => Map<String, dynamic>.from(e as Map))
                 .toList();
-          });
+          }),
+          runOptional('viewer_horoscope', () async {
+            final r = await c.from('horoscope_details').select('star, zodiac_sign').eq('user_id', viewerId).maybeSingle();
+            viewerHoro = _asStringKeyedMap(r);
+          }),
+        ],
+      ]);
+
+      if (viewerId != null && viewerId != uid) {
+        if (partnerPrefs != null) {
           final vMerged = <String, dynamic>{
             if (viewerPersonal != null) ...viewerPersonal!,
             if (viewerContact != null) ...viewerContact!,
@@ -529,13 +548,8 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
           prefMatchCount = bundle.matches;
           prefRowMatches = bundle.rows;
         }
-
-        await runOptional('viewer_horoscope', () async {
-          final r = await c.from('horoscope_details').select('star, zodiac_sign').eq('user_id', viewerId!).maybeSingle();
-          viewerHoro = _asStringKeyedMap(r);
-        });
       }
-      
+
       int? porutham;
       if (viewerHoro != null && viewerHoro!['star'] != null && horo != null && horo!['star'] != null) {
         final isFemale = (pdMap['sex']?.toString().toLowerCase() == 'female') || (pdMap['gender']?.toString().toLowerCase() == 'female');
@@ -547,21 +561,14 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         );
         porutham = scoreRes.score;
       }
-      
-      DateTime? lastActiveAt;
-      // `users` table is RLS-restricted on some deployments — failures here
-      // simply hide the activity label rather than break the whole profile.
-      await runOptional('users.last_active_at', () async {
-        final r = await c.from('users').select('last_active_at').eq('id', uid).maybeSingle();
-        final m = _asStringKeyedMap(r);
-        lastActiveAt = parseLastActive(m?['last_active_at']);
-      });
 
       final urls = <String>[];
       final photos = photosRow;
       final rawList = photos != null ? parseUserPhotosList(photos['user_photos']) : <dynamic>[];
-      for (final raw in rawList) {
-        final u = await signUserProfilePhoto(c, uid, raw.toString());
+      final signedUrls = await Future.wait(
+        rawList.map((raw) => signUserProfilePhoto(c, uid, raw.toString()))
+      );
+      for (final u in signedUrls) {
         if (u != null && u.isNotEmpty) urls.add(u);
       }
 
@@ -579,8 +586,12 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       String? photoRequestStatus;
       var incomingPhotoRequest = false;
       if (viewerId != null && viewerId != uid && urls.isNotEmpty) {
-        final pa = await WebApi.get('/api/photo-access',
-            query: {'targetUserId': uid});
+        final apiResults = await Future.wait([
+          WebApi.get('/api/photo-access', query: {'targetUserId': uid}),
+          WebApi.get('/api/photo-requests'),
+        ]);
+
+        final pa = apiResults[0];
         if (pa.ok) {
           canViewPhotos = pa.data['canView'] != false;
           photoPasswordProtected = pa.data['passwordProtected'] == true;
@@ -588,9 +599,8 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         } else {
           canViewPhotos = false;
         }
-        // Owner side: does this member have a pending request to see *my*
-        // photos? Drives the Approve / Decline banner.
-        final reqs = await WebApi.get('/api/photo-requests');
+
+        final reqs = apiResults[1];
         if (reqs.ok) {
           final list = reqs.data['requests'];
           incomingPhotoRequest = list is List &&
@@ -1212,7 +1222,10 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
 
   Widget _visitorBottomBar(BuildContext context) {
     final declined = _iLikedStatus == 'declined' || _likedMeStatus == 'declined';
-    final primaryLabel = (_isLiked || _iLikedStatus == 'accepted' || _isMutual) ? 'Message' : 'Interest';
+    final canAccept = _likedMeStatus == 'pending' && !_isLiked && !_isMutual;
+    final primaryLabel = (_isLiked || _iLikedStatus == 'accepted' || _isMutual) 
+        ? 'Message' 
+        : (canAccept ? 'Accept Interest' : 'Send Interest');
     final media = MediaQuery.paddingOf(context).bottom;
     return Material(
       elevation: 12,

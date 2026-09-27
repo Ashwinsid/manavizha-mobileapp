@@ -193,33 +193,53 @@ Future<UserMatchSets> loadUserMatchSections(
   }
 
   final ids = filtered.map((p) => p['user_id'].toString()).toList();
-  final photosRes = await client.from('photos').select('user_id, user_photos').inFilter('user_id', ids);
-  final contactRes = await client.from('contact_details').select('user_id, current_country, current_state, current_district').inFilter('user_id', ids);
-  final settingsRes = await client.from('user_settings').select('user_id, is_premium').inFilter('user_id', ids);
-  final eduRes = await client.from('education_details').select('user_id, education, degree, branch').inFilter('user_id', ids);
-  final empRes = await client.from('profession_employee').select('user_id, designation, company, employment_type, salary').inFilter('user_id', ids);
-  final busRes = await client.from('profession_business').select('user_id, designation, business_name, business_type, annual_returns').inFilter('user_id', ids);
-  final stuRes = await client.from('profession_student').select('user_id, course, institution').inFilter('user_id', ids);
-  final interestsRes = await client.from('interests').select('user_id, interests').inFilter('user_id', ids);
-  // Tolerant fetch: `users` may be RLS-restricted on some deployments. If the
-  // request fails we just leave [lastActiveAt] empty and fall back to the
-  // existing card UI without an online dot.
-  List<dynamic>? activityRes;
-  try {
-    activityRes = await client.from('users').select('id, last_active_at').inFilter('id', ids) as List<dynamic>?;
-  } catch (_) {
-    activityRes = null;
-  }
-  // Tolerant family fetch — caste/subcaste for the manual Browse filters.
-  List<dynamic>? familyRes;
-  try {
-    familyRes = await client
-        .from('family_details')
-        .select('user_id, caste, subcaste')
-        .inFilter('user_id', ids) as List<dynamic>?;
-  } catch (_) {
-    familyRes = null;
-  }
+  late final List<dynamic> photosRes, contactRes, settingsRes, eduRes, empRes, busRes, stuRes, interestsRes;
+  List<dynamic>? activityRes, familyRes, horoscopeRes;
+
+  final res = await Future.wait([
+    client.from('photos').select('user_id, user_photos').inFilter('user_id', ids),
+    client.from('contact_details').select('user_id, current_country, current_state, current_district').inFilter('user_id', ids),
+    client.from('user_settings').select('user_id, is_premium').inFilter('user_id', ids),
+    client.from('education_details').select('user_id, education, degree, branch').inFilter('user_id', ids),
+    client.from('profession_employee').select('user_id, designation, company, employment_type, salary').inFilter('user_id', ids),
+    client.from('profession_business').select('user_id, designation, business_name, business_type, annual_returns').inFilter('user_id', ids),
+    client.from('profession_student').select('user_id, course, institution').inFilter('user_id', ids),
+    client.from('interests').select('user_id, interests').inFilter('user_id', ids),
+    Future(() async {
+      try {
+        return await client.from('users').select('id, last_active_at').inFilter('id', ids) as List<dynamic>?;
+      } catch (_) {
+        return null;
+      }
+    }),
+    Future(() async {
+      try {
+        return await client.from('family_details').select('user_id, caste, subcaste').inFilter('user_id', ids) as List<dynamic>?;
+      } catch (_) {
+        return null;
+      }
+    }),
+    Future(() async {
+      try {
+        return await client.from('horoscope_details').select('user_id, star, zodiac_sign, dhosham').inFilter('user_id', ids) as List<dynamic>?;
+      } catch (_) {
+        return null;
+      }
+    }),
+  ]);
+
+  photosRes = res[0] as List<dynamic>;
+  contactRes = res[1] as List<dynamic>;
+  settingsRes = res[2] as List<dynamic>;
+  eduRes = res[3] as List<dynamic>;
+  empRes = res[4] as List<dynamic>;
+  busRes = res[5] as List<dynamic>;
+  stuRes = res[6] as List<dynamic>;
+  interestsRes = res[7] as List<dynamic>;
+  activityRes = res[8] as List<dynamic>?;
+  familyRes = res[9] as List<dynamic>?;
+  horoscopeRes = res[10] as List<dynamic>?;
+
   final familyRows = (familyRes ?? const []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final Map<String, Map<String, dynamic>> familyByUser = {
     for (final r in familyRows)
@@ -227,15 +247,6 @@ Future<UserMatchSets> loadUserMatchSections(
   };
 
   // Tolerant horoscope fetch — drives the Browse Star / Horoscope filters.
-  List<dynamic>? horoscopeRes;
-  try {
-    horoscopeRes = await client
-        .from('horoscope_details')
-        .select('user_id, star, zodiac_sign, dhosham')
-        .inFilter('user_id', ids) as List<dynamic>?;
-  } catch (_) {
-    horoscopeRes = null;
-  }
   final horoscopeRows = (horoscopeRes ?? const []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final Map<String, Map<String, dynamic>> horoscopeByUser = {
     for (final r in horoscopeRows)
@@ -528,16 +539,31 @@ Future<List<MatchPreview>> loadMatchPreviewsByIds(
       personalRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   if (personalRows.isEmpty) return const [];
 
-  final photoRes = await safeIn('photos', 'user_id, user_photos', 'user_id');
-  final contactRes = await safeIn('contact_details', 'user_id, current_district, current_state', 'user_id');
-  final settingsRes = await safeIn('user_settings', 'user_id, is_premium', 'user_id');
-  final eduRes = await safeIn('education_details', 'user_id, education', 'user_id');
-  final empRes = await safeIn('profession_employee', 'user_id, designation, company', 'user_id');
-  final busRes = await safeIn('profession_business', 'user_id, designation, business_name', 'user_id');
-  final stuRes = await safeIn('profession_student', 'user_id, course, institution', 'user_id');
-  final interestsRes = await safeIn('interests', 'user_id, interests', 'user_id');
-  final activityRes = await safeIn('users', 'id, last_active_at', 'id');
-  final horoRes = await safeIn('horoscope_details', 'user_id, star, zodiac_sign', 'user_id');
+  late final List<dynamic> photoRes, contactRes, settingsRes, eduRes, empRes, busRes, stuRes, interestsRes, activityRes, horoRes;
+
+  final res = await Future.wait([
+    safeIn('photos', 'user_id, user_photos', 'user_id'),
+    safeIn('contact_details', 'user_id, current_district, current_state', 'user_id'),
+    safeIn('user_settings', 'user_id, is_premium', 'user_id'),
+    safeIn('education_details', 'user_id, education', 'user_id'),
+    safeIn('profession_employee', 'user_id, designation, company', 'user_id'),
+    safeIn('profession_business', 'user_id, designation, business_name', 'user_id'),
+    safeIn('profession_student', 'user_id, course, institution', 'user_id'),
+    safeIn('interests', 'user_id, interests', 'user_id'),
+    safeIn('users', 'id, last_active_at', 'id'),
+    safeIn('horoscope_details', 'user_id, star, zodiac_sign', 'user_id'),
+  ]);
+
+  photoRes = res[0];
+  contactRes = res[1];
+  settingsRes = res[2];
+  eduRes = res[3];
+  empRes = res[4];
+  busRes = res[5];
+  stuRes = res[6];
+  interestsRes = res[7];
+  activityRes = res[8];
+  horoRes = res[9];
 
   final photoRows = photoRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final contactRows = contactRes.map((e) => Map<String, dynamic>.from(e as Map)).toList();

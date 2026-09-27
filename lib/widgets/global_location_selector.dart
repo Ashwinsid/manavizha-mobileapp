@@ -40,7 +40,7 @@ class _GlobalLocationSelectorState extends State<GlobalLocationSelector> {
   @override
   void initState() {
     super.initState();
-    _selectedCountry = widget.initialCountry ?? '';
+    _selectedCountry = widget.initialCountry ?? 'India';
     _selectedState = widget.initialState ?? '';
     _selectedCity = widget.initialCity ?? '';
     _fetchCountries();
