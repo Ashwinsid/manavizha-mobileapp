@@ -18,12 +18,15 @@ class WebApiResult {
     required this.ok,
     required this.status,
     this.data = const {},
+    this.raw,
     this.error,
   });
 
   final bool ok;
   final int status;
   final Map<String, dynamic> data;
+  /// Decoded JSON body as-is (for endpoints that return a top-level array).
+  final dynamic raw;
   final String? error;
 }
 
@@ -53,13 +56,13 @@ class WebApi {
   }
 
   static Future<WebApiResult> get(String path,
-      {Map<String, String>? query}) async {
+      {Map<String, String>? query, Duration timeout = _timeout}) async {
     return _send(() {
       var uri = Uri.parse('$_base$path');
       if (query != null && query.isNotEmpty) {
         uri = uri.replace(queryParameters: {...uri.queryParameters, ...query});
       }
-      return http.get(uri, headers: _headers()).timeout(_timeout);
+      return http.get(uri, headers: _headers()).timeout(timeout);
     });
   }
 
@@ -96,10 +99,11 @@ class WebApi {
     try {
       final res = await request();
       Map<String, dynamic> data = const {};
+      dynamic raw;
       if (res.body.isNotEmpty) {
         try {
-          final decoded = jsonDecode(res.body);
-          if (decoded is Map<String, dynamic>) data = decoded;
+          raw = jsonDecode(res.body);
+          if (raw is Map<String, dynamic>) data = raw;
         } catch (_) {}
       }
       final ok = res.statusCode >= 200 && res.statusCode < 300;
@@ -107,6 +111,7 @@ class WebApi {
         ok: ok,
         status: res.statusCode,
         data: data,
+        raw: raw,
         error: ok ? null : (data['error']?.toString() ?? 'Request failed (${res.statusCode})'),
       );
     } catch (e) {

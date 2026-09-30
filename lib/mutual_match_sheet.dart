@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'admin_home_screen.dart';
+import 'public_views.dart';
 import 'web_api.dart';
 import 'siblings_formatter.dart';
 
@@ -82,7 +83,9 @@ Future<_MutualExtras> _loadMutualExtras(
 ) async {
   Future<Map<String, dynamic>?> single(String table) async {
     try {
-      final r = await client.from(table).select().eq('user_id', userId).maybeSingle();
+      final r = PublicViews.all.contains(table)
+          ? await PublicViews.from(client, table).eq('user_id', userId).maybeSingle()
+          : await client.from(table).select().eq('user_id', userId).maybeSingle();
       if (r == null) return null;
       return Map<String, dynamic>.from(r);
     } catch (_) {
@@ -105,18 +108,26 @@ Future<_MutualExtras> _loadMutualExtras(
   // the per-plan unlock limit, logs the view and notifies the profile owner.
   // Only fetch the contact row once the server approves.
   final unlock = WebApi.post('/api/contact-view', {'viewedUserId': userId});
+  await PublicViews.ensure(client, [PublicViews.familyDetails]);
 
   final results = await Future.wait<dynamic>([
     many('education_details'),
     single('profession_employee'),
     single('profession_business'),
     single('profession_student'),
-    single('family_details'),
+    single(PublicViews.familyDetails),
   ]);
 
   final unlockRes = await unlock;
   final allowed = unlockRes.ok && unlockRes.data['allowed'] == true;
-  final contact = allowed ? await single('contact_details') : null;
+  // Newer servers return the released contact in the response (contact_details
+  // is no longer readable by other members); older ones only return `allowed`.
+  final apiContact = unlockRes.data['contact'];
+  final contact = !allowed
+      ? null
+      : apiContact is Map
+          ? Map<String, dynamic>.from(apiContact)
+          : await single('contact_details');
 
   // Parse remaining / limit from the API response
   // JSON numbers may arrive as int or double — use num to safely convert.

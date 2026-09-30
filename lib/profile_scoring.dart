@@ -1,6 +1,8 @@
 import 'astrology.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'public_views.dart';
+
 /// Dart ports of the two scoring functions in `manavizha/lib`:
 /// - `lib/matching.ts`            → [calculateLifestyleScore]
 /// - `lib/astrology.ts`           → [checkTamilPorutham]
@@ -341,22 +343,25 @@ PoruthamResult checkTamilPorutham({
 /// Loads enough fields to compute lifestyle score + porutham for [userId].
 /// Returns nulls when the row is missing or RLS-restricted.
 Future<CompatibilityProfile> loadCompatibilityProfile(SupabaseClient client, String userId) async {
+  await PublicViews.ensure(client);
   Future<Map<String, dynamic>?> safeOne(String table, {String column = 'user_id'}) async {
     try {
-      final r = await client.from(table).select().eq(column, userId).maybeSingle();
+      final r = PublicViews.all.contains(table)
+          ? await PublicViews.from(client, table).eq(column, userId).maybeSingle()
+          : await client.from(table).select().eq(column, userId).maybeSingle();
       return r == null ? null : Map<String, dynamic>.from(r as Map);
     } catch (_) {
       return null;
     }
   }
 
-  final personal = await safeOne('personal_details');
-  final contact = await safeOne('contact_details');
+  final personal = await safeOne(PublicViews.personalDetails);
+  final contact = await safeOne(PublicViews.contactLocations);
   final interests = await safeOne('interests');
   final social = await safeOne('social_habits');
   final emp = await safeOne('profession_employee');
   final bus = await safeOne('profession_business');
-  final horo = await safeOne('horoscope_details');
+  final horo = await safeOne(PublicViews.horoscopeDetails);
 
   List<String> stringList(dynamic v) {
     if (v == null) return const [];

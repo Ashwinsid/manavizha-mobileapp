@@ -5,6 +5,8 @@ import 'member_profile_view_screen.dart';
 import 'message_dialog.dart';
 import 'mutual_match_sheet.dart';
 import 'profile_social_actions.dart';
+import 'premium_utils.dart';
+import 'public_views.dart';
 import 'web_api.dart';
 
 /// One row in the header notifications popover — mirrors the web dashboard
@@ -188,7 +190,8 @@ Future<List<DashboardShellMessageNotification>> fetchUnreadMessageNotifications(
   Map<String, String> names = {};
   try {
     final ids = grouped.keys.toList();
-    final pd = await client.from('personal_details').select('user_id, name').inFilter('user_id', ids);
+    await PublicViews.ensure(client, [PublicViews.personalDetails]);
+    final pd = await PublicViews.from(client, PublicViews.personalDetails, 'user_id, name').inFilter('user_id', ids);
     for (final raw in (pd as List<dynamic>? ?? const [])) {
       final m = Map<String, dynamic>.from(raw as Map);
       final id = m['user_id']?.toString();
@@ -297,9 +300,12 @@ Future<({
 
   try {
     final idList = ids.toList();
+    await PublicViews.ensure(client, [PublicViews.personalDetails, PublicViews.contactLocations]);
     final batch = await Future.wait<dynamic>([
-      client.from('personal_details').select('user_id, name, age').inFilter('user_id', idList).neq('is_hidden', true),
-      client.from('contact_details').select('user_id, current_district').inFilter('user_id', idList),
+      PublicViews.from(client, PublicViews.personalDetails, 'user_id, name, age')
+          .inFilter('user_id', idList)
+          .neq('is_hidden', true),
+      PublicViews.from(client, PublicViews.contactLocations, 'user_id, current_district').inFilter('user_id', idList),
       client.from('profession_employee').select('user_id, designation, company').inFilter('user_id', idList),
     ]);
     List<Map<String, dynamic>> maps(dynamic v) =>
@@ -560,9 +566,8 @@ Future<({String userId, String name, int? age})?> resolveUserById(
   final id = idLike.trim();
   if (id.isEmpty) return null;
   try {
-    final r = await client
-        .from('personal_details')
-        .select('user_id, name, age')
+    await PublicViews.ensure(client, [PublicViews.personalDetails]);
+    final r = await PublicViews.from(client, PublicViews.personalDetails, 'user_id, name, age')
         .eq('user_id', id)
         .maybeSingle();
     if (r == null) return null;
@@ -624,18 +629,17 @@ class _MemberProfileFullscreenWrapperState
     try {
       final row = await client
           .from('user_settings')
-          .select('is_premium')
+          .select('is_premium, premium_expires_at')
           .eq('user_id', uid)
           .maybeSingle();
       if (!mounted) return;
       setState(() {
-        _isCurrentUserPremium = row != null && row['is_premium'] == true;
+        _isCurrentUserPremium = isPremiumActive(row);
       });
     } catch (_) {/* RLS-tolerant — default to non-premium. */}
     try {
-      final row = await client
-          .from('users')
-          .select('name')
+      await PublicViews.ensure(client, [PublicViews.users]);
+      final row = await PublicViews.from(client, PublicViews.users, 'name')
           .eq('id', widget.targetUserId)
           .maybeSingle();
       final name = (row?['name'] ?? '').toString().trim();

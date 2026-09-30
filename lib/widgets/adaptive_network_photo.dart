@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 /// Shows the **entire** image (no cropping) inside a fixed rectangle.
@@ -35,6 +36,12 @@ class AdaptiveNetworkPhoto extends StatelessWidget {
       return child;
     }
 
+    // Signed URLs change per session; key the disk cache on the stable path.
+    final provider = CachedNetworkImageProvider(
+      imageUrl,
+      cacheKey: imageUrl.split('?').first,
+    );
+
     return Stack(
       fit: StackFit.expand,
       clipBehavior: Clip.hardEdge,
@@ -43,8 +50,9 @@ class AdaptiveNetworkPhoto extends StatelessWidget {
           imageFilter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
           child: Transform.scale(
             scale: backgroundScale,
-            child: Image.network(
-              imageUrl,
+            // The backdrop is blurred, so a tiny decode is plenty.
+            child: Image(
+              image: ResizeImage(provider, width: 120),
               fit: BoxFit.cover,
               width: double.infinity,
               height: double.infinity,
@@ -53,8 +61,8 @@ class AdaptiveNetworkPhoto extends StatelessWidget {
             ),
           ),
         ),
-        Image.network(
-          imageUrl,
+        Image(
+          image: provider,
           fit: BoxFit.contain,
           width: double.infinity,
           height: double.infinity,

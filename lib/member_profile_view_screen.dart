@@ -12,6 +12,7 @@ import 'user_profile_completion.dart';
 import 'web_api.dart';
 import 'widgets/adaptive_network_photo.dart';
 import 'premium_utils.dart';
+import 'public_views.dart';
 import 'astrology.dart';
 import 'profile_scoring.dart';
 import 'compatibility_sheet.dart';
@@ -24,6 +25,18 @@ String _formatDobDisplay(dynamic v) {
     return t.isEmpty ? '—' : t;
   }
   return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+}
+
+String? _contactAddressFrom(Map<String, dynamic>? c) {
+  if (c == null) return null;
+  final parts = <String>[
+    c['current_address_line1']?.toString().trim() ?? '',
+    c['current_address_line2']?.toString().trim() ?? '',
+    c['current_area']?.toString().trim() ?? '',
+    c['current_district']?.toString().trim() ?? '',
+    c['current_state']?.toString().trim() ?? '',
+  ].where((s) => s.isNotEmpty).toList();
+  return parts.isEmpty ? null : parts.join(', ');
 }
 
 String? _heightCmAndImperial(dynamic heightCm) {
@@ -215,6 +228,43 @@ int? _coerceInt(dynamic v) {
 /// (`ParentHomeScreen`) so a parent viewer cannot accidentally like or
 /// message profiles as themselves — the web mirrors this by gating those
 /// actions on `parentViewer?.isParent` in `components/browse-profiles.tsx`.
+/// Short-lived per-viewer cache so opening many profiles doesn't re-fetch the
+/// viewer's own details every time.
+Map<String, dynamic>? _firstPremiumRow(dynamic body) {
+  if (body is List && body.isNotEmpty && body.first is Map) {
+    return Map<String, dynamic>.from(body.first as Map);
+  }
+  return null;
+}
+
+class _ViewerCache {
+  _ViewerCache({
+    required this.premium,
+    required this.personal,
+    required this.contact,
+    required this.education,
+    required this.horo,
+  }) : at = DateTime.now();
+
+  final bool premium;
+  final Map<String, dynamic>? personal;
+  final Map<String, dynamic>? contact;
+  final List<Map<String, dynamic>> education;
+  final Map<String, dynamic>? horo;
+  final DateTime at;
+
+  static final Map<String, _ViewerCache> _store = {};
+  static const Duration _ttl = Duration(minutes: 5);
+
+  static _ViewerCache? get(String viewerId) {
+    final e = _store[viewerId];
+    if (e == null || DateTime.now().difference(e.at) > _ttl) return null;
+    return e;
+  }
+
+  static void put(String viewerId, _ViewerCache v) => _store[viewerId] = v;
+}
+
 class MemberProfileViewScreen extends StatefulWidget {
   const MemberProfileViewScreen({
     super.key,
@@ -301,6 +351,11 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   /// Profession / salary rows — same labels as web [DetailRow] `isLocked` rows.
   List<(String, String)> _professionLockedRows = [];
   Map<String, dynamic>? _fullContact;
+  /// True when contact details live behind /api/contact-view (public views
+  /// active): the section shows masked rows until the server releases them.
+  bool _contactServerGated = false;
+  /// public_profile_photos returned no URLs because the viewer may not see them.
+  bool _photosLockedByServer = false;
   String? _contactAddressLine;
   int? _contactViewsRemaining;
   int? _contactViewsLimit;
@@ -317,7 +372,12 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       final res = await WebApi.post('/api/contact-view', {'viewedUserId': widget.targetUserId});
       if (!mounted) return;
       if (res.ok && res.data['allowed'] == true) {
+        final released = res.data['contact'];
         setState(() {
+          if (released is Map) {
+            _fullContact = Map<String, dynamic>.from(released);
+            _contactAddressLine = _contactAddressFrom(_fullContact);
+          }
           _revealedLocked[rowKey] = true;
           final r = res.data['remaining'];
           final l = res.data['limit'];
@@ -364,20 +424,29 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
     final c = Supabase.instance.client;
     final uid = widget.targetUserId;
     try {
-      final pdRaw = await c.from('personal_details').select().eq('user_id', uid).maybeSingle();
-      final pdMap = _asStringKeyedMap(pdRaw);
-      if (pdMap == null) {
-        if (mounted) {
-          setState(() {
-            _loading = false;
-            _error = 'Profile not found.';
-          });
-        }
-        return;
-      }
-
-      // Fire-and-forget view recording
-      _recordView();
+      // Start the core row immediately; the other queries below run alongside it.
+      await PublicViews.ensure(c);
+      final pdFuture = PublicViews.from(c, PublicViews.personalDetails).eq('user_id', uid).maybeSingle();
+      final viewerIdEarly = c.auth.currentUser?.id;
+      final isSelf = viewerIdEarly == uid;
+      final contactGated = !isSelf && PublicViews.isLive(PublicViews.contactLocations);
+      // Already-released contact (mutual match / unlocked before). Read-only on
+      // the server: never spends an allowance.
+      final contactReleaseFuture = contactGated
+          ? WebApi.get('/api/contact-view', query: {'targetUserId': uid}, timeout: const Duration(seconds: 8))
+          : null;
+      // Photo-permission calls don't depend on the profile data, so start them now.
+      final photoApiFuture = (viewerIdEarly != null && viewerIdEarly != uid)
+          ? Future.wait([
+              WebApi.get('/api/photo-access',
+                  query: {'targetUserId': uid}, timeout: const Duration(seconds: 8)),
+              WebApi.get('/api/photo-requests', timeout: const Duration(seconds: 8)),
+            ])
+          : null;
+      // Cache the viewer's own data across profile opens.
+      final cachedViewer = (viewerIdEarly != null && viewerIdEarly != uid)
+          ? _ViewerCache.get(viewerIdEarly)
+          : null;
 
       Map<String, dynamic>? contact;
       Map<String, dynamic>? photosRow;
@@ -418,13 +487,17 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         }
       }
 
-      await Future.wait([
+      final batchFuture = Future.wait([
         runOptional('contact_details', () async {
-          final r = await c.from('contact_details').select().eq('user_id', uid).maybeSingle();
+          final r = contactGated
+              ? await PublicViews.from(c, PublicViews.contactLocations).eq('user_id', uid).maybeSingle()
+              : await c.from('contact_details').select().eq('user_id', uid).maybeSingle();
           contact = _asStringKeyedMap(r);
         }),
         runOptional('photos', () async {
-          final r = await c.from('photos').select('user_photos').eq('user_id', uid).maybeSingle();
+          final r = await PublicViews.from(c, PublicViews.profilePhotos, 'user_photos, photos_locked')
+              .eq('user_id', uid)
+              .maybeSingle();
           photosRow = _asStringKeyedMap(r);
         }),
         runOptional('education_details', () async {
@@ -444,11 +517,11 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
           stu = _asStringKeyedMap(r);
         }),
         runOptional('family_details', () async {
-          final r = await c.from('family_details').select().eq('user_id', uid).maybeSingle();
+          final r = await PublicViews.from(c, PublicViews.familyDetails).eq('user_id', uid).maybeSingle();
           fam = _asStringKeyedMap(r);
         }),
         runOptional('horoscope_details', () async {
-          final r = await c.from('horoscope_details').select().eq('user_id', uid).maybeSingle();
+          final r = await PublicViews.from(c, PublicViews.horoscopeDetails).eq('user_id', uid).maybeSingle();
           horo = _asStringKeyedMap(r);
         }),
         runOptional('interests', () async {
@@ -464,6 +537,21 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
           partnerPrefs = _asStringKeyedMap(r);
         }),
         runOptional('target_user_settings', () async {
+          if (!isSelf && PublicViews.isLive(PublicViews.memberStatus)) {
+            // user_settings is private now; the API returns only the active plan.
+            final res = await WebApi.get('/api/premium-status', query: {'userIds': uid});
+            final m = res.ok ? _firstPremiumRow(res.raw) : null;
+            if (m != null) {
+              targetPremium = m['is_premium'] == true;
+              targetPlan = m['premium_plan']?.toString();
+            } else {
+              final st = await PublicViews.from(c, PublicViews.memberStatus, 'is_premium')
+                  .eq('user_id', uid)
+                  .maybeSingle();
+              targetPremium = st?['is_premium'] == true;
+            }
+            return;
+          }
           final r = await c.from('user_settings').select('is_premium, premium_plan, premium_expires_at').eq('user_id', uid).maybeSingle();
           final m = _asStringKeyedMap(r);
           if (m != null) {
@@ -472,16 +560,11 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
           }
         }),
         runOptional('users.last_active_at', () async {
-          final r = await c.from('users').select('last_active_at').eq('id', uid).maybeSingle();
+          final r = await PublicViews.from(c, PublicViews.users, 'last_active_at').eq('id', uid).maybeSingle();
           final m = _asStringKeyedMap(r);
           lastActiveAt = parseLastActive(m?['last_active_at']);
         }),
         if (viewerId != null && viewerId != uid) ...[
-          runOptional('viewer_premium', () async {
-            final r = await c.from('user_settings').select('is_premium, premium_expires_at').eq('user_id', viewerId).maybeSingle();
-            final m = _asStringKeyedMap(r);
-            if (m != null) viewerPremium = isPremiumActive(m);
-          }),
           runOptional('likes', () async {
             final res = await Future.wait([
               c.from('likes').select('status, created_at').eq('user_id', viewerId).eq('liked_user_id', uid).maybeSingle(),
@@ -509,6 +592,13 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
               shortlistedDate = DateTime.tryParse(r['created_at'].toString())?.toLocal();
             }
           }),
+        ],
+        if (viewerId != null && viewerId != uid && cachedViewer == null) ...[
+          runOptional('viewer_premium', () async {
+            final r = await c.from('user_settings').select('is_premium, premium_expires_at').eq('user_id', viewerId).maybeSingle();
+            final m = _asStringKeyedMap(r);
+            if (m != null) viewerPremium = isPremiumActive(m);
+          }),
           runOptional('viewer_personal', () async {
             final r = await c.from('personal_details').select().eq('user_id', viewerId).maybeSingle();
             viewerPersonal = _asStringKeyedMap(r);
@@ -534,7 +624,42 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         ],
       ]);
 
+      final pdMap = _asStringKeyedMap(await pdFuture);
+      if (pdMap == null) {
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _error = 'Profile not found.';
+          });
+        }
+        return;
+      }
+      await batchFuture;
+
+      // Single fire-and-forget view recording (server dedupes within an hour).
       if (viewerId != null && viewerId != uid) {
+        _recordView();
+      }
+
+      if (viewerId != null && viewerId != uid) {
+        if (cachedViewer != null) {
+          viewerPremium = cachedViewer.premium;
+          viewerPersonal = cachedViewer.personal;
+          viewerContact = cachedViewer.contact;
+          viewerEducation = cachedViewer.education;
+          viewerHoro = cachedViewer.horo;
+        } else {
+          _ViewerCache.put(
+            viewerId,
+            _ViewerCache(
+              premium: viewerPremium,
+              personal: viewerPersonal,
+              contact: viewerContact,
+              education: viewerEducation,
+              horo: viewerHoro,
+            ),
+          );
+        }
         if (partnerPrefs != null) {
           final vMerged = <String, dynamic>{
             if (viewerPersonal != null) ...viewerPersonal!,
@@ -565,18 +690,17 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       final urls = <String>[];
       final photos = photosRow;
       final rawList = photos != null ? parseUserPhotosList(photos['user_photos']) : <dynamic>[];
+      final rawJa = horo?['jaadhagam_url']?.toString().trim();
+      // Sign gallery photos and the jaadhagam image together.
+      final jaFuture = (rawJa != null && rawJa.isNotEmpty)
+          ? signUserProfilePhoto(c, uid, rawJa)
+          : Future<String?>.value(null);
       final signedUrls = await Future.wait(
         rawList.map((raw) => signUserProfilePhoto(c, uid, raw.toString()))
       );
+      final jaadhagamSigned = await jaFuture;
       for (final u in signedUrls) {
         if (u != null && u.isNotEmpty) urls.add(u);
-      }
-
-      // Record the profile view — web POST /api/views. Server dedupes within
-      // a 1-hour window and drives the "Who Viewed Me" carousels + counts.
-      // Fire-and-forget: a failed view write must never break the profile.
-      if (viewerId != null && viewerId != uid) {
-        WebApi.post('/api/views', {'viewedUserId': uid});
       }
 
       // Photo privacy — same contract as the web ProfileDetailView. On API
@@ -585,15 +709,14 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       var photoPasswordProtected = false;
       String? photoRequestStatus;
       var incomingPhotoRequest = false;
-      if (viewerId != null && viewerId != uid && urls.isNotEmpty) {
-        final apiResults = await Future.wait([
-          WebApi.get('/api/photo-access', query: {'targetUserId': uid}),
-          WebApi.get('/api/photo-requests'),
-        ]);
+      final photosLocked = photos?['photos_locked'] == true;
+      if (photosLocked) canViewPhotos = false;
+      if (photoApiFuture != null && (urls.isNotEmpty || photosLocked)) {
+        final apiResults = await photoApiFuture;
 
         final pa = apiResults[0];
         if (pa.ok) {
-          canViewPhotos = pa.data['canView'] != false;
+          canViewPhotos = pa.data['canView'] != false && !photosLocked;
           photoPasswordProtected = pa.data['passwordProtected'] == true;
           photoRequestStatus = pa.data['requestStatus']?.toString();
         } else {
@@ -629,7 +752,10 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       final weightLine = w != null ? '$w kg' : '—';
 
       final personalRows = <(String, String)>[
-        ('Date of birth', _formatDobDisplay(pdMap['date_of_birth'])),
+        if (pdMap['date_of_birth'] != null)
+          ('Date of birth', _formatDobDisplay(pdMap['date_of_birth']))
+        else
+          ('Age', pdMap['age'] != null ? '${pdMap['age']} years' : '—'),
         ('Marital status', _dashIfEmpty(pdMap['marital_status']?.toString())),
         ('Mother tongue', motherTongue),
         ('Height', heightLine),
@@ -727,21 +853,19 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         }
       }
 
-      String? contactAddressLine;
-      final fullContact = contact;
-      if (fullContact != null) {
-        final parts = <String>[
-          fullContact['current_address_line1']?.toString().trim() ?? '',
-          fullContact['current_address_line2']?.toString().trim() ?? '',
-          fullContact['current_area']?.toString().trim() ?? '',
-          fullContact['current_district']?.toString().trim() ?? '',
-          fullContact['current_state']?.toString().trim() ?? '',
-        ].where((s) => s.isNotEmpty).toList();
-        if (parts.isNotEmpty) contactAddressLine = parts.join(', ');
+      // With public views live, `contact` is only district/state; the phone
+      // and street address come from /api/contact-view once released.
+      Map<String, dynamic>? fullContact = contactGated ? null : contact;
+      if (contactReleaseFuture != null) {
+        final rel = await contactReleaseFuture;
+        final released = rel.data['contact'];
+        if (rel.ok && rel.data['allowed'] == true && released is Map) {
+          fullContact = Map<String, dynamic>.from(released);
+        }
       }
+      final contactAddressLine = _contactAddressFrom(fullContact);
 
       final horoscopeRows = <(String, String)>[];
-      String? jaadhagamSigned;
       final horoMap = horo;
       if (horoMap != null) {
         final h = horoMap;
@@ -754,10 +878,6 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
           ('Place of birth', _dashIfEmpty(h['place_of_birth']?.toString())),
           ('Time of birth', _dashIfEmpty(h['time_of_birth']?.toString())),
         ]);
-        final rawJa = h['jaadhagam_url']?.toString().trim();
-        if (rawJa != null && rawJa.isNotEmpty) {
-          jaadhagamSigned = await signUserProfilePhoto(c, uid, rawJa);
-        }
       }
 
       final lifestyleRows = <(String, String)>[
@@ -818,6 +938,8 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         _interestChips = interestChips;
         _lastActiveAt = lastActiveAt;
         _fullContact = fullContact;
+        _contactServerGated = contactGated;
+        _photosLockedByServer = photosLocked;
         _contactAddressLine = contactAddressLine;
         _loading = false;
       });
@@ -847,7 +969,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
 
   bool get _hasContactSection {
     final m = _fullContact;
-    if (m == null) return false;
+    if (m == null) return _contactServerGated;
     final phone = m['phone']?.toString().trim();
     final wa = m['whatsapp_number']?.toString().trim();
     return (phone != null && phone.isNotEmpty) ||
@@ -857,7 +979,12 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
 
   List<(String, String)> get _contactLockedRows {
     final m = _fullContact;
-    if (m == null) return const [];
+    if (m == null) {
+      // Not released yet: masked placeholders behind the reveal button.
+      return _contactServerGated
+          ? const [('Phone number', '•••••• ••••'), ('WhatsApp', '•••••• ••••')]
+          : const [];
+    }
     final rows = <(String, String)>[];
     final phone = m['phone']?.toString().trim();
     final wa = m['whatsapp_number']?.toString().trim();
@@ -1844,7 +1971,12 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       ),
     );
     if (ok == true && mounted) {
-      setState(() => _canViewPhotos = true);
+      // The server withheld the URLs while locked — reload to fetch them.
+      if (_photoUrls.isEmpty) {
+        _load();
+      } else {
+        setState(() => _canViewPhotos = true);
+      }
     }
   }
 
@@ -1923,15 +2055,18 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        ImageFiltered(
-          imageFilter: ui.ImageFilter.blur(sigmaX: 28, sigmaY: 28),
-          child: Image.network(
-            _photoUrls.first,
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) =>
-                Container(color: _brand.withValues(alpha: 0.12)),
+        if (_photoUrls.isEmpty)
+          Container(color: _brand.withValues(alpha: 0.12))
+        else
+          ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+            child: Image.network(
+              _photoUrls.first,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) =>
+                  Container(color: _brand.withValues(alpha: 0.12)),
+            ),
           ),
-        ),
         Container(color: Colors.black.withValues(alpha: 0.35)),
         Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -2050,7 +2185,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         children: [
           SizedBox(
             height: 300,
-            child: _photoUrls.isEmpty
+            child: _photoUrls.isEmpty && !_photosLockedByServer
                 ? Container(
                     color: _brand.withValues(alpha: 0.08),
                     child: Icon(Icons.person_rounded, size: 80, color: _brand.withValues(alpha: 0.35)),

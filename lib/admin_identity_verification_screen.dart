@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'user_profile_completion.dart';
+import 'web_api.dart';
+
 import 'main.dart';
 
 import 'admin_home_screen.dart';
@@ -117,6 +120,37 @@ class _AdminIdentityVerificationScreenState
 
       final names = await _fetchNamesForUserIds(supabase, userIds);
 
+      // live_photo_url holds a storage path. Get short-lived links from the
+      // audited admin endpoint (each view is logged); older servers without
+      // it fall back to signing here.
+      final signedLive = <String, String>{};
+      var apiMissing = false;
+      for (var i = 0; i < userIds.length && !apiMissing; i += 50) {
+        final slice = userIds.sublist(i, i + 50 > userIds.length ? userIds.length : i + 50);
+        final res = await WebApi.get('/api/admin/verification-documents',
+            query: {'userIds': slice.join(',')});
+        if (res.status == 404) {
+          apiMissing = true;
+          break;
+        }
+        final docs = res.data['documents'];
+        if (res.ok && docs is Map) {
+          docs.forEach((id, d) {
+            final live = d is Map ? d['livePhoto']?.toString() ?? '' : '';
+            if (live.isNotEmpty) signedLive[id.toString()] = live;
+          });
+        }
+      }
+      if (apiMissing) {
+        await Future.wait(photos.whereType<Map>().map((raw) async {
+          final uid = raw['user_id']?.toString();
+          final live = raw['live_photo_url']?.toString() ?? '';
+          if (uid == null || live.isEmpty) return;
+          final signed = await signUserProfilePhoto(supabase, uid, live);
+          if (signed != null) signedLive[uid] = signed;
+        }));
+      }
+
       final list = <_VerificationRequest>[];
       for (final raw in photos) {
         if (raw is! Map) continue;
@@ -128,7 +162,7 @@ class _AdminIdentityVerificationScreenState
           _VerificationRequest(
             userId: uid,
             name: names[uid] ?? 'Unknown User',
-            livePhotoUrl: raw['live_photo_url']?.toString() ?? '',
+            livePhotoUrl: signedLive[uid] ?? raw['live_photo_url']?.toString() ?? '',
             comparisonPhotoUrl: raw['comparison_photo_url']?.toString() ?? '',
             createdAt: created,
             verificationStatus:
@@ -166,16 +200,26 @@ class _AdminIdentityVerificationScreenState
   Future<void> _handleAction(String userId, String status) async {
     final supabase = Supabase.instance.client;
     try {
-      await supabase
-          .from('photos')
-          .update({'verification_status': status})
-          .eq('user_id', userId);
-
       final verified = status == 'verified';
-      await supabase
-          .from('personal_details')
-          .update({'photo_verified': verified})
-          .eq('user_id', userId);
+      // Server sets photos.verification_status plus personal_details
+      // id_verified + photo_verified (the web's badge fields).
+      final res = await WebApi.patch('/api/id-verification', {
+        'userId': userId,
+        'status': verified ? 'approved' : 'rejected',
+      });
+      if (res.status == 404 || res.status == 405) {
+        // Older server: legacy direct writes.
+        await supabase
+            .from('photos')
+            .update({'verification_status': status})
+            .eq('user_id', userId);
+        await supabase
+            .from('personal_details')
+            .update({'photo_verified': verified})
+            .eq('user_id', userId);
+      } else if (!res.ok) {
+        throw Exception(res.error ?? 'Request failed');
+      }
 
       if (!mounted) return;
       rootScaffoldMessengerKey.currentState?.showSnackBar(

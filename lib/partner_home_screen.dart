@@ -9,6 +9,7 @@ import 'admin_home_screen.dart';
 import 'admin_profile_detail_screen.dart';
 import 'legal_pages.dart';
 import 'partner_referred_profiles_screen.dart';
+import 'public_views.dart';
 import 'referral_partner_profile_edit_screen.dart';
 import 'welcome_screen.dart';
 
@@ -105,12 +106,13 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               .toList();
           const chunk = 100;
           final profiles = <dynamic>[];
+          await PublicViews.ensure(supabase, [PublicViews.personalDetails]);
           for (var i = 0; i < uids.length; i += chunk) {
             final slice = uids.sublist(i, math.min(i + chunk, uids.length));
-            final pdRows = await supabase
-                .from('personal_details')
-                .select('sex')
-                .inFilter('user_id', slice);
+            // Active referrals only (web dashboard excludes married members).
+            final pdRows = await PublicViews.from(supabase, PublicViews.personalDetails, 'sex')
+                .inFilter('user_id', slice)
+                .neq('marital_status', 'Married');
             profiles.addAll(pdRows as List<dynamic>? ?? []);
           }
           total = profiles.length;

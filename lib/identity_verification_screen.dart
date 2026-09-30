@@ -144,13 +144,12 @@ class _IdentityVerificationScreenState
             ),
           );
 
-      final signedUrl =
-          await client.storage.from('user-photos').createSignedUrl(path, 31536000);
-
+      // Store the storage path (as the web does), never a long-lived signed
+      // URL: the selfie folder is private and admins sign it on demand.
       await client.from('photos').upsert({
         'user_id': uid,
         'verification_status': 'pending',
-        'live_photo_url': signedUrl,
+        'live_photo_url': path,
         'comparison_photo_url': compare,
         'created_at': DateTime.now().toIso8601String(),
       }, onConflict: 'user_id');

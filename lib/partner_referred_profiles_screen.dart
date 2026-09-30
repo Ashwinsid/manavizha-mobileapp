@@ -5,6 +5,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 import 'admin_profile_detail_screen.dart';
+import 'public_views.dart';
+import 'web_api.dart';
 
 /// Flutter port of `manavizha/app/referral-partner/profiles/page.tsx`.
 ///
@@ -139,34 +141,43 @@ class _PartnerReferredProfilesScreenState
         return;
       }
 
+      await PublicViews.ensure(supabase, [PublicViews.personalDetails, PublicViews.horoscopeDetails]);
       final personal = <Map<String, dynamic>>[];
       final contact = <String, String>{};
+      // Members' phones come from the server (contact_details is private);
+      // older servers without the route fall back to the direct read below.
+      final phonesRes = await WebApi.post('/api/referral-partner/phones', {'userIds': userIds});
+      final apiPhones = phonesRes.ok && phonesRes.data['phones'] is Map
+          ? Map<String, dynamic>.from(phonesRes.data['phones'] as Map)
+          : null;
+      if (apiPhones != null) {
+        apiPhones.forEach((k, v) => contact[k] = v?.toString() ?? '');
+      }
       final horo = <String, _Horo>{};
       final professionMap = <String, String>{};
       const chunkSize = 100;
       for (var i = 0; i < userIds.length; i += chunkSize) {
         final slice = userIds.sublist(i, math.min(i + chunkSize, userIds.length));
 
-        final personalRows = await supabase
-            .from('personal_details')
-            .select('user_id, name, age, sex, marital_status')
+        final personalRows = await PublicViews.from(
+                supabase, PublicViews.personalDetails, 'user_id, name, age, sex, marital_status')
             .inFilter('user_id', slice);
         for (final r in (personalRows as List<dynamic>? ?? const [])) {
           personal.add(Map<String, dynamic>.from(r as Map));
         }
 
-        final contactRows = await supabase
-            .from('contact_details')
-            .select('user_id, phone')
-            .inFilter('user_id', slice);
-        for (final r in (contactRows as List<dynamic>? ?? const [])) {
-          final m = Map<String, dynamic>.from(r as Map);
-          contact[(m['user_id'] as String)] = (m['phone'] as String?) ?? '';
+        if (apiPhones == null) {
+          final contactRows = await supabase
+              .from('contact_details')
+              .select('user_id, phone')
+              .inFilter('user_id', slice);
+          for (final r in (contactRows as List<dynamic>? ?? const [])) {
+            final m = Map<String, dynamic>.from(r as Map);
+            contact[(m['user_id'] as String)] = (m['phone'] as String?) ?? '';
+          }
         }
 
-        final horoRows = await supabase
-            .from('horoscope_details')
-            .select('user_id, zodiac_sign, star')
+        final horoRows = await PublicViews.from(supabase, PublicViews.horoscopeDetails, 'user_id, zodiac_sign, star')
             .inFilter('user_id', slice);
         for (final r in (horoRows as List<dynamic>? ?? const [])) {
           final m = Map<String, dynamic>.from(r as Map);
@@ -413,10 +424,20 @@ class _PartnerReferredProfilesScreenState
     );
     if (confirmed != true) return;
     try {
-      await Supabase.instance.client
-          .from('personal_details')
-          .update({'marital_status': 'Married'})
-          .eq('user_id', p.userId);
+      // Server checks the partner owns this referral and may edit profiles.
+      final res = await WebApi.post('/api/referral-partner/profile', {
+        'userId': p.userId,
+        'action': 'mark_married',
+      });
+      if (res.status == 404) {
+        // Older server without the route.
+        await Supabase.instance.client
+            .from('personal_details')
+            .update({'marital_status': 'Married'})
+            .eq('user_id', p.userId);
+      } else if (!res.ok) {
+        throw Exception(res.error ?? 'Could not update the profile');
+      }
       if (!mounted) return;
       setState(() {
         _all = [
@@ -851,6 +872,7 @@ class _PartnerReferredProfilesScreenState
         builder: (_) => AdminProfileDetailScreen(
           userId: p.userId,
           canEdit: _canEditProfile,
+          partnerMode: true,
           accessBadge: _accessBadge(canEdit: _canEditProfile),
         ),
       ),

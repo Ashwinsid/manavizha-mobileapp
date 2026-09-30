@@ -5,7 +5,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 import 'e2e.dart';
+import 'premium_utils.dart';
 import 'profile_social_actions.dart';
+import 'public_views.dart';
 import 'subscription_dialog.dart';
 import 'user_activity_tracker.dart';
 import 'user_profile_completion.dart';
@@ -119,8 +121,12 @@ class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver
 
   Future<void> _loadPremium(SupabaseClient client, String uid) async {
     try {
-      final row = await client.from('user_settings').select('is_premium').eq('user_id', uid).maybeSingle();
-      final p = row != null && row['is_premium'] == true;
+      final row = await client
+          .from('user_settings')
+          .select('is_premium, premium_expires_at')
+          .eq('user_id', uid)
+          .maybeSingle();
+      final p = isPremiumActive(row);
       if (mounted) setState(() => _isPremium = p);
     } catch (_) {
       if (mounted) setState(() => _isPremium = false);
@@ -186,8 +192,10 @@ class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver
       final activity = <String, DateTime?>{};
 
       if (ids.isNotEmpty) {
+        await PublicViews.ensure(
+            client, [PublicViews.personalDetails, PublicViews.profilePhotos, PublicViews.users]);
         try {
-          final pd = await client.from('personal_details').select('user_id, name').inFilter('user_id', ids);
+          final pd = await PublicViews.from(client, PublicViews.personalDetails, 'user_id, name').inFilter('user_id', ids);
           for (final row in (pd as List<dynamic>?) ?? const []) {
             final m = Map<String, dynamic>.from(row as Map);
             final id = m['user_id']?.toString();
@@ -196,7 +204,7 @@ class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver
         } catch (_) {}
 
         try {
-          final ph = await client.from('photos').select('user_id, user_photos').inFilter('user_id', ids);
+          final ph = await PublicViews.from(client, PublicViews.profilePhotos, 'user_id, user_photos').inFilter('user_id', ids);
           for (final row in (ph as List<dynamic>?) ?? const []) {
             final m = Map<String, dynamic>.from(row as Map);
             final id = m['user_id']?.toString();
@@ -212,7 +220,7 @@ class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver
         } catch (_) {}
 
         try {
-          final act = await client.from('users').select('id, last_active_at').inFilter('id', ids);
+          final act = await PublicViews.from(client, PublicViews.users, 'id, last_active_at').inFilter('id', ids);
           for (final row in (act as List<dynamic>?) ?? const []) {
             final m = Map<String, dynamic>.from(row as Map);
             final id = m['id']?.toString();

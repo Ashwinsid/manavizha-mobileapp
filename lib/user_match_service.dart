@@ -5,6 +5,8 @@ import 'astrology.dart';
 import 'profile_scoring.dart';
 
 import 'match_utils.dart';
+import 'premium_utils.dart';
+import 'public_views.dart';
 import 'user_activity_tracker.dart';
 import 'user_profile_completion.dart';
 
@@ -171,9 +173,9 @@ Future<UserMatchSets> loadUserMatchSections(
   // No explicit cap — matches the web Browse query, which fetches every
   // matching profile (both are bounded only by PostgREST's server-side
   // max-rows setting).
-  final potential = await client
-      .from('personal_details')
-      .select('user_id, name, age, sex, marital_status, created_at, photo_verified, profile_code')
+  await PublicViews.ensure(client);
+  final potential = await PublicViews.from(client, PublicViews.personalDetails,
+          'user_id, name, age, sex, marital_status, created_at, photo_verified, profile_code')
       .ilike('sex', targetGender)
       .neq('user_id', userId)
       .neq('marital_status', 'Married')
@@ -197,9 +199,10 @@ Future<UserMatchSets> loadUserMatchSections(
   List<dynamic>? activityRes, familyRes, horoscopeRes;
 
   final res = await Future.wait([
-    client.from('photos').select('user_id, user_photos').inFilter('user_id', ids),
-    client.from('contact_details').select('user_id, current_country, current_state, current_district').inFilter('user_id', ids),
-    client.from('user_settings').select('user_id, is_premium').inFilter('user_id', ids),
+    PublicViews.from(client, PublicViews.profilePhotos, 'user_id, user_photos').inFilter('user_id', ids),
+    PublicViews.from(client, PublicViews.contactLocations, 'user_id, current_country, current_state, current_district')
+        .inFilter('user_id', ids),
+    PublicViews.from(client, PublicViews.memberStatus, 'user_id, is_premium, is_deactivated').inFilter('user_id', ids),
     client.from('education_details').select('user_id, education, degree, branch').inFilter('user_id', ids),
     client.from('profession_employee').select('user_id, designation, company, employment_type, salary').inFilter('user_id', ids),
     client.from('profession_business').select('user_id, designation, business_name, business_type, annual_returns').inFilter('user_id', ids),
@@ -207,21 +210,23 @@ Future<UserMatchSets> loadUserMatchSections(
     client.from('interests').select('user_id, interests').inFilter('user_id', ids),
     Future(() async {
       try {
-        return await client.from('users').select('id, last_active_at').inFilter('id', ids) as List<dynamic>?;
+        return await PublicViews.from(client, PublicViews.users, 'id, last_active_at').inFilter('id', ids) as List<dynamic>?;
       } catch (_) {
         return null;
       }
     }),
     Future(() async {
       try {
-        return await client.from('family_details').select('user_id, caste, subcaste').inFilter('user_id', ids) as List<dynamic>?;
+        return await PublicViews.from(client, PublicViews.familyDetails, 'user_id, caste, subcaste').inFilter('user_id', ids)
+            as List<dynamic>?;
       } catch (_) {
         return null;
       }
     }),
     Future(() async {
       try {
-        return await client.from('horoscope_details').select('user_id, star, zodiac_sign, dhosham').inFilter('user_id', ids) as List<dynamic>?;
+        return await PublicViews.from(client, PublicViews.horoscopeDetails, 'user_id, star, zodiac_sign, dhosham')
+            .inFilter('user_id', ids) as List<dynamic>?;
       } catch (_) {
         return null;
       }
@@ -265,6 +270,14 @@ Future<UserMatchSets> loadUserMatchSections(
   final photoRows = (photosRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final contactRows = (contactRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final settingsRows = (settingsRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  // Deactivated members are hidden from every list (web: public_member_status).
+  final deactivatedIds = {
+    for (final r in settingsRows)
+      if (isDeactivationActive(r)) r['user_id'].toString(),
+  };
+  if (deactivatedIds.isNotEmpty) {
+    filtered = filtered.where((p) => !deactivatedIds.contains(p['user_id'].toString())).toList();
+  }
   final eduRows = (eduRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final empRows = (empRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   final busRows = (busRes as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
@@ -426,7 +439,7 @@ Future<UserMatchSets> loadUserMatchSections(
     var premium = false;
     for (final r in settingsRows) {
       if (r['user_id']?.toString() == id) {
-        premium = r['is_premium'] == true;
+        premium = isPremiumActive(r);
         break;
       }
     }
@@ -521,9 +534,12 @@ Future<List<MatchPreview>> loadMatchPreviewsByIds(
     } catch (_) {}
   }
 
+  await PublicViews.ensure(client);
   Future<List<dynamic>> safeIn(String table, String columns, String column) async {
     try {
-      final r = await client.from(table).select(columns).inFilter(column, ids);
+      final r = PublicViews.all.contains(table)
+          ? await PublicViews.from(client, table, columns).inFilter(column, ids)
+          : await client.from(table).select(columns).inFilter(column, ids);
       return (r as List<dynamic>? ?? []);
     } catch (_) {
       return const [];
@@ -531,7 +547,7 @@ Future<List<MatchPreview>> loadMatchPreviewsByIds(
   }
 
   final personalRes = await safeIn(
-    'personal_details',
+    PublicViews.personalDetails,
     'user_id, name, age, sex, marital_status, profile_code',
     'user_id',
   );
@@ -542,16 +558,16 @@ Future<List<MatchPreview>> loadMatchPreviewsByIds(
   late final List<dynamic> photoRes, contactRes, settingsRes, eduRes, empRes, busRes, stuRes, interestsRes, activityRes, horoRes;
 
   final res = await Future.wait([
-    safeIn('photos', 'user_id, user_photos', 'user_id'),
-    safeIn('contact_details', 'user_id, current_district, current_state', 'user_id'),
-    safeIn('user_settings', 'user_id, is_premium', 'user_id'),
+    safeIn(PublicViews.profilePhotos, 'user_id, user_photos', 'user_id'),
+    safeIn(PublicViews.contactLocations, 'user_id, current_district, current_state', 'user_id'),
+    safeIn(PublicViews.memberStatus, 'user_id, is_premium, is_deactivated', 'user_id'),
     safeIn('education_details', 'user_id, education', 'user_id'),
     safeIn('profession_employee', 'user_id, designation, company', 'user_id'),
     safeIn('profession_business', 'user_id, designation, business_name', 'user_id'),
     safeIn('profession_student', 'user_id, course, institution', 'user_id'),
     safeIn('interests', 'user_id, interests', 'user_id'),
-    safeIn('users', 'id, last_active_at', 'id'),
-    safeIn('horoscope_details', 'user_id, star, zodiac_sign', 'user_id'),
+    safeIn(PublicViews.users, 'id, last_active_at', 'id'),
+    safeIn(PublicViews.horoscopeDetails, 'user_id, star, zodiac_sign', 'user_id'),
   ]);
 
   photoRes = res[0];
@@ -659,7 +675,7 @@ Future<List<MatchPreview>> loadMatchPreviewsByIds(
 
     var premium = false;
     final st = findFor(uid, settingsRows);
-    if (st != null && st['is_premium'] == true) premium = true;
+    if (isPremiumActive(st)) premium = true;
 
     final targetHoroRow = findFor(uid, horoRows);
     int? poruthamScore;

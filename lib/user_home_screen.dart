@@ -140,21 +140,30 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
     }
   }
 
-  /// Mirrors web `app/dashboard/layout.tsx` — if the member had deactivated,
-  /// signing back in clears `is_deactivated` and shows a welcome toast.
+  /// Mirrors web `app/dashboard/layout.tsx` — once a deactivation period has
+  /// ended, signing back in reactivates the profile and shows a welcome toast.
+  /// Never for "married" deactivations (set years ahead) or unexpired pauses.
   Future<void> _maybeReactivateAccount() async {
     final c = Supabase.instance.client;
     final uid = c.auth.currentUser?.id;
     if (uid == null) return;
     try {
-      final row = await c.from('user_settings').select('is_deactivated').eq('user_id', uid).maybeSingle();
-      final deactivated = row != null && row['is_deactivated'] == true;
-      if (!deactivated) return;
+      final row = await c
+          .from('user_settings')
+          .select('is_deactivated, deactivated_until')
+          .eq('user_id', uid)
+          .maybeSingle();
+      if (row == null || row['is_deactivated'] != true) return;
+      final until = DateTime.tryParse(row['deactivated_until']?.toString() ?? '');
+      if (until == null) return;
+      final now = DateTime.now();
+      final isMarriedDeactivation = until.difference(now) > const Duration(days: 365);
+      if (isMarriedDeactivation || until.isAfter(now)) return;
 
-      await c.from('user_settings').update({
-        'is_deactivated': false,
-        'deactivated_until': null,
-      }).eq('user_id', uid);
+      final res = await WebApi.post('/api/settings', {
+        'updates': {'is_deactivated': false, 'deactivated_until': null},
+      });
+      if (!res.ok) return;
 
       await Future<void>.delayed(const Duration(milliseconds: 1200));
       if (!mounted) return;

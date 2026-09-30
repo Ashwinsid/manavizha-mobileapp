@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
 import 'siblings_formatter.dart';
+import 'web_api.dart';
 
 /// Admin / partner view/edit for one user — mirrors web
 /// `admin/dashboard/profiles/[userId]` and `referral-partner/profiles/[userId]`.
@@ -21,10 +22,17 @@ class AdminProfileDetailScreen extends StatefulWidget {
     required this.userId,
     this.canEdit = true,
     this.accessBadge,
+    this.partnerMode = false,
   });
 
   final String userId;
   final bool canEdit;
+
+  /// Opened by a referral partner for one of their referred members. Loads and
+  /// saves through `/api/referral-partner/profile` (server checks ownership,
+  /// can_edit_profile and protected columns; never returns ID documents),
+  /// since partners cannot read members' tables directly.
+  final bool partnerMode;
   final Widget? accessBadge;
 
   @override
@@ -75,6 +83,12 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
 
   final Map<String, List<Map<String, dynamic>>> _master = {};
 
+  /// Server-confirmed edit permission in [AdminProfileDetailScreen.partnerMode].
+  bool? _serverCanEdit;
+  bool get _canEdit => widget.canEdit && (_serverCanEdit ?? true);
+  bool _partnerApiMissing = false;
+  bool get _usePartnerApi => widget.partnerMode && !_partnerApiMissing;
+
   @override
   void initState() {
     super.initState();
@@ -104,12 +118,23 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
     if (url.startsWith('http')) return url;
     try {
       final path = url.contains('/') ? url : '$userId/$url';
-      final res = await c.storage.from(bucket).createSignedUrl(path, 31536000);
+      final res = await c.storage.from(bucket).createSignedUrl(path, 3600);
       return res;
     } catch (e) {
       debugPrint('signed url $bucket: $e');
       return url;
     }
+  }
+
+  Future<({String front, String back})?> _fetchIdDocuments(String uid) async {
+    final res = await WebApi.get('/api/admin/verification-documents', query: {'userIds': uid});
+    if (res.status == 404) return null;
+    final doc = res.data['documents'] is Map ? (res.data['documents'] as Map)[uid] : null;
+    if (doc is! Map) return (front: '', back: '');
+    return (
+      front: doc['aadharFront']?.toString() ?? '',
+      back: doc['aadharBack']?.toString() ?? '',
+    );
   }
 
   Future<void> _load() async {
@@ -141,6 +166,8 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
         _fetchMaster(c, 'parties', 'master_parties'),
         _fetchMaster(c, 'pubs', 'master_pubs'),
       ]);
+
+      if (_usePartnerApi && await _loadViaPartnerApi(uid)) return;
 
       final pRes = await c
           .from('personal_details')
@@ -256,6 +283,9 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
       }
 
       if (photosRow != null) {
+        // ID documents come from the audited admin endpoint (short-lived links,
+        // each view logged). Null only when the server predates it.
+        final idDocs = await _fetchIdDocuments(uid);
         final rawList = photosRow['user_photos'];
         final paths = <String>[];
         if (rawList is List) {
@@ -270,7 +300,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
               try {
                 final su = await c.storage
                     .from('user-photos')
-                    .createSignedUrl(filePath, 31536000);
+                    .createSignedUrl(filePath, 3600);
                 paths.add(su);
               } catch (_) {
                 paths.add(photo);
@@ -282,10 +312,10 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
           userPhotos: paths,
           familyPhoto: await _signedUrl(
             c, photosRow['family_photo']?.toString(), 'family-photos', uid),
-          aadharFront: await _signedUrl(
-            c, photosRow['aadhar_front']?.toString(), 'aadhar-photos', uid),
-          aadharBack: await _signedUrl(
-            c, photosRow['aadhar_back']?.toString(), 'aadhar-photos', uid),
+          aadharFront: idDocs?.front ??
+              await _signedUrl(c, photosRow['aadhar_front']?.toString(), 'aadhar-photos', uid),
+          aadharBack: idDocs?.back ??
+              await _signedUrl(c, photosRow['aadhar_back']?.toString(), 'aadhar-photos', uid),
         );
       } else {
         _photos = null;
@@ -305,6 +335,72 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
     }
   }
 
+  /// False only when the server predates the partner route (404): the caller
+  /// then falls back to the legacy direct reads.
+  Future<bool> _loadViaPartnerApi(String uid) async {
+    final res = await WebApi.get('/api/referral-partner/profile', query: {'userId': uid});
+    if (res.status == 404) {
+      _partnerApiMissing = true;
+      return false;
+    }
+    if (!res.ok) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = res.error ?? 'Failed to load profile.';
+        });
+      }
+      return true;
+    }
+    final d = res.data;
+    Map<String, dynamic> map(dynamic v) =>
+        v is Map ? Map<String, dynamic>.from(v) : <String, dynamic>{};
+    Map<String, dynamic>? mapOrNull(dynamic v) =>
+        v is Map ? Map<String, dynamic>.from(v) : null;
+
+    _serverCanEdit = d['canEdit'] == true;
+    _personal = map(d['personal']);
+    _contact = map(d['contact']);
+    _family = map(d['family']);
+    _horoscope = map(d['horoscope']);
+    _interests = map(d['interests']);
+    _social = map(d['social']);
+    _userRow = map(d['userRow']);
+    final raw = map(d['raw']);
+    _education = raw['edu'] is List ? List<dynamic>.from(raw['edu'] as List) : [];
+    _emp = mapOrNull(raw['emp']);
+    _bus = mapOrNull(raw['bus']);
+    _stu = mapOrNull(raw['stu']);
+    _referral = mapOrNull(raw['ref']);
+    final partnerRel = _referral?['referral_partners'];
+    _referralPartnerName = partnerRel is Map ? partnerRel['name']?.toString() : null;
+
+    final ph = mapOrNull(raw['photos']);
+    _photos = ph == null
+        ? null
+        : _ProcessedPhotos(
+            userPhotos: [
+              for (final u in (ph['userPhotos'] as List? ?? const []))
+                if (u.toString().isNotEmpty) u.toString(),
+            ],
+            familyPhoto: ph['familyPhoto']?.toString() ?? '',
+            aadharFront: '',
+            aadharBack: '',
+          );
+
+    if (_personal.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'No profile found for this user.';
+        });
+      }
+      return true;
+    }
+    if (mounted) setState(() => _loading = false);
+    return true;
+  }
+
   Map<String, dynamic> _stripForUpdate(Map<String, dynamic> data) {
     const skip = {'id', 'user_id', 'created_at', 'updated_at'};
     final out = <String, dynamic>{};
@@ -318,7 +414,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
   }
 
   void _beginEdit(String section, Map<String, dynamic> current) {
-    if (!widget.canEdit) return;
+    if (!_canEdit) return;
     _snapshots[section] = Map<String, dynamic>.from(current);
     setState(() => _editing[section] = true);
   }
@@ -339,10 +435,19 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
     setState(() => _saving[section] = true);
     try {
       final fields = _stripForUpdate(data);
-      await Supabase.instance.client
-          .from(table)
-          .update(fields)
-          .eq('user_id', widget.userId);
+      if (_usePartnerApi) {
+        final res = await WebApi.patch('/api/referral-partner/profile', {
+          'userId': widget.userId,
+          'table': table,
+          'data': fields,
+        });
+        if (!res.ok) throw Exception(res.error ?? 'Could not save changes');
+      } else {
+        await Supabase.instance.client
+            .from(table)
+            .update(fields)
+            .eq('user_id', widget.userId);
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$section saved')),
@@ -362,10 +467,18 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
   Future<void> _saveUser() async {
     setState(() => _saving['account'] = true);
     try {
-      await Supabase.instance.client.from('users').update({
-        'name': _userRow['name'],
-        'phone': _userRow['phone'],
-      }).eq('id', widget.userId);
+      if (_usePartnerApi) {
+        final res = await WebApi.patch('/api/referral-partner/profile', {
+          'userId': widget.userId,
+          'user': {'name': _userRow['name'], 'phone': _userRow['phone']},
+        });
+        if (!res.ok) throw Exception(res.error ?? 'Could not save changes');
+      } else {
+        await Supabase.instance.client.from('users').update({
+          'name': _userRow['name'],
+          'phone': _userRow['phone'],
+        }).eq('id', widget.userId);
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Account saved')),
@@ -476,7 +589,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
     return _SectionCard(
       title: 'Account',
       brandPurple: _brandPurple,
-      canEdit: widget.canEdit,
+      canEdit: _canEdit,
       editing: ed,
       saving: sv,
       onEdit: () => _beginEdit('account', _userRow),
@@ -509,7 +622,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
     return _SectionCard(
       title: 'Personal details',
       brandPurple: _brandPurple,
-      canEdit: widget.canEdit,
+      canEdit: _canEdit,
       editing: ed,
       saving: sv,
       onEdit: () => _beginEdit('personal', _personal),
@@ -559,7 +672,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
     return _SectionCard(
       title: 'Contact details',
       brandPurple: _brandPurple,
-      canEdit: widget.canEdit,
+      canEdit: _canEdit,
       editing: ed,
       saving: sv,
       onEdit: () => _beginEdit('contact', _contact),
@@ -715,7 +828,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
     return _SectionCard(
       title: 'Family details',
       brandPurple: _brandPurple,
-      canEdit: widget.canEdit,
+      canEdit: _canEdit,
       editing: ed,
       saving: sv,
       onEdit: () => _beginEdit('family', _family),
@@ -762,7 +875,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
     return _SectionCard(
       title: 'Horoscope details',
       brandPurple: _brandPurple,
-      canEdit: widget.canEdit,
+      canEdit: _canEdit,
       editing: ed,
       saving: sv,
       onEdit: () => _beginEdit('horoscope', _horoscope),
@@ -833,7 +946,7 @@ class _AdminProfileDetailScreenState extends State<AdminProfileDetailScreen> {
     return _SectionCard(
       title: 'Social habits',
       brandPurple: _brandPurple,
-      canEdit: widget.canEdit,
+      canEdit: _canEdit,
       editing: ed,
       saving: sv,
       onEdit: () => _beginEdit('social', _social),

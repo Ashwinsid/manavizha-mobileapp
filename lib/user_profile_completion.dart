@@ -553,7 +553,24 @@ String? _storageObjectPathForUserPhotosUrl(String url) {
 /// or not work for other viewers; we extract the object path and call [createSignedUrl] with
 /// the **current** session so storage RLS applies to the viewer.
 /// Returns null only when signing fails and no usable fallback exists.
-Future<String?> signUserProfilePhoto(SupabaseClient client, String userId, String photo) async {
+final Map<String, Future<String?>> _signedPhotoCache = {};
+
+Future<String?> signUserProfilePhoto(SupabaseClient client, String userId, String photo) {
+  final raw = photo.trim();
+  if (raw.isEmpty) return Future.value(null);
+  // Session-lifetime cache (URLs are signed for a year); failed lookups are not kept.
+  final key = '${client.auth.currentUser?.id}|$userId|$raw';
+  final cached = _signedPhotoCache[key];
+  if (cached != null) return cached;
+  final f = _signUserProfilePhotoUncached(client, userId, raw);
+  _signedPhotoCache[key] = f;
+  f.then((v) {
+    if (v == null) _signedPhotoCache.remove(key);
+  }, onError: (_) => _signedPhotoCache.remove(key));
+  return f;
+}
+
+Future<String?> _signUserProfilePhotoUncached(SupabaseClient client, String userId, String photo) async {
   final raw = photo.trim();
   if (raw.isEmpty) return null;
 
