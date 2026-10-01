@@ -172,7 +172,7 @@ class _PasswordStrength {
 }
 
 class _SignupScreenState extends State<SignupScreen> {
-  static const Color _brand = Color(0xFF2FA086);
+  static const Color _brand = Color(0xFFD61A45);
   static const Color _fieldFill = Color(0xFFF5F6FA);
   static const Color _errorRed = Color(0xFFDC2626);
 
@@ -567,7 +567,7 @@ class _SignupScreenState extends State<SignupScreen> {
           title: Row(
             children: const [
               Icon(Icons.mark_email_unread_rounded,
-                  color: Color(0xFF2FA086), size: 26),
+                  color: Color(0xFFD61A45), size: 26),
               SizedBox(width: 10),
               Expanded(
                 child: Text('Verify your email',
@@ -583,7 +583,7 @@ class _SignupScreenState extends State<SignupScreen> {
           actions: [
             FilledButton(
               style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF2FA086)),
+                  backgroundColor: const Color(0xFFD61A45)),
               onPressed: () => Navigator.pop(ctx),
               child: const Text('Got it'),
             ),

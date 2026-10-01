@@ -123,6 +123,9 @@ class ProfileSocialActions {
     return res.error;
   }
 
+  /// [sendMessage] result when the sender's chat key must be unlocked first.
+  static const String chatLockedError = 'chat_key_locked';
+
   /// Send a 1:1 message — web POST /api/messages. The server enforces the
   /// block check, declined-interest rule and premium requirement, then
   /// notifies the receiver (`message_received`) exactly like the web.
@@ -136,8 +139,15 @@ class ProfileSocialActions {
     final body = content.trim();
     if (body.isEmpty) return 'Message cannot be empty.';
 
+    // Never downgrade to plaintext because *our* key is locked — the caller
+    // shows showChatUnlockDialog and retries.
+    final key = await E2E.status();
+    if (key.state == ChatKeyState.setup || key.state == ChatKeyState.locked) {
+      return chatLockedError;
+    }
+
     // Encrypt when the recipient has a published key — same behaviour as the
-    // web message dialog. Falls back to plaintext when keys are unavailable.
+    // web message dialog. Plaintext until the recipient sets up their key.
     Map<String, dynamic> payload = {'receiverId': receiverId, 'content': body};
     try {
       final enc = await E2E.encrypt(body, receiverId);

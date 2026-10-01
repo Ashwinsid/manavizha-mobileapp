@@ -47,6 +47,9 @@ dependencies:
   pointycastle: ^3.9.1
   shared_preferences: ^2.5.5
   cached_network_image: ^4.0.3
+  cryptography: ^2.9.0
+  cryptography_flutter: ^2.3.4
+  flutter_secure_storage: ^11.2.0
 
 dev_dependencies:
   flutter_test:

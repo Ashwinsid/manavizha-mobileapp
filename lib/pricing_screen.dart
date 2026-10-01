@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'admin_home_screen.dart';
+import 'web_api.dart';
 
 /// Flutter port of `manavizha/app/pricing/page.tsx`.
 ///
@@ -16,8 +17,43 @@ import 'admin_home_screen.dart';
 /// There is no in-app payment / Razorpay path in either project today, so the
 /// CTA always defers to WhatsApp (matches the web behaviour described in
 /// FEATURE_PARITY.txt).
-class PricingScreen extends StatelessWidget {
+class PricingScreen extends StatefulWidget {
   const PricingScreen({super.key});
+
+  @override
+  State<PricingScreen> createState() => _PricingScreenState();
+}
+
+/// Placeholder feature line replaced with the plan's contact-view allowance.
+const String _kMobileNumbers = '__MOBILE_NUMBERS__';
+
+class _PricingScreenState extends State<PricingScreen> {
+  /// Contact-view allowance per tier; defaults mirror the web pricing page
+  /// until `/api/tier-limits` (admin-managed) responds.
+  final Map<String, int> _limits = {'premium': 25, 'prime_gold': 100, 'elite': 100, 'till_you_marry': 100};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLimits();
+  }
+
+  Future<void> _loadLimits() async {
+    final res = await WebApi.get('/api/tier-limits');
+    final list = res.data['limits'];
+    if (!res.ok || list is! List || !mounted) return;
+    setState(() {
+      for (final l in list) {
+        if (l is Map && l['tier'] != null && l['contact_view_limit'] is num) {
+          _limits[l['tier'].toString()] = (l['contact_view_limit'] as num).toInt();
+        }
+      }
+    });
+  }
+
+  String _featureText(_Plan p, String f) => f == _kMobileNumbers
+      ? 'View up to ${_limits[p.tier] ?? 0} mobile numbers during the plan*'
+      : f;
 
   /// WhatsApp contact number for upgrades — matches the placeholder used in
   /// `app/pricing/page.tsx` so both clients open the same chat. Replace here
@@ -30,6 +66,7 @@ class PricingScreen extends StatelessWidget {
   static final List<_Plan> _plans = [
     _Plan(
       name: 'Prime',
+      tier: 'premium',
       duration: 'Flexible validity',
       price: '2,000',
       originalPrice: '2,999',
@@ -42,12 +79,13 @@ class PricingScreen extends StatelessWidget {
         'Explore ID-verified Prime & regular matches with photos',
         'Send unlimited messages & chat*',
         'Connect with preferred matches',
-        'View unlimited mobile numbers*',
+        _kMobileNumbers,
         'Check compatibility with unlimited horoscopes',
       ],
     ),
     _Plan(
       name: 'PRIME Gold',
+      tier: 'prime_gold',
       duration: '6 months validity',
       price: '6,000',
       originalPrice: '7,499',
@@ -60,12 +98,13 @@ class PricingScreen extends StatelessWidget {
         'Explore ID-verified Prime & regular matches with photos',
         'Send unlimited messages & chat*',
         'Connect with preferred matches',
-        'View unlimited mobile numbers*',
+        _kMobileNumbers,
         'Check compatibility with unlimited horoscopes',
       ],
     ),
     _Plan(
       name: 'Elite Assisted',
+      tier: 'elite',
       duration: '1 year validity',
       price: '10,000',
       originalPrice: '12,999',
@@ -80,10 +119,12 @@ class PricingScreen extends StatelessWidget {
         'Get more responses: free members can message you',
         'All benefits of the Prime Gold package',
         'Chance to be part of the exclusive Elite database',
+        _kMobileNumbers,
       ],
     ),
     _Plan(
       name: 'Till You Marry',
+      tier: 'till_you_marry',
       duration: 'Lifetime validity',
       price: '10,000',
       originalPrice: '15,999',
@@ -98,6 +139,7 @@ class PricingScreen extends StatelessWidget {
         'Send unlimited messages & chat*',
         'Connect with preferred matches without limits',
         'Endless horoscope compatibility checks',
+        _kMobileNumbers,
       ],
     ),
   ];
@@ -200,7 +242,7 @@ class PricingScreen extends StatelessWidget {
                 style: TextStyle(
                   foreground: Paint()
                     ..shader = const LinearGradient(
-                      colors: [Color(0xFFFF1493), Color(0xFF4B0082)],
+                      colors: [Color(0xFFEE3165), Color(0xFFEE1E4C)],
                     ).createShader(const Rect.fromLTWH(0, 0, 240, 40)),
                 ),
               ),
@@ -246,7 +288,7 @@ class PricingScreen extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [Color(0xFFFF1493), Color(0xFF4B0082)],
+                    colors: [Color(0xFFEE3165), Color(0xFFEE1E4C)],
                   ),
                 ),
                 child: Text(
@@ -338,7 +380,7 @@ class PricingScreen extends StatelessWidget {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            f,
+                            _featureText(p, f),
                             style: const TextStyle(fontSize: 13, height: 1.45, color: Color(0xFF1F2937)),
                           ),
                         ),
@@ -376,6 +418,7 @@ class PricingScreen extends StatelessWidget {
 class _Plan {
   const _Plan({
     required this.name,
+    required this.tier,
     required this.duration,
     required this.price,
     required this.originalPrice,
@@ -388,6 +431,7 @@ class _Plan {
   });
 
   final String name;
+  final String tier;
   final String duration;
   final String price;
   final String originalPrice;

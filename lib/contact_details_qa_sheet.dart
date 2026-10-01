@@ -77,7 +77,7 @@ class _ContactDetailsQASheetState extends State<ContactDetailsQASheet> with Cont
                   shrinkWrap: true,
                   itemCount: list.length,
                   itemBuilder: (ctx, i) => ListTile(
-                    leading: const Icon(Icons.location_on_outlined, color: Color(0xFF2FA086)),
+                    leading: const Icon(Icons.location_on_outlined, color: Color(0xFFD61A45)),
                     title: Text(list[i]['Name']),
                     onTap: () {
                       Navigator.pop(ctx);
@@ -148,7 +148,7 @@ class _ContactDetailsQASheetState extends State<ContactDetailsQASheet> with Cont
               children: [
                 Checkbox(
                   value: sameAsPhone,
-                  activeColor: const Color(0xFF2FA086),
+                  activeColor: const Color(0xFFD61A45),
                   onChanged: (val) => setModalState(() {
                     sameAsPhone = val ?? false;
                     whatsappCtrl.text = sameAsPhone ? phoneCtrl.text : '+91 ';
@@ -203,8 +203,8 @@ class _ContactDetailsQASheetState extends State<ContactDetailsQASheet> with Cont
                   syncPermToCurr();
                 }),
                 style: OutlinedButton.styleFrom(
-                  backgroundColor: sameAsPerm ? const Color(0xFF2FA086) : null,
-                  foregroundColor: sameAsPerm ? Colors.white : const Color(0xFF2FA086),
+                  backgroundColor: sameAsPerm ? const Color(0xFFD61A45) : null,
+                  foregroundColor: sameAsPerm ? Colors.white : const Color(0xFFD61A45),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
@@ -219,8 +219,8 @@ class _ContactDetailsQASheetState extends State<ContactDetailsQASheet> with Cont
                   syncPermToCurr();
                 }),
                 style: OutlinedButton.styleFrom(
-                  backgroundColor: !sameAsPerm ? const Color(0xFF2FA086) : null,
-                  foregroundColor: !sameAsPerm ? Colors.white : const Color(0xFF2FA086),
+                  backgroundColor: !sameAsPerm ? const Color(0xFFD61A45) : null,
+                  foregroundColor: !sameAsPerm ? Colors.white : const Color(0xFFD61A45),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
@@ -274,7 +274,7 @@ class _ContactDetailsQASheetState extends State<ContactDetailsQASheet> with Cont
     final double modalHeight = MediaQuery.of(context).size.height * 0.85;
 
     if (isLoadingData) {
-      return SizedBox(height: modalHeight, child: const Center(child: CircularProgressIndicator(color: Color(0xFF2FA086))));
+      return SizedBox(height: modalHeight, child: const Center(child: CircularProgressIndicator(color: Color(0xFFD61A45))));
     }
 
     return StatefulBuilder(
@@ -296,7 +296,7 @@ class _ContactDetailsQASheetState extends State<ContactDetailsQASheet> with Cont
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Question ${safeIndex + 1} of ${fields.length}',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFD61A45))),
                   IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
                 ],
               ),
@@ -306,7 +306,7 @@ class _ContactDetailsQASheetState extends State<ContactDetailsQASheet> with Cont
                   value: (safeIndex + 1) / fields.length,
                   minHeight: 6,
                   backgroundColor: Colors.black12,
-                  valueColor: const AlwaysStoppedAnimation(Color(0xFF2FA086)),
+                  valueColor: const AlwaysStoppedAnimation(Color(0xFFD61A45)),
                 ),
               ),
               const SizedBox(height: 20),
@@ -352,7 +352,7 @@ class _ContactDetailsQASheetState extends State<ContactDetailsQASheet> with Cont
                           ? () => saveUserData()
                           : () => setModalState(() => _qIndex = safeIndex + 1),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2FA086),
+                        backgroundColor: const Color(0xFFD61A45),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

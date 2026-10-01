@@ -858,7 +858,7 @@ class _MarriedConfirmDialogState extends State<_MarriedConfirmDialog> {
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [Colors.green.shade50, Colors.teal.shade50],
+                  colors: [Colors.pink.shade50, Colors.red.shade50],
                 ),
                 border: Border(bottom: BorderSide(color: Colors.green.shade100)),
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),

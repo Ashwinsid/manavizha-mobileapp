@@ -408,6 +408,8 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Image.asset('assets/images/logo.png', width: 26, height: 26),
+            const SizedBox(width: 6),
             const Text(
               'Manavizha',
               style: TextStyle(

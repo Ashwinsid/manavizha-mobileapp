@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'chat_security_settings.dart';
 import 'e2e.dart';
+import 'identity_verification_card.dart';
 import 'main.dart' show kAuthRedirectUrl;
 import 'profile_social_actions.dart';
 import 'web_api.dart';
@@ -35,18 +37,21 @@ class MemberSettingsScreen extends StatefulWidget {
 }
 
 class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
-  static const Color _brand = Color(0xFF2FA086);
+  static const Color _brand = Color(0xFFD61A45);
 
   static const List<_SettingsTab> _tabs = [
     _SettingsTab('app_settings', 'App Settings', Icons.smartphone_rounded),
     _SettingsTab('alerts', 'Alerts & Updates', Icons.notifications_active_rounded),
     _SettingsTab('call_prefs', 'Call Preferences', Icons.phone_in_talk_rounded),
     _SettingsTab('privacy', 'Privacy Settings', Icons.shield_outlined),
+    _SettingsTab('verification', 'ID Verification', Icons.verified_user_outlined),
+    _SettingsTab('chat_security', 'Chat Security', Icons.lock_outline_rounded),
     _SettingsTab('profile', 'Profile Visibility', Icons.visibility_off_outlined),
     _SettingsTab('password', 'Change Password', Icons.key_rounded),
     _SettingsTab('ignored', 'Ignored Profiles', Icons.person_off_outlined),
     _SettingsTab('blocked', 'Blocked Profiles', Icons.block_rounded),
     _SettingsTab('deactivate', 'Deactivate Profile', Icons.warning_amber_rounded),
+    _SettingsTab('account', 'Delete Account', Icons.delete_forever_rounded),
   ];
 
   static const List<String> _callOptions = [
@@ -98,6 +103,13 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
   // Lists.
   List<_NamedRow> _ignored = const [];
   List<_NamedRow> _blocked = const [];
+
+  @override
+  void dispose() {
+    _deleteConfirmCtrl.dispose();
+    _deletePasswordCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -183,7 +195,9 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
     final mp = row['mobile_privacy']?.toString();
     if (mp == 'show_all' || mp == 'hidden') _mobilePrivacy = mp!;
     final hp = row['horoscope_privacy']?.toString();
-    if (hp == 'visible_all' || hp == 'contacted_only') _horoscopePrivacy = hp!;
+    if (hp == 'visible_all' || hp == 'contacted_only' || hp == 'password_protected') {
+      _horoscopePrivacy = hp!;
+    }
     final pp = row['profile_privacy']?.toString();
     if (pp == 'show_all' || pp == 'registered_only') _profilePrivacy = pp!;
     final pv = row['photo_visibility']?.toString();
@@ -637,6 +651,17 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
         return _buildCallPrefsTab();
       case 'privacy':
         return _buildPrivacyTab();
+      case 'verification':
+        return IdentityVerificationCard(accent: _brand);
+      case 'chat_security':
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _sectionHeader('Chat Security', Icons.lock_outline_rounded),
+            _description('Choose how your message encryption key is protected.'),
+            ChatSecuritySettings(accent: _brand),
+          ],
+        );
       case 'profile':
         return _buildProfileVisibilityTab();
       case 'password':
@@ -647,6 +672,8 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
         return _buildBlockedTab();
       case 'deactivate':
         return _buildDeactivateTab();
+      case 'account':
+        return _buildAccountTab();
     }
     return const SizedBox.shrink();
   }
@@ -870,6 +897,14 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
           selected: _horoscopePrivacy == 'contacted_only',
           onTap: () => _saveSettings({'horoscope_privacy': 'contacted_only'}),
         ),
+        _radioCard(
+          title: 'Protect with a horoscope password',
+          subtitle: _horoscopePrivacy == 'password_protected'
+              ? 'Birth time, place and chart are shown only to members you give the password to. Tap to change the password.'
+              : 'Birth time, place and chart are shown only to members you give the password to.',
+          selected: _horoscopePrivacy == 'password_protected',
+          onTap: _onSetHoroscopePassword,
+        ),
         const SizedBox(height: 16),
         _sectionHeader('Photo privacy', Icons.photo_library_outlined),
         _description('Control who can see your profile photos.'),
@@ -895,6 +930,69 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
         ),
       ],
     );
+  }
+
+  /// Prompts for a horoscope password; hashed server-side by POST /api/settings.
+  Future<void> _onSetHoroscopePassword() async {
+    final password = await _promptSecret(
+      title: 'Horoscope password',
+      message: 'Members must enter this password to see your birth time, place and chart. '
+          'Star and raasi stay visible for matching.',
+    );
+    if (password == null) return;
+    await _saveSettings(
+      {'horoscope_privacy': 'password_protected', 'horoscope_password': password},
+      successMessage: 'Horoscope is now password protected.',
+    );
+  }
+
+  Future<String?> _promptSecret({required String title, required String message}) async {
+    final controller = TextEditingController();
+    final value = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(message, style: const TextStyle(fontSize: 13)),
+            const SizedBox(height: 14),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              maxLength: 100,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: 'Password',
+                filled: true,
+                fillColor: const Color(0xFFF5F6FA),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: _brand),
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (value == null) return null;
+    if (value.isEmpty) {
+      _toast('Password cannot be empty.');
+      return null;
+    }
+    return value;
   }
 
   /// Prompts for a photo password and saves it together with
@@ -1028,6 +1126,131 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  // Account deletion (web: settings "Delete account" + POST /api/account/delete).
+  final TextEditingController _deleteConfirmCtrl = TextEditingController();
+  final TextEditingController _deletePasswordCtrl = TextEditingController();
+  bool _deleting = false;
+  bool _signingOutAll = false;
+
+  bool get _canSubmitDelete =>
+      _deleteConfirmCtrl.text.trim().toUpperCase() == 'DELETE' &&
+      _deletePasswordCtrl.text.isNotEmpty &&
+      !_deleting;
+
+  Future<void> _goToWelcome() async {
+    E2E.reset();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(builder: (_) => const WelcomeScreen()),
+      (route) => false,
+    );
+  }
+
+  Future<void> _onLogoutAllDevices() async {
+    setState(() => _signingOutAll = true);
+    try {
+      await Supabase.instance.client.auth.signOut(scope: SignOutScope.global);
+      _toast('Signed out from all devices.');
+      await _goToWelcome();
+    } catch (e) {
+      debugPrint('MemberSettings logout all: $e');
+      if (!mounted) return;
+      setState(() => _signingOutAll = false);
+      _toast('Failed to sign out from all devices.');
+    }
+  }
+
+  Future<void> _onDeleteAccount() async {
+    if (!_canSubmitDelete) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Text('Delete account permanently?', style: TextStyle(fontWeight: FontWeight.w900)),
+        content: const Text(
+          'Your profile, photos, messages, interests and settings will be erased. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete forever'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    setState(() => _deleting = true);
+    final res = await WebApi.post('/api/account/delete', {'password': _deletePasswordCtrl.text});
+    if (!mounted) return;
+    if (!res.ok) {
+      setState(() => _deleting = false);
+      _toast(res.status == 404
+          ? 'Account deletion is not available yet. Please contact support.'
+          : (res.error ?? 'Failed to delete account. Please try again.'));
+      return;
+    }
+    _toast('Your account has been permanently deleted.');
+    try {
+      await Supabase.instance.client.auth.signOut();
+    } catch (_) {/* auth user is already gone */}
+    await _goToWelcome();
+  }
+
+  Widget _buildAccountTab() {
+    final danger = Colors.red.shade700;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _sectionHeader('Sign out everywhere', Icons.devices_other_rounded),
+        _description('Ends your session on every phone and browser, including this one.'),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: _signingOutAll ? null : _onLogoutAllDevices,
+            icon: const Icon(Icons.logout_rounded),
+            label: Text(_signingOutAll ? 'Signing out…' : 'Log out of all devices'),
+          ),
+        ),
+        const SizedBox(height: 28),
+        _sectionHeader('Delete account permanently', Icons.delete_forever_rounded, iconColor: danger),
+        _description(
+          'This erases your profile, photos, messages, interests, horoscope and settings, and removes '
+          'your login. Payment records are kept as required by law. This cannot be undone. '
+          'If you only want a break, use "Deactivate Profile" instead.',
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _deleteConfirmCtrl,
+          onChanged: (_) => setState(() {}),
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(labelText: 'Type DELETE to confirm'),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _deletePasswordCtrl,
+          onChanged: (_) => setState(() {}),
+          obscureText: true,
+          decoration: const InputDecoration(labelText: 'Your account password'),
+        ),
+        const SizedBox(height: 16),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.icon(
+            onPressed: _canSubmitDelete ? _onDeleteAccount : null,
+            style: FilledButton.styleFrom(backgroundColor: danger),
+            icon: _deleting
+                ? const SizedBox(
+                    width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.delete_forever_rounded),
+            label: const Text('Delete my account'),
+          ),
+        ),
+      ],
     );
   }
 

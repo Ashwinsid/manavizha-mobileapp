@@ -90,7 +90,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             borderRadius: BorderRadius.circular(32),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF2FA086).withOpacity(0.15),
+                color: const Color(0xFFD61A45).withOpacity(0.15),
                 blurRadius: 24,
                 offset: const Offset(0, 10),
               )
@@ -124,7 +124,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         curve: Curves.fastOutSlowIn,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF2FA086).withOpacity(0.12) : Colors.transparent,
+          color: isSelected ? const Color(0xFFD61A45).withOpacity(0.12) : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
@@ -132,7 +132,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             Icon(
               isSelected ? activeIcon : inactiveIcon,
-              color: isSelected ? const Color(0xFF2FA086) : Colors.black45,
+              color: isSelected ? const Color(0xFFD61A45) : Colors.black45,
               size: 26,
             ),
             // AnimatedSize gives a beautiful unfolding slide animation for text
@@ -146,7 +146,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         Text(
                           label,
                           style: const TextStyle(
-                            color: Color(0xFF2FA086),
+                            color: Color(0xFFD61A45),
                             fontWeight: FontWeight.w700,
                             fontSize: 14,
                           ),

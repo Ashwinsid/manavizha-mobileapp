@@ -21,8 +21,8 @@ class SouthIndianChart extends StatelessWidget {
     this.onTapHouse,
     this.highlightedHouse,
     this.borderColor = const Color(0xFF7E22CE),
-    this.headerBgColor = const Color(0x0D4B0082),
-    this.headerTextColor = const Color(0xFF4B0082),
+    this.headerBgColor = const Color(0x0DA61D38),
+    this.headerTextColor = const Color(0xFFA61D38),
     this.cellAspect = 1.0,
   });
 

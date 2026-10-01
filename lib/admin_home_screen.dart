@@ -13,7 +13,7 @@ class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
 
   /// Shared accent for admin UI (cards, shadows).
-  static const Color brandPurple = Color(0xFF2FA086);
+  static const Color brandPurple = Color(0xFFD61A45);
 
   @override
   State<AdminHomeScreen> createState() => _AdminHomeScreenState();
@@ -658,7 +658,7 @@ class AdminPlaceholderScreen extends StatelessWidget {
   final String title;
   final String message;
 
-  static const Color _brandPurple = Color(0xFF2FA086);
+  static const Color _brandPurple = Color(0xFFD61A45);
   static const Color _pageBackground = Color(0xFFF8F9FE);
 
   @override

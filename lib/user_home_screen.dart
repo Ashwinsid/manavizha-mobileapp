@@ -28,7 +28,7 @@ class UserHomeScreen extends StatefulWidget {
 }
 
 class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObserver {
-  static const Color _brand = Color(0xFF2FA086);
+  static const Color _brand = Color(0xFFD61A45);
 
   int _currentIndex = 0;
   bool _speedDialOpen = false;
@@ -245,7 +245,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
                         fontSize: 10,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 2,
-                        color: Color(0xFF2FA086),
+                        color: Color(0xFFD61A45),
                       ),
                     ),
                     Text(
@@ -360,7 +360,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
                           fontWeight: FontWeight.w900,
                           letterSpacing: 1.2,
                           fontSize: 11,
-                          color: Color(0xFF2FA086),
+                          color: Color(0xFFD61A45),
                         ),
                       ),
                     ),
@@ -409,7 +409,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
                 backgroundColor: _brand.withValues(alpha: 0.12),
                 child: Text(
                   n.name.isNotEmpty ? n.name[0].toUpperCase() : '?',
-                  style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF2FA086)),
+                  style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFFD61A45)),
                 ),
               ),
               const SizedBox(width: 12),
@@ -494,7 +494,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
                 backgroundColor: _brand.withValues(alpha: 0.12),
                 child: Text(
                   n.name.isNotEmpty ? n.name[0].toUpperCase() : '?',
-                  style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF2FA086)),
+                  style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFFD61A45)),
                 ),
               ),
               const SizedBox(width: 12),
@@ -583,7 +583,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFF1493),
+                          color: const Color(0xFFEE1E4C),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         constraints: const BoxConstraints(minWidth: 20, minHeight: 18),
@@ -648,7 +648,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
     required String tooltip,
     required VoidCallback onPressed,
     required int badgeCount,
-    Color badgeColor = const Color(0xFFFF1493),
+    Color badgeColor = const Color(0xFFEE1E4C),
   }) {
     return Tooltip(
       message: tooltip,
@@ -872,22 +872,22 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
     return [
       const SizedBox(height: 8),
       ListTile(
-        leading: const Icon(Icons.favorite_border, color: Color(0xFF2FA086)),
+        leading: const Icon(Icons.favorite_border, color: Color(0xFFD61A45)),
         title: const Text('I Liked', style: TextStyle(fontWeight: FontWeight.w600)),
         onTap: () => _dismissMenuAndGoTo(menuContext, 2),
       ),
       ListTile(
-        leading: const Icon(Icons.favorite, color: Color(0xFF2FA086)),
+        leading: const Icon(Icons.favorite, color: Color(0xFFD61A45)),
         title: const Text('Liked Me', style: TextStyle(fontWeight: FontWeight.w600)),
         onTap: () => _dismissMenuAndGoTo(menuContext, 2),
       ),
       ListTile(
-        leading: const Icon(Icons.tune_rounded, color: Color(0xFF2FA086)),
+        leading: const Icon(Icons.tune_rounded, color: Color(0xFFD61A45)),
         title: const Text('Preferences', style: TextStyle(fontWeight: FontWeight.w600)),
         onTap: () => _dismissMenuAndOpenPreferences(menuContext),
       ),
       ListTile(
-        leading: const Icon(Icons.auto_awesome, color: Color(0xFF2FA086)),
+        leading: const Icon(Icons.auto_awesome, color: Color(0xFFD61A45)),
         title: const Text('Generate Horoscope', style: TextStyle(fontWeight: FontWeight.w600)),
         subtitle: const Text('Pre-fills from your profile · save Thirukanitham/Vakkiyam · PDF download'),
         onTap: () => _dismissMenuAndOpenHoroscope(menuContext),
@@ -931,7 +931,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
         ),
       ),
       ListTile(
-        leading: const Icon(Icons.settings_rounded, color: Color(0xFF2FA086)),
+        leading: const Icon(Icons.settings_rounded, color: Color(0xFFD61A45)),
         title: const Text('Settings', style: TextStyle(fontWeight: FontWeight.w600)),
         subtitle: const Text('Alerts · Privacy · Password · Blocked · Deactivate'),
         onTap: () => _dismissMenuAndOpenSettings(menuContext),
@@ -1158,7 +1158,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
             DrawerHeader(
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Color(0xFF2FA086), Color(0xFF2575FC)],
+                  colors: [Color(0xFFD61A45), Color(0xFF2575FC)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -1173,13 +1173,11 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
                       color: Colors.white,
                       shape: BoxShape.circle,
                     ),
-                    child: const Text(
-                      'M',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFF2FA086),
-                      ),
+                    child: Image.asset(
+                      'assets/images/logo.png',
+                      width: 40,
+                      height: 40,
+                      semanticLabel: 'Manavizha',
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -1224,13 +1222,20 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'Manavizha',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF2FA086),
-                    letterSpacing: -0.5,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Image.asset('assets/images/logo.png', width: 26, height: 26),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Manavizha',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFFD61A45),
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                  ],
                 ),
                 if (_currentIndex != 0) ...[
                   const SizedBox(height: 2),
@@ -1240,7 +1245,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
                       Container(
                         width: 4,
                         height: 4,
-                        decoration: const BoxDecoration(color: Color(0xFFFF1493), shape: BoxShape.circle),
+                        decoration: const BoxDecoration(color: Color(0xFFEE1E4C), shape: BoxShape.circle),
                       ),
                       const SizedBox(width: 6),
                       Flexible(
@@ -1252,7 +1257,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
                             fontSize: 9,
                             fontWeight: FontWeight.w800,
                             letterSpacing: 2,
-                            color: const Color(0xFF2FA086).withValues(alpha: 0.65),
+                            color: const Color(0xFFD61A45).withValues(alpha: 0.65),
                           ),
                         ),
                       ),
@@ -1311,7 +1316,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
                       child: Container(
                         padding: const EdgeInsets.all(3),
                         decoration: const BoxDecoration(
-                          color: Color(0xFF4B0082),
+                          color: Color(0xFFA61D38),
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
@@ -1365,7 +1370,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
             borderRadius: BorderRadius.circular(32),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF2FA086).withValues(alpha: 0.15),
+                color: const Color(0xFFD61A45).withValues(alpha: 0.15),
                 blurRadius: 24,
                 offset: const Offset(0, 10),
               )
@@ -1405,7 +1410,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
         curve: Curves.fastOutSlowIn,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF2FA086).withValues(alpha: 0.12) : Colors.transparent,
+          color: isSelected ? const Color(0xFFD61A45).withValues(alpha: 0.12) : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
@@ -1413,7 +1418,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
           children: [
             Icon(
               isSelected ? activeIcon : inactiveIcon,
-              color: isSelected ? const Color(0xFF2FA086) : Colors.black45,
+              color: isSelected ? const Color(0xFFD61A45) : Colors.black45,
               size: 26,
             ),
             // We use AnimatedSize to smoothly slide the text in and out
@@ -1427,7 +1432,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
                         Text(
                           label,
                           style: const TextStyle(
-                            color: Color(0xFF2FA086),
+                            color: Color(0xFFD61A45),
                             fontWeight: FontWeight.w700,
                             fontSize: 14,
                           ),

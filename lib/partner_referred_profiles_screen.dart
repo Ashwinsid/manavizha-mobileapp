@@ -372,10 +372,10 @@ class _PartnerReferredProfilesScreenState
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFF1493).withValues(alpha: 0.1),
+                  color: const Color(0xFFEE1E4C).withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.warning_amber_rounded, color: Color(0xFFFF1493)),
+                child: const Icon(Icons.warning_amber_rounded, color: Color(0xFFEE1E4C)),
               ),
               const SizedBox(width: 10),
               const Expanded(
@@ -413,7 +413,7 @@ class _PartnerReferredProfilesScreenState
             FilledButton(
               onPressed: () => Navigator.of(ctx).pop(true),
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFFF1493),
+                backgroundColor: const Color(0xFFEE1E4C),
                 foregroundColor: Colors.white,
               ),
               child: const Text('Yes, mark as married'),
@@ -914,8 +914,8 @@ class _PartnerReferredProfilesScreenState
 
   Widget _profileCard(_ProfileVm p, {required bool married}) {
     final isFemale = p.sex.toLowerCase().contains('female');
-    final genderBg = isFemale ? const Color(0xFFFF1493).withValues(alpha: 0.12) : const Color(0xFF2563EB).withValues(alpha: 0.12);
-    final genderFg = isFemale ? const Color(0xFFFF1493) : const Color(0xFF2563EB);
+    final genderBg = isFemale ? const Color(0xFFEE1E4C).withValues(alpha: 0.12) : const Color(0xFF2563EB).withValues(alpha: 0.12);
+    final genderFg = isFemale ? const Color(0xFFEE1E4C) : const Color(0xFF2563EB);
 
     return Material(
       color: Colors.white,
@@ -956,13 +956,13 @@ class _PartnerReferredProfilesScreenState
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFF1493).withValues(alpha: 0.12),
+                          color: const Color(0xFFEE1E4C).withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: const Text(
                           'MARRIED',
                           style: TextStyle(
-                            color: Color(0xFFFF1493),
+                            color: Color(0xFFEE1E4C),
                             fontWeight: FontWeight.w900,
                             fontSize: 9,
                             letterSpacing: 0.4,
@@ -1007,12 +1007,12 @@ class _PartnerReferredProfilesScreenState
               alignment: Alignment.centerRight,
               child: OutlinedButton.icon(
                 onPressed: () => _onMarkMarried(p),
-                icon: const Icon(Icons.favorite_rounded, color: Color(0xFFFF1493), size: 16),
+                icon: const Icon(Icons.favorite_rounded, color: Color(0xFFEE1E4C), size: 16),
                 label: const Text('Mark as married',
-                    style: TextStyle(color: Color(0xFFFF1493), fontWeight: FontWeight.w800, fontSize: 12)),
+                    style: TextStyle(color: Color(0xFFEE1E4C), fontWeight: FontWeight.w800, fontSize: 12)),
                 style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Color(0xFFFF1493), width: 1.4),
-                  backgroundColor: const Color(0xFFFF1493).withValues(alpha: 0.06),
+                  side: const BorderSide(color: Color(0xFFEE1E4C), width: 1.4),
+                  backgroundColor: const Color(0xFFEE1E4C).withValues(alpha: 0.06),
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(99)),
                 ),

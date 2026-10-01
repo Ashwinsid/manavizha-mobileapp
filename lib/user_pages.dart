@@ -89,7 +89,7 @@ class MatchesPage extends StatefulWidget {
 }
 
 class _MatchesPageState extends State<MatchesPage> {
-  static const Color _brand = Color(0xFF2FA086);
+  static const Color _brand = Color(0xFFD61A45);
 
   bool _loading = true;
   String? _error;
@@ -1420,7 +1420,7 @@ class LikesPage extends StatefulWidget {
 }
 
 class _LikesPageState extends State<LikesPage> {
-  static const Color _brand = Color(0xFF2FA086);
+  static const Color _brand = Color(0xFFD61A45);
 
   bool _loading = true;
   String? _error;

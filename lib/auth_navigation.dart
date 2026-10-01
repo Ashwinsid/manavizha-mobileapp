@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
+import 'e2e.dart';
 import 'parent_home_screen.dart';
 import 'partner_home_screen.dart';
 import 'user_home_screen.dart';
@@ -10,7 +11,11 @@ import 'user_home_screen.dart';
 /// (`admins` → `referral_partners` → `parents`, falling back to the regular
 /// member home). Order mirrors `manavizha/lib/auth.ts#getUserDashboard`.
 /// Clears the stack (same as [LoginScreen] after successful sign-in).
-Future<void> navigateToRoleHome(BuildContext context, String userId) async {
+///
+/// [memberPassword] — the password just used to sign in, if any; members'
+/// chat keys are unlocked with it (see [E2E.unlockAfterLogin]).
+Future<void> navigateToRoleHome(BuildContext context, String userId,
+    {String? memberPassword}) async {
   final nav = Navigator.of(context);
   final client = Supabase.instance.client;
 
@@ -70,6 +75,9 @@ Future<void> navigateToRoleHome(BuildContext context, String userId) async {
   } catch (e, st) {
     debugPrint('navigateToRoleHome parents: $e\n$st');
   }
+
+  // Members: unlock (or create) the chat key while the password is at hand.
+  if (memberPassword != null) await E2E.unlockAfterLogin(memberPassword);
 
   if (!context.mounted) return;
   nav.pushAndRemoveUntil(

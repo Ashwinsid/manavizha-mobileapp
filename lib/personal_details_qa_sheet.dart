@@ -324,7 +324,7 @@ class _PersonalDetailsQASheetState extends State<PersonalDetailsQASheet> {
                   label: Text(lang, style: const TextStyle(fontSize: 12)),
                   onDeleted: () => setState(() => _languages.remove(lang)),
                   deleteIcon: const Icon(Icons.close, size: 14),
-                  backgroundColor: const Color(0xFF2FA086).withOpacity(0.1),
+                  backgroundColor: const Color(0xFFD61A45).withOpacity(0.1),
                 )),
             ActionChip(
               label: const Text('Add Language', style: TextStyle(fontSize: 12)),
@@ -427,7 +427,7 @@ class _PersonalDetailsQASheetState extends State<PersonalDetailsQASheet> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('Question ${_qIndex + 1} of $_questionCount',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFD61A45))),
               IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
             ],
           ),
@@ -437,7 +437,7 @@ class _PersonalDetailsQASheetState extends State<PersonalDetailsQASheet> {
               value: (_qIndex + 1) / _questionCount,
               minHeight: 6,
               backgroundColor: Colors.black12,
-              valueColor: const AlwaysStoppedAnimation(Color(0xFF2FA086)),
+              valueColor: const AlwaysStoppedAnimation(Color(0xFFD61A45)),
             ),
           ),
           const SizedBox(height: 20),
@@ -485,7 +485,7 @@ class _PersonalDetailsQASheetState extends State<PersonalDetailsQASheet> {
                           ? _submit
                           : () => setState(() => _qIndex++),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2FA086),
+                    backgroundColor: const Color(0xFFD61A45),
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

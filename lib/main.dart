@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'e2e.dart';
 import 'splash_screen.dart';
 import 'update_password_screen.dart';
 
@@ -48,6 +49,9 @@ class _MyAppState extends State<MyApp> {
           MaterialPageRoute<void>(builder: (_) => const UpdatePasswordScreen()),
         );
       }
+      // Every sign-out path (member, parent, partner, admin) drops the
+      // on-device chat key.
+      if (state.event == AuthChangeEvent.signedOut) E2E.reset();
     });
   }
 
@@ -66,7 +70,7 @@ class _MyAppState extends State<MyApp> {
       navigatorKey: _navigatorKey,
       theme: ThemeData(
         fontFamily: 'Satoshi',
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2FA086)),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFD61A45)),
         useMaterial3: true,
       ),
       home: const SplashScreen(),

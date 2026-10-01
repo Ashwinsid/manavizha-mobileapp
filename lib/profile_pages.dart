@@ -9,6 +9,7 @@ import 'partner_preferences_screen.dart';
 import 'personal_details_qa_sheet.dart';
 import 'contact_details_logic.dart';
 import 'contact_details_qa_sheet.dart';
+import 'member_settings_screen.dart';
 
 class UserDetailsPage extends StatefulWidget {
   const UserDetailsPage({super.key});
@@ -147,7 +148,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     final p = _sectionPercentFor(title).clamp(0, 100);
     final color = p >= 100
         ? const Color(0xFF15803D)
-        : (p > 0 ? const Color(0xFF2FA086) : const Color(0xFF737373));
+        : (p > 0 ? const Color(0xFFD61A45) : const Color(0xFF737373));
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
@@ -708,7 +709,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     List<String> localHobbies = List<String>.from(_selectedHobbies);
     List<String> localInterests = List<String>.from(_selectedInterests);
     int qIndex = 0;
-    const brand = Color(0xFF2FA086);
+    const brand = Color(0xFFD61A45);
 
     showModalBottomSheet(
       context: context,
@@ -919,7 +920,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
   Widget _buildSectionTitle(String title) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
+      child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFFD61A45))),
     );
   }
 
@@ -1078,7 +1079,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                           
                           const Padding(
                             padding: EdgeInsets.only(bottom: 8.0, top: 8.0),
-                            child: Text('Languages', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
+                            child: Text('Languages', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFFD61A45))),
                           ),
                           Wrap(
                             spacing: 8,
@@ -1087,7 +1088,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                                 label: Text(lang, style: const TextStyle(fontSize: 12)),
                                 onDeleted: () => setModalState(() => _selectedLanguages.remove(lang)),
                                 deleteIcon: const Icon(Icons.close, size: 14),
-                                backgroundColor: const Color(0xFF2FA086).withOpacity(0.1),
+                                backgroundColor: const Color(0xFFD61A45).withOpacity(0.1),
                               )),
                               ActionChip(
                                 label: const Text('Add Language', style: TextStyle(fontSize: 12)),
@@ -1141,7 +1142,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                             child: ElevatedButton(
                               onPressed: _savePersonalDetails,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF2FA086),
+                                backgroundColor: const Color(0xFFD61A45),
                                 padding: const EdgeInsets.all(16),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                               ),
@@ -1167,7 +1168,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
   /// write path as before.
   void _showSocialHabitsEditor() {
     int qIndex = 0;
-    const brand = Color(0xFF2FA086);
+    const brand = Color(0xFFD61A45);
 
     showModalBottomSheet(
       context: context,
@@ -1331,10 +1332,10 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
             decoration: BoxDecoration(
               color: const Color(0xFFF0F0F5),
               shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFF2FA086).withOpacity(0.1), width: 4),
+              border: Border.all(color: const Color(0xFFD61A45).withOpacity(0.1), width: 4),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF2FA086).withOpacity(0.1),
+                  color: const Color(0xFFD61A45).withOpacity(0.1),
                   blurRadius: 20,
                   offset: const Offset(0, 10),
                 )
@@ -1344,15 +1345,15 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
               child: _isLoadingPhoto 
                 ? const Padding(
                     padding: EdgeInsets.all(30.0),
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF2FA086)),
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD61A45)),
                   )
                 : _profilePhotoUrl != null 
                   ? Image.network(
                       _profilePhotoUrl!,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => const Icon(Icons.person, size: 50, color: Color(0xFF2FA086)),
+                      errorBuilder: (context, error, stackTrace) => const Icon(Icons.person, size: 50, color: Color(0xFFD61A45)),
                     )
-                  : const Icon(Icons.person, size: 50, color: Color(0xFF2FA086)),
+                  : const Icon(Icons.person, size: 50, color: Color(0xFFD61A45)),
             ),
           ),
         ),
@@ -1386,7 +1387,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
             side: BorderSide(color: Colors.black.withOpacity(0.05)),
           ),
           child: ListTile(
-            leading: const Icon(Icons.tune_outlined, color: Color(0xFF2FA086)),
+            leading: const Icon(Icons.tune_outlined, color: Color(0xFFD61A45)),
             title: const Text('Partner Preferences', style: TextStyle(fontWeight: FontWeight.w600)),
             trailing: const Icon(Icons.chevron_right, color: Colors.black45),
             onTap: () {
@@ -1423,7 +1424,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
         side: BorderSide(color: Colors.black.withOpacity(0.05)),
       ),
       child: ExpansionTile(
-        leading: Icon(icon, color: const Color(0xFF2FA086)),
+        leading: Icon(icon, color: const Color(0xFFD61A45)),
         title: Row(
           children: [
             Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600))),
@@ -1452,8 +1453,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit Details'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF2FA086),
-                        side: const BorderSide(color: Color(0xFF2FA086)),
+                        foregroundColor: const Color(0xFFD61A45),
+                        side: const BorderSide(color: Color(0xFFD61A45)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
@@ -1480,10 +1481,10 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                             _fetchSectionCompletion();
                           });
                         },
-                        icon: const Icon(Icons.edit, size: 16, color: Color(0xFF2FA086)),
-                        label: const Text('Edit Contact Details', style: TextStyle(color: Color(0xFF2FA086))),
+                        icon: const Icon(Icons.edit, size: 16, color: Color(0xFFD61A45)),
+                        label: const Text('Edit Contact Details', style: TextStyle(color: Color(0xFFD61A45))),
                         style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFF2FA086)),
+                          side: const BorderSide(color: Color(0xFFD61A45)),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
                       ),
@@ -1504,7 +1505,7 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                           .map(
                             (h) => Chip(
                               label: Text(h, style: const TextStyle(fontSize: 12)),
-                              backgroundColor: const Color(0xFF2FA086).withOpacity(0.1),
+                              backgroundColor: const Color(0xFFD61A45).withOpacity(0.1),
                               padding: EdgeInsets.zero,
                               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),
@@ -1542,8 +1543,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit Interests'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF2FA086),
-                        side: const BorderSide(color: Color(0xFF2FA086)),
+                        foregroundColor: const Color(0xFFD61A45),
+                        side: const BorderSide(color: Color(0xFFD61A45)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
@@ -1561,8 +1562,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit Social Habits'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF2FA086),
-                        side: const BorderSide(color: Color(0xFF2FA086)),
+                        foregroundColor: const Color(0xFFD61A45),
+                        side: const BorderSide(color: Color(0xFFD61A45)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
@@ -1602,8 +1603,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       icon: const Icon(Icons.edit, size: 16),
                       label: Text(_educationRows.isEmpty ? 'Add education' : 'Edit education'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF2FA086),
-                        side: const BorderSide(color: Color(0xFF2FA086)),
+                        foregroundColor: const Color(0xFFD61A45),
+                        side: const BorderSide(color: Color(0xFFD61A45)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
@@ -1626,8 +1627,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit professional details'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF2FA086),
-                        side: const BorderSide(color: Color(0xFF2FA086)),
+                        foregroundColor: const Color(0xFFD61A45),
+                        side: const BorderSide(color: Color(0xFFD61A45)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
@@ -1646,8 +1647,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit family details'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF2FA086),
-                        side: const BorderSide(color: Color(0xFF2FA086)),
+                        foregroundColor: const Color(0xFFD61A45),
+                        side: const BorderSide(color: Color(0xFFD61A45)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
@@ -1666,8 +1667,8 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit horoscope details'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF2FA086),
-                        side: const BorderSide(color: Color(0xFF2FA086)),
+                        foregroundColor: const Color(0xFFD61A45),
+                        side: const BorderSide(color: Color(0xFFD61A45)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
@@ -1901,7 +1902,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
           color: const Color(0xFFF0F0F5),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: fileOrUrl != null ? const Color(0xFF2FA086) : Colors.black12,
+            color: fileOrUrl != null ? const Color(0xFFD61A45) : Colors.black12,
             width: 2,
             style: fileOrUrl != null ? BorderStyle.solid : BorderStyle.none,
           ),
@@ -1957,7 +1958,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFF2FA086), width: 2),
+            border: Border.all(color: const Color(0xFFD61A45), width: 2),
             color: const Color(0xFFF0F0F5),
           ),
           child: Stack(
@@ -2037,10 +2038,6 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please upload at least 3 profile photos')));
       return;
     }
-    if (aadharFront == null || aadharBack == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Aadhar Front & Back are mandatory')));
-      return;
-    }
 
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
@@ -2068,20 +2065,17 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
             .maybeSingle();
         familyUrl = existing?['family_photo'] as String?;
       }
-      final aadharFrontUrl = await _processUpload(aadharFront, 'aadhar-photos', 'front');
-      final aadharBackUrl = await _processUpload(aadharBack, 'aadhar-photos', 'back');
-
+      // Aadhaar images are no longer collected — identity is verified via
+      // DigiLocker (Settings → ID Verification), matching the web app.
       await Supabase.instance.client.from('photos').upsert({
         'user_id': userId,
         'user_photos': uploadedUserPhotos,
         'family_photo': familyUrl,
-        'aadhar_front': aadharFrontUrl,
-        'aadhar_back': aadharBackUrl,
         'updated_at': DateTime.now().toIso8601String(),
       }, onConflict: 'user_id');
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Photos verified and saved successfully!')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Photos saved successfully!')));
         setState(() => _isEditing = false); // Exit edit mode after successful save!
       }
     } catch (e) {
@@ -2094,6 +2088,39 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
     }
   }
 
+  /// Points members to Aadhaar verification via DigiLocker (Settings → ID
+  /// Verification) — replaces the old Aadhaar card photo upload.
+  Widget _digiLockerCard() {
+    const brand = Color(0xFFD61A45);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: brand.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: brand.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Verify your identity with Aadhaar through DigiLocker (Government of India). '
+            'We never upload or store your Aadhaar card — only the result and the last 4 digits.',
+            style: TextStyle(fontSize: 13, height: 1.4),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(backgroundColor: brand),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const MemberSettingsScreen(initialTab: 'verification')),
+            ),
+            icon: const Icon(Icons.verified_user_outlined, size: 18),
+            label: const Text('Verify with DigiLocker'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// One-question-at-a-time editor, mirroring
   /// manavizha/components/profile-steps/photos-qa.tsx: photos (min 3),
   /// family photo (optional), Aadhar front, Aadhar back. Same
@@ -2101,7 +2128,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
   int _qIndex = 0;
 
   Widget _buildQAEditor() {
-    const brand = Color(0xFF2FA086);
+    const brand = Color(0xFFD61A45);
     final questions = <({String title, String subtitle, bool Function() isValid, Widget child})>[
       (
         title: 'Add your photos',
@@ -2130,22 +2157,10 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
         ),
       ),
       (
-        title: 'Upload the front of your Aadhar card',
-        subtitle: 'For internal verification only — never shown to other members.',
-        isValid: () => aadharFront != null,
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: _buildPhotoSlot(aadharFront, 'Aadhar\nFront', 'aadhar_front', size: 140),
-        ),
-      ),
-      (
-        title: 'Now the back of your Aadhar card',
-        subtitle: 'For internal verification only — never shown to other members.',
-        isValid: () => aadharBack != null,
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: _buildPhotoSlot(aadharBack, 'Aadhar\nBack', 'aadhar_back', size: 140),
-        ),
+        title: 'Get your ID Verified badge',
+        subtitle: 'Optional. Verify with Aadhaar through DigiLocker — no card photos are uploaded.',
+        isValid: () => true,
+        child: _digiLockerCard(),
       ),
     ];
     final safeIndex = _qIndex >= questions.length ? questions.length - 1 : _qIndex;
@@ -2251,7 +2266,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF2FA086)));
+      return const Center(child: CircularProgressIndicator(color: Color(0xFFD61A45)));
     }
 
     if (_isEditing) return _buildQAEditor();
@@ -2262,7 +2277,7 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text('Your Gallery', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
+            const Text('Your Gallery', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFFD61A45))),
             IconButton(
               icon: const Icon(Icons.edit, color: Colors.black54),
               onPressed: () => setState(() {
@@ -2302,17 +2317,9 @@ class _UserPhotosPageState extends State<UserPhotosPage> {
         ),
 
         const SizedBox(height: 32),
-        const Text('Aadhar Card', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const Text('ID Verification', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        const Text('Mandatory. Front and back sides required for KYC.', style: TextStyle(color: Colors.black54, fontSize: 12)),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(child: _buildPhotoSlot(aadharFront, 'Aadhar\nFront', 'aadhar_front', size: 120)),
-            const SizedBox(width: 16),
-            Expanded(child: _buildPhotoSlot(aadharBack, 'Aadhar\nBack', 'aadhar_back', size: 120)),
-          ],
-        ),
+        _digiLockerCard(),
         const SizedBox(height: 100), // Spacing for bottom dock
       ],
     );
@@ -2481,7 +2488,7 @@ class _ReferralDetailsPageState extends State<ReferralDetailsPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Referral details saved successfully!'),
-          backgroundColor: Color(0xFF2FA086),
+          backgroundColor: Color(0xFFD61A45),
         ));
       }
     } catch (e) {
@@ -2498,7 +2505,7 @@ class _ReferralDetailsPageState extends State<ReferralDetailsPage> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF2FA086)));
+      return const Center(child: CircularProgressIndicator(color: Color(0xFFD61A45)));
     }
 
     // Single-question presentation, mirroring
@@ -2510,7 +2517,7 @@ class _ReferralDetailsPageState extends State<ReferralDetailsPage> {
         const Padding(
           padding: EdgeInsets.only(left: 4, bottom: 8),
           child: Text('Question 1 of 1',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFD61A45))),
         ),
         ClipRRect(
           borderRadius: BorderRadius.circular(4),
@@ -2518,7 +2525,7 @@ class _ReferralDetailsPageState extends State<ReferralDetailsPage> {
             value: 1,
             minHeight: 6,
             backgroundColor: Colors.black12,
-            valueColor: AlwaysStoppedAnimation(Color(0xFF2FA086)),
+            valueColor: AlwaysStoppedAnimation(Color(0xFFD61A45)),
           ),
         ),
         const SizedBox(height: 20),
@@ -2570,7 +2577,7 @@ class _ReferralDetailsPageState extends State<ReferralDetailsPage> {
                       borderRadius: BorderRadius.circular(10),
                       borderSide: BorderSide(
                         color: _isValidPattern && _partnerName.isNotEmpty
-                            ? const Color(0xFF2FA086).withOpacity(0.4)
+                            ? const Color(0xFFD61A45).withOpacity(0.4)
                             : _partnerError.isNotEmpty
                                 ? Colors.red.withOpacity(0.4)
                                 : Colors.black.withOpacity(0.1),
@@ -2578,12 +2585,12 @@ class _ReferralDetailsPageState extends State<ReferralDetailsPage> {
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFF2FA086)),
+                      borderSide: const BorderSide(color: Color(0xFFD61A45)),
                     ),
                     suffixIcon: _isLoadingPartner
                         ? const Padding(
                             padding: EdgeInsets.all(12),
-                            child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF2FA086))),
+                            child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD61A45))),
                           )
                         : null,
                   ),
@@ -2594,7 +2601,7 @@ class _ReferralDetailsPageState extends State<ReferralDetailsPage> {
                   const Text('Format: 2 letters, 4 numbers, 2 letters, 3 numbers',
                       style: TextStyle(fontSize: 11, color: Colors.orange)),
                 if (_isValidPattern && _partnerName.isNotEmpty && _partnerError.isEmpty)
-                  const Text('ID verified ✓', style: TextStyle(fontSize: 11, color: Color(0xFF2FA086), fontWeight: FontWeight.w600)),
+                  const Text('ID verified ✓', style: TextStyle(fontSize: 11, color: Color(0xFFD61A45), fontWeight: FontWeight.w600)),
                 const Text('Enter the ID of your referral partner (optional)',
                     style: TextStyle(fontSize: 11, color: Colors.black45)),
 
@@ -2615,7 +2622,7 @@ class _ReferralDetailsPageState extends State<ReferralDetailsPage> {
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                       color: _partnerName.isNotEmpty
-                          ? const Color(0xFF2FA086).withOpacity(0.3)
+                          ? const Color(0xFFD61A45).withOpacity(0.3)
                           : Colors.black.withOpacity(0.08),
                     ),
                   ),
@@ -2651,7 +2658,7 @@ class _ReferralDetailsPageState extends State<ReferralDetailsPage> {
           child: ElevatedButton(
             onPressed: _isSaving ? null : _saveReferral,
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2FA086),
+              backgroundColor: const Color(0xFFD61A45),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               elevation: 0,
@@ -2735,7 +2742,7 @@ class _ContactDetailsPageState extends State<ContactDetailsPage> {
           children: [
             Row(
               children: [
-                Icon(icon, color: const Color(0xFF2FA086), size: 20),
+                Icon(icon, color: const Color(0xFFD61A45), size: 20),
                 const SizedBox(width: 8),
                 Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ],
@@ -2762,7 +2769,7 @@ class _ContactDetailsPageState extends State<ContactDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) return const Center(child: CircularProgressIndicator(color: Color(0xFF2FA086)));
+    if (_isLoading) return const Center(child: CircularProgressIndicator(color: Color(0xFFD61A45)));
 
     return ListView(
       padding: const EdgeInsets.all(24.0),
@@ -2774,15 +2781,15 @@ class _ContactDetailsPageState extends State<ContactDetailsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                   Text('Contact Details', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
+                   Text('Contact Details', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFFD61A45))),
                    SizedBox(height: 4),
                    Text('Your active communication lines', style: TextStyle(color: Colors.black54)),
                 ],
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.edit_note, color: Color(0xFF2FA086), size: 30),
-              style: IconButton.styleFrom(backgroundColor: const Color(0xFF2FA086).withOpacity(0.1)),
+              icon: const Icon(Icons.edit_note, color: Color(0xFFD61A45), size: 30),
+              style: IconButton.styleFrom(backgroundColor: const Color(0xFFD61A45).withOpacity(0.1)),
               onPressed: _openEditor,
             ),
           ],
@@ -2882,7 +2889,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> w
                   itemCount: list.length,
                   itemBuilder: (ctx, i) {
                     return ListTile(
-                      leading: const Icon(Icons.location_on_outlined, color: Color(0xFF2FA086)),
+                      leading: const Icon(Icons.location_on_outlined, color: Color(0xFFD61A45)),
                       title: Text(list[i]['Name']),
                       onTap: () {
                         Navigator.pop(ctx);
@@ -2956,7 +2963,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> w
       return SizedBox(
         height: modalHeight,
         child: const Center(
-          child: CircularProgressIndicator(color: Color(0xFF2FA086)),
+          child: CircularProgressIndicator(color: Color(0xFFD61A45)),
         ),
       );
     }
@@ -2974,7 +2981,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> w
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Edit Contacts', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF2FA086))),
+                    const Text('Edit Contacts', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFFD61A45))),
                     IconButton(
                       icon: const Icon(Icons.close, color: Colors.black54),
                       onPressed: () => Navigator.pop(context),
@@ -2996,7 +3003,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> w
           children: [
             Checkbox(
               value: sameAsPhone,
-              activeColor: const Color(0xFF2FA086),
+              activeColor: const Color(0xFFD61A45),
               onChanged: (val) {
                 setState(() {
                   sameAsPhone = val ?? false;
@@ -3036,7 +3043,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> w
           children: [
             Checkbox(
               value: sameAsPerm,
-              activeColor: const Color(0xFF2FA086),
+              activeColor: const Color(0xFFD61A45),
               onChanged: (val) {
                 setState(() {
                   sameAsPerm = val ?? false;
@@ -3068,7 +3075,7 @@ class _ContactDetailsEditorSheetState extends State<ContactDetailsEditorSheet> w
           child: ElevatedButton(
             onPressed: () => saveUserData(),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2FA086),
+              backgroundColor: const Color(0xFFD61A45),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             ),

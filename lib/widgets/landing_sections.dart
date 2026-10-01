@@ -17,8 +17,8 @@ import 'package:flutter/material.dart';
 /// composition (`app/page.tsx`).
 
 const Color _brandIndigo = Color(0xFF1F4068);
-const Color _brandPurple = Color(0xFF4B0082);
-const Color _brandPink = Color(0xFFFF1493);
+const Color _brandPurple = Color(0xFFA61D38);
+const Color _brandPink = Color(0xFFEE1E4C);
 const Color _brandAmber = Color(0xFFFFA500);
 
 /// One marketing feature card (mirrors the web `features` array entries).

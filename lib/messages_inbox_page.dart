@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
+import 'chat_unlock_dialog.dart';
 import 'e2e.dart';
 import 'premium_utils.dart';
 import 'profile_social_actions.dart';
@@ -49,6 +50,10 @@ class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver
   bool _otherPersonHasMessaged = false; // true when the other party already sent a message to us
   String _search = '';
   bool _mobileShowList = true;
+  ChatKeyState? _keyState;
+
+  bool get _chatsLocked =>
+      _keyState == ChatKeyState.setup || _keyState == ChatKeyState.locked;
 
   RealtimeChannel? _rt;
   Timer? _rtDebounce;
@@ -102,6 +107,10 @@ class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver
       _error = null;
     });
     await _loadPremium(client, uid);
+    // This device's chat key, if already unlocked; otherwise a banner offers
+    // showChatUnlockDialog.
+    final key = await E2E.status();
+    if (mounted) setState(() => _keyState = key.state);
     await _loadConversations(client, uid);
     _subscribeRealtime(client, uid);
     if (!mounted) return;
@@ -303,7 +312,54 @@ class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver
     if (!m.isEncrypted || m.iv == null || m.iv!.isEmpty) return m;
     final other = m.senderId == uid ? m.receiverId : m.senderId;
     final dec = await E2E.decrypt(m.content, m.iv!, other);
-    return m.withContent(dec ?? '🔒 Encrypted message');
+    return m.withContent(dec ??
+        (E2E.isUnlocked
+            ? "🔒 This message can't be read — the chat keys were reset"
+            : '🔒 Unlock your chats to read this message'));
+  }
+
+  /// Shows the unlock dialog; on success reloads the inbox and open thread.
+  Future<bool> _unlockChats() async {
+    if (!await showChatUnlockDialog(context)) return false;
+    if (!mounted) return true;
+    setState(() => _keyState = ChatKeyState.ready);
+    final client = Supabase.instance.client;
+    final uid = _userId;
+    if (uid != null) {
+      await _loadConversations(client, uid, silent: true);
+      final sel = _selected;
+      if (sel != null) {
+        await _loadThread(client, uid, sel.otherUserId, silent: true, skipMarkRead: true);
+      }
+    }
+    return true;
+  }
+
+  Widget _lockBanner() {
+    return Material(
+      color: const Color(0xFFFFF5F7),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+        child: Row(
+          children: [
+            Icon(Icons.lock_outline_rounded, color: _brand, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _keyState == ChatKeyState.setup
+                    ? 'Set up secure messaging to send and read encrypted messages.'
+                    : 'Your chats are locked on this device.',
+                style: const TextStyle(fontSize: 13),
+              ),
+            ),
+            TextButton(
+              onPressed: _unlockChats,
+              child: Text(_keyState == ChatKeyState.setup ? 'Set up' : 'Unlock'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _loadThread(
@@ -390,6 +446,10 @@ class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver
     );
     if (!mounted) return;
     setState(() => _sending = false);
+    if (err == ProfileSocialActions.chatLockedError) {
+      if (await _unlockChats()) await _send();
+      return;
+    }
     if (err != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
       return;
@@ -415,7 +475,7 @@ class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver
       return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_error!, textAlign: TextAlign.center)));
     }
 
-    return LayoutBuilder(
+    final panes = LayoutBuilder(
       builder: (context, c) {
         final wide = c.maxWidth >= 720;
         if (!wide) {
@@ -445,6 +505,11 @@ class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver
           ),
         );
       },
+    );
+    if (!_chatsLocked) return panes;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [_lockBanner(), Expanded(child: panes)],
     );
   }
 
@@ -559,7 +624,7 @@ class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver
                                         child: Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                           decoration: BoxDecoration(
-                                            color: const Color(0xFFFF1493),
+                                            color: const Color(0xFFEE1E4C),
                                             borderRadius: BorderRadius.circular(999),
                                           ),
                                           constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
@@ -754,7 +819,7 @@ class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver
                           child: DecoratedBox(
                             decoration: BoxDecoration(
                               gradient: mine
-                                  ? const LinearGradient(colors: [Color(0xFF2FA086), Color(0xFF248A73)])
+                                  ? const LinearGradient(colors: [Color(0xFFD61A45), Color(0xFF248A73)])
                                   : null,
                               color: mine ? null : Colors.white,
                               borderRadius: BorderRadius.only(

@@ -52,14 +52,14 @@ class _PartnerLandingScreenState extends State<PartnerLandingScreen> {
       title: 'Grow your business',
       description:
           'Scale your referral business with our comprehensive partner program and dedicated support team.',
-      tint: Color(0xFF4B0082),
+      tint: Color(0xFFA61D38),
     ),
     _BenefitVm(
       icon: Icons.shield_rounded,
       title: 'Trusted platform',
       description:
           'Partner with a verified, secure platform trusted by thousands of families across the country.',
-      tint: Color(0xFFFF1493),
+      tint: Color(0xFFEE1E4C),
     ),
     _BenefitVm(
       icon: Icons.emoji_events_rounded,
@@ -202,7 +202,7 @@ class _PartnerLandingScreenState extends State<PartnerLandingScreen> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF1F4068), Color(0xFF4B0082), Color(0xFFFF1493), Color(0xFFFFA500)],
+          colors: [Color(0xFFA61D38), Color(0xFFEE1E4C), Color(0xFFEE3165), Color(0xFFEFCE80)],
           stops: [0.0, 0.35, 0.7, 1.0],
         ),
       ),
@@ -224,7 +224,7 @@ class _PartnerLandingScreenState extends State<PartnerLandingScreen> {
                     Container(
                       width: 12, height: 12,
                       decoration: const BoxDecoration(
-                        color: Color(0xFFFF1493),
+                        color: Color(0xFFEE1E4C),
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -454,10 +454,10 @@ class _PartnerLandingScreenState extends State<PartnerLandingScreen> {
             width: 40, height: 40,
             decoration: const BoxDecoration(
               gradient: LinearGradient(
-                colors: [Color(0xFF1F4068), Color(0xFF4B0082), Color(0xFFFF1493)],
+                colors: [Color(0xFFA61D38), Color(0xFFEE1E4C), Color(0xFFEE3165)],
               ),
               shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: Color(0x554B0082), blurRadius: 12, offset: Offset(0, 6))],
+              boxShadow: [BoxShadow(color: Color(0x55EE1E4C), blurRadius: 12, offset: Offset(0, 6))],
             ),
             child: Center(
               child: Text(
@@ -484,11 +484,11 @@ class _PartnerLandingScreenState extends State<PartnerLandingScreen> {
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF4B0082), Color(0xFFFF1493)],
+            colors: [Color(0xFFEE1E4C), Color(0xFFEE3165)],
           ),
           borderRadius: BorderRadius.circular(22),
           boxShadow: [
-            BoxShadow(color: const Color(0x554B0082).withValues(alpha: 0.4), blurRadius: 18, offset: const Offset(0, 10)),
+            BoxShadow(color: const Color(0x55EE1E4C).withValues(alpha: 0.4), blurRadius: 18, offset: const Offset(0, 10)),
           ],
         ),
         child: Column(
@@ -518,7 +518,7 @@ class _PartnerLandingScreenState extends State<PartnerLandingScreen> {
               onPressed: () => _openAuth(signup: true),
               style: FilledButton.styleFrom(
                 backgroundColor: Colors.white,
-                foregroundColor: const Color(0xFF4B0082),
+                foregroundColor: const Color(0xFFA61D38),
                 padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
               ),

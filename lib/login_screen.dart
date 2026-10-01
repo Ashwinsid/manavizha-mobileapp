@@ -85,7 +85,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           FilledButton(
             style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF2FA086)),
+                backgroundColor: const Color(0xFFD61A45)),
             onPressed: () => Navigator.pop(ctx, controller.text.trim()),
             child: const Text('Send link'),
           ),
@@ -141,7 +141,7 @@ class _LoginScreenState extends State<LoginScreen> {
         final userId = response.user!.id;
         await Future<void>.delayed(Duration.zero);
         if (!mounted) return;
-        await navigateToRoleHome(context, userId);
+        await navigateToRoleHome(context, userId, memberPassword: password);
       }
     } on AuthException catch (e) {
       if (mounted) {
@@ -231,7 +231,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF2FA086), width: 1.5),
+                      borderSide: const BorderSide(color: Color(0xFFD61A45), width: 1.5),
                     ),
                   ),
                 ),
@@ -269,7 +269,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF2FA086), width: 1.5),
+                      borderSide: const BorderSide(color: Color(0xFFD61A45), width: 1.5),
                     ),
                   ),
                 ),
@@ -285,7 +285,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: const Text(
                       "Forgot Password?",
                       style: TextStyle(
-                        color: Color(0xFF2FA086),
+                        color: Color(0xFFD61A45),
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -301,13 +301,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _handleLogin,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2FA086),
+                      backgroundColor: const Color(0xFFD61A45),
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
                       elevation: 4,
-                      shadowColor: const Color(0xFF2FA086).withOpacity(0.4),
+                      shadowColor: const Color(0xFFD61A45).withOpacity(0.4),
                     ),
                     child: _isLoading 
                       ? const SizedBox(
@@ -340,7 +340,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: const Text(
                         "Sign Up",
                         style: TextStyle(
-                          color: Color(0xFF2FA086),
+                          color: Color(0xFFD61A45),
                           fontWeight: FontWeight.w700,
                         ),
                       ),

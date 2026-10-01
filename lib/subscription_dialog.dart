@@ -85,7 +85,7 @@ class SubscriptionDialog extends StatelessWidget {
                   width: 140,
                   height: 140,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFF1493).withValues(alpha: 0.10),
+                    color: const Color(0xFFEE1E4C).withValues(alpha: 0.10),
                     shape: BoxShape.circle,
                   ),
                 ),

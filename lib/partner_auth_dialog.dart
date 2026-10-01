@@ -237,7 +237,7 @@ class _PartnerAuthDialogState extends State<PartnerAuthDialog> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF1F4068), Color(0xFF4B0082), Color(0xFFFF1493), Color(0xFFFFA500)],
+          colors: [Color(0xFFA61D38), Color(0xFFEE1E4C), Color(0xFFEE3165), Color(0xFFEFCE80)],
           stops: [0.0, 0.35, 0.7, 1.0],
         ),
       ),

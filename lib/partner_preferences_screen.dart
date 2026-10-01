@@ -18,7 +18,7 @@ class PartnerPreferencesScreen extends StatefulWidget {
 }
 
 class _PartnerPreferencesScreenState extends State<PartnerPreferencesScreen> {
-  static const Color _brand = Color(0xFF2FA086);
+  static const Color _brand = Color(0xFFD61A45);
 
   // ── Static option lists (mirrors web partner-preferences-form.tsx) ───────
   static const List<String> _countries = ['Any', 'India', 'USA', 'UK', 'Canada', 'Australia', 'Singapore', 'UAE', 'Kuwait', 'Qatar', 'Malaysia', 'Germany', 'France', 'Italy', 'Sri Lanka', 'New Zealand', 'Others'];

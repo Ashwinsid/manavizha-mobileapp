@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Matches Flutter [splash_screen.dart] visible 3-stop light gradient (white -> mid mint -> mint) -->
+    <!-- Matches Flutter [splash_screen.dart] 3-stop light gradient (white -> soft blush -> blush),
+         tinted to the rose logo (#EE3165 -> #EE1E4C). -->
     <color name="splash_brand">#FFFFFFFF</color>
-    <color name="splash_gradient_mid">#FFD8F2EA</color>
-    <color name="splash_gradient_end">#FF9BDDC9</color>
+    <color name="splash_gradient_mid">#FFFDE6EC</color>
+    <color name="splash_gradient_end">#FFF7BFCE</color>
 	<color name="ic_launcher_background">#FFFFFF</color>
 </resources>

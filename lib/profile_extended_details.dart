@@ -15,7 +15,7 @@ import 'horoscope_screen.dart';
 import 'user_profile_completion.dart';
 import 'widgets/global_location_selector.dart';
 
-const _brand = Color(0xFF2FA086);
+const _brand = Color(0xFFD61A45);
 
 /// Modal routes often report 0 [MediaQuery.viewInsets] while the keyboard is open; fall back to [View] metrics.
 double _keyboardBottomInset(BuildContext context) {
@@ -4515,12 +4515,12 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: const Color(0xFF4B0082).withValues(alpha: 0.06),
+            color: const Color(0xFFA61D38).withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF4B0082).withValues(alpha: 0.12)),
+            border: Border.all(color: const Color(0xFFA61D38).withValues(alpha: 0.12)),
           ),
           alignment: Alignment.center,
-          child: const Text('A1', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF4B0082))),
+          child: const Text('A1', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFFA61D38))),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -4533,7 +4533,7 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
                   fontSize: 10,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 2,
-                  color: const Color(0xFF4B0082).withValues(alpha: 0.35),
+                  color: const Color(0xFFA61D38).withValues(alpha: 0.35),
                 ),
               ),
               Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w300, color: Colors.black87)),
@@ -4658,11 +4658,11 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
                       padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(28),
-                        border: Border.all(color: const Color(0xFF4B0082).withValues(alpha: 0.15), width: 2),
+                        border: Border.all(color: const Color(0xFFA61D38).withValues(alpha: 0.15), width: 2),
                       ),
                       child: Column(
                         children: [
-                          Icon(Icons.cloud_upload_outlined, size: 48, color: const Color(0xFF4B0082).withValues(alpha: 0.35)),
+                          Icon(Icons.cloud_upload_outlined, size: 48, color: const Color(0xFFA61D38).withValues(alpha: 0.35)),
                           const SizedBox(height: 12),
                           const Text(
                             'UPLOAD HOROSCOPE IMAGE',
@@ -4670,7 +4670,7 @@ class _HoroscopeDetailsFormState extends State<_HoroscopeDetailsForm> {
                               fontSize: 12,
                               fontWeight: FontWeight.w900,
                               letterSpacing: 3,
-                              color: Color(0xFF4B0082),
+                              color: Color(0xFFA61D38),
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -5434,11 +5434,11 @@ class _HoroscopeDetailsQAFormState extends State<_HoroscopeDetailsQAForm> {
           padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 24),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFF4B0082).withValues(alpha: 0.15), width: 2),
+            border: Border.all(color: const Color(0xFFA61D38).withValues(alpha: 0.15), width: 2),
           ),
           child: Column(
             children: [
-              Icon(Icons.cloud_upload_outlined, size: 44, color: const Color(0xFF4B0082).withValues(alpha: 0.35)),
+              Icon(Icons.cloud_upload_outlined, size: 44, color: const Color(0xFFA61D38).withValues(alpha: 0.35)),
               const SizedBox(height: 12),
               const Text(
                 'UPLOAD HOROSCOPE IMAGE',
@@ -5446,7 +5446,7 @@ class _HoroscopeDetailsQAFormState extends State<_HoroscopeDetailsQAForm> {
                   fontSize: 12,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 3,
-                  color: Color(0xFF4B0082),
+                  color: Color(0xFFA61D38),
                 ),
               ),
               const SizedBox(height: 8),

@@ -5,13 +5,16 @@ import 'partner_landing_screen.dart';
 import 'signup_screen.dart';
 import 'widgets/landing_sections.dart';
 
-/// Brand teal — keep in sync with [splash_screen.dart] and [main.dart].
-const Color _kBrand = Color(0xFF2FA086);
+/// Brand rose (deepened logo rose for readable white text) — keep in sync with [main.dart].
+const Color _kBrand = Color(0xFFD61A45);
+
+/// Rose from the Manavizha logo — used for the logo's glow.
+const Color _kLogoRose = Color(0xFFEE1E4C);
 
 /// Flutter port of the web home page (`manavizha/app/page.tsx`). The
 /// original composes a `Navbar`, `HeroSection`, `FeaturesSection`,
 /// `TestimonialsSection` and `CTASection` in that order; on Flutter we
-/// keep the existing brand-teal hero + auth CTAs and add scrollable
+/// keep the existing brand-rose hero + auth CTAs and add scrollable
 /// Features and Testimonials sections beneath them, followed by the
 /// footer links (referral partner + contact us) — same vertical
 /// composition the web home uses, adapted to a single mobile column.
@@ -22,7 +25,7 @@ class WelcomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
     return Scaffold(
-      backgroundColor: const Color(0xFFF5FBF9),
+      backgroundColor: const Color(0xFFFFF7F9),
       body: Container(
         decoration: const BoxDecoration(
           // Same multi-stop gradient as the splash screen so the brand surface
@@ -33,8 +36,8 @@ class WelcomeScreen extends StatelessWidget {
             stops: [0.0, 0.55, 1.0],
             colors: [
               Color(0xFFFFFFFF),
-              Color(0xFFD8F2EA),
-              Color(0xFF9BDDC9),
+              Color(0xFFFDE6EC),
+              Color(0xFFF7BFCE),
             ],
           ),
         ),
@@ -124,7 +127,7 @@ class _Hero extends StatelessWidget {
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: _kBrand.withValues(alpha: 0.18),
+                color: _kLogoRose.withValues(alpha: 0.18),
                 blurRadius: 28,
                 offset: const Offset(0, 12),
               ),
@@ -286,11 +289,11 @@ class _FooterLinks extends StatelessWidget {
               ),
             );
           },
-          icon: const Icon(Icons.handshake_rounded, color: Color(0xFF4B0082)),
+          icon: const Icon(Icons.handshake_rounded, color: Color(0xFFA61D38)),
           label: const Text(
             'Become a referral partner',
             style: TextStyle(
-              color: Color(0xFF4B0082),
+              color: Color(0xFFA61D38),
               fontWeight: FontWeight.w800,
               fontSize: 15,
               decoration: TextDecoration.underline,

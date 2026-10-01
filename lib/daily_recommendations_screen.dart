@@ -427,7 +427,7 @@ class _DailyRecommendationsScreenState extends State<DailyRecommendationsScreen>
           child: _dailyActionButton(
             label: short ? 'Saved' : 'Shortlist',
             icon: short ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-            foreground: short ? const Color(0xFFFF1493) : Colors.white,
+            foreground: short ? const Color(0xFFEE1E4C) : Colors.white,
             background: short ? Colors.white.withValues(alpha: 0.95) : Colors.white.withValues(alpha: 0.18),
             busy: isShortlistBusy,
             onTap: isAnyActionBusy ? null : () => _onShortlist(r),

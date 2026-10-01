@@ -40,7 +40,7 @@ class _SelectionItem {
 class _ParentSelectionsScreenState extends State<ParentSelectionsScreen> {
   static const Color _brand = AdminHomeScreen.brandPurple;
   static const Color _pageBg = Color(0xFFF8F9FE);
-  static const Color _likePink = Color(0xFFFF1493);
+  static const Color _likePink = Color(0xFFEE1E4C);
 
   bool _loading = true;
   String? _error;

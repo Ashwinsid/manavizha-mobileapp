@@ -320,6 +320,10 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   List<(String, String)> _horoscopeRows = [];
   /// Resolved display URL for [horoscope_details.jaadhagam_url] (signed when needed).
   String? _jaadhagamImageUrl;
+  /// public_horoscope_details withheld birth time/place/chart (owner's
+  /// horoscope privacy). Password-protected ones unlock via /api/horoscope-access.
+  bool _horoscopeDetailsLocked = false;
+  bool _horoscopeUnlocking = false;
   List<(String, String)> _lifestyleRows = [];
   List<String> _hobbyChips = [];
   List<String> _interestChips = [];
@@ -328,6 +332,9 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   String? _viewerId;
   bool _isViewerPremium = false;
   bool _targetIsPremium = false;
+  /// personal_details badge flags set by admin approval / Aadhaar KYC / postal code.
+  bool _targetIdVerified = false;
+  bool _targetAddressVerified = false;
   String? _targetPremiumPlan;
 
   bool _isLiked = false;
@@ -901,6 +908,8 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         _viewerId = viewerId;
         _isViewerPremium = viewerPremium;
         _targetIsPremium = targetPremium;
+        _targetIdVerified = pdMap['id_verified'] == true;
+        _targetAddressVerified = pdMap['address_verified'] == true;
         _targetPremiumPlan = targetPlan;
         _isLiked = isLiked;
         _isShortlisted = isShortlisted;
@@ -933,6 +942,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         _professionLockedRows = professionLockedRows;
         _horoscopeRows = horoscopeRows;
         _jaadhagamImageUrl = jaadhagamSigned;
+        _horoscopeDetailsLocked = horo?['details_locked'] == true;
         _lifestyleRows = lifestyleRows;
         _hobbyChips = hobbyChips;
         _interestChips = interestChips;
@@ -998,11 +1008,28 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
       _viewerId != null &&
       _viewerId != widget.targetUserId;
 
+  Widget _verifiedChip(String label, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFECFDF5),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFBBF7D0)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 14, color: const Color(0xFF16A34A)),
+        const SizedBox(width: 5),
+        Text(label,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF16A34A))),
+      ]),
+    );
+  }
+
   Widget _targetPremiumBadge() {
     final plan = (_targetPremiumPlan ?? '').replaceAll('_', ' ').trim();
     final label = plan.isEmpty ? 'PREMIUM' : plan.toUpperCase();
     Color bg = const Color(0xFFEC4899);
-    if (plan.toLowerCase().contains('elite')) bg = const Color(0xFF4B0082);
+    if (plan.toLowerCase().contains('elite')) bg = const Color(0xFFA61D38);
     if (plan.toLowerCase().contains('gold') || plan.toLowerCase().contains('prime')) {
       bg = const Color(0xFFF59E0B);
     }
@@ -1578,6 +1605,104 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
         ),
       ],
     );
+  }
+
+  Widget _horoscopeLockNotice() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: _brand.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: _brand.withValues(alpha: 0.18)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.lock_outline_rounded, size: 16, color: _brand),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Birth time, place and chart are private. They become visible once you connect, '
+                    "or with the member's horoscope password.",
+                    style: TextStyle(fontSize: 12.5, height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: _horoscopeUnlocking ? null : _onUnlockHoroscope,
+              icon: const Icon(Icons.key_rounded, size: 18),
+              label: Text(_horoscopeUnlocking ? 'Checking…' : 'I have the horoscope password'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _onUnlockHoroscope() async {
+    final ctrl = TextEditingController();
+    final password = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Text('Horoscope password', style: TextStyle(fontWeight: FontWeight.w900)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          obscureText: true,
+          maxLength: 200,
+          decoration: const InputDecoration(labelText: 'Password shared by the member'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Unlock')),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (password == null || password.isEmpty || !mounted) return;
+
+    setState(() => _horoscopeUnlocking = true);
+    final res = await WebApi.post('/api/horoscope-access', {
+      'targetUserId': widget.targetUserId,
+      'password': password,
+    });
+    if (!mounted) return;
+    final horo = res.data['horoscope'];
+    if (!res.ok || res.data['valid'] != true || horo is! Map) {
+      setState(() => _horoscopeUnlocking = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(res.data['valid'] == false && res.ok ? 'Incorrect password' : (res.error ?? 'Incorrect password')),
+      ));
+      return;
+    }
+
+    final h = Map<String, dynamic>.from(horo);
+    final rawJa = h['jaadhagam_url']?.toString().trim();
+    final ja = (rawJa != null && rawJa.isNotEmpty)
+        ? await signUserProfilePhoto(Supabase.instance.client, widget.targetUserId, rawJa)
+        : null;
+    if (!mounted) return;
+    setState(() {
+      _horoscopeUnlocking = false;
+      _horoscopeDetailsLocked = false;
+      _horoscopeRows = [
+        for (final (label, value) in _horoscopeRows)
+          if (label == 'Place of birth')
+            (label, _dashIfEmpty(h['place_of_birth']?.toString()))
+          else if (label == 'Time of birth')
+            (label, _dashIfEmpty(h['time_of_birth']?.toString()))
+          else
+            (label, value),
+      ];
+      if (ja != null && ja.isNotEmpty) _jaadhagamImageUrl = ja;
+    });
   }
 
   Widget _horoscopePremiumSection(List<(String, String)> rows, String? jaadhagamUrl) {
@@ -2369,6 +2494,13 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
                   const SizedBox(height: 10),
                   _targetPremiumBadge(),
                 ],
+                if (_targetIdVerified || _targetAddressVerified) ...[
+                  const SizedBox(height: 10),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    if (_targetIdVerified) _verifiedChip('ID Verified', Icons.verified_user_rounded),
+                    if (_targetAddressVerified) _verifiedChip('Address Verified', Icons.home_rounded),
+                  ]),
+                ],
                 if (_about.isNotEmpty) ...[
                   const SizedBox(height: 18),
                   Text(
@@ -2411,6 +2543,7 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
             ),
           if (_rowsHaveAnyValue(_horoscopeRows) || _jaadhagamHasImage)
             _horoscopePremiumSection(_horoscopeRows, _jaadhagamImageUrl),
+          if (_horoscopeDetailsLocked && _showVisitorChrome) _horoscopeLockNotice(),
           if (_rowsHaveAnyValue(_lifestyleRows) || _hobbyChips.isNotEmpty || _interestChips.isNotEmpty)
             _lifestyleSection(_lifestyleRows, _hobbyChips, _interestChips),
           if (_hasContactSection)

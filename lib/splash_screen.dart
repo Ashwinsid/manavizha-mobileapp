@@ -11,8 +11,8 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-/// Brand teal — keep in sync with [main.dart] seed color.
-const Color _kSplashBrand = Color(0xFF2FA086);
+/// Rose from the Manavizha logo (gradient #EE3165 → #EE1E4C).
+const Color _kSplashBrand = Color(0xFFEE1E4C);
 
 class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
@@ -102,9 +102,10 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    // Light multi-stop gradient — bright white flowing into a clearly visible mint at the far corner.
+    // Light multi-stop gradient — bright white flowing into a soft blush at the far corner.
+    // Keep in sync with android/app/src/main/res/values/colors.xml (native launch window).
     return Scaffold(
-      backgroundColor: const Color(0xFFF5FBF9),
+      backgroundColor: const Color(0xFFFFF7F9),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -113,8 +114,8 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
             stops: [0.0, 0.55, 1.0],
             colors: [
               Color(0xFFFFFFFF),
-              Color(0xFFD8F2EA),
-              Color(0xFF9BDDC9),
+              Color(0xFFFDE6EC),
+              Color(0xFFF7BFCE),
             ],
           ),
         ),
@@ -136,10 +137,11 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                       child: Transform.scale(
                         scale: _logoScale.value,
                         child: SizedBox(
-                          width: 240,
+                          width: 260,
                           height: 240,
                           child: Image.asset(
-                            'assets/images/logo.png',
+                            'assets/images/logo_full.png',
+                            semanticLabel: 'Manavizha',
                             fit: BoxFit.contain,
                             filterQuality: FilterQuality.high,
                           ),
@@ -157,7 +159,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   }
 }
 
-/// Single expanding teal ring — grows from a small dot to ~340 px while fading out.
+/// Single expanding rose ring — grows from a small dot to ~340 px while fading out.
 ///
 /// [progress] runs 0 → 1 over the ring's animation interval. Outside that range nothing is drawn.
 class _PulseRing extends StatelessWidget {

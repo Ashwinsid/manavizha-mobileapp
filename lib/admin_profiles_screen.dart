@@ -165,15 +165,15 @@ Widget _premiumChip(_AdminProfile p) {
     }
   }
   String label = 'Premium';
-  Color bg = const Color(0xFF4B0082);
+  Color bg = const Color(0xFFA61D38);
   switch (p.premiumPlan) {
     case 'till_you_marry':
       label = 'Lifetime';
-      bg = const Color(0xFFFF1493);
+      bg = const Color(0xFFEE1E4C);
       break;
     case 'elite':
       label = 'Elite';
-      bg = const Color(0xFF2FA086);
+      bg = const Color(0xFFD61A45);
       break;
     case 'prime_gold':
       label = 'Gold';
@@ -659,7 +659,7 @@ class _AdminProfilesScreenState extends State<AdminProfilesScreen> {
               label: Text('Married (${_marriedProfiles.length})'),
               selected: _tab == 1,
               onSelected: (_) => setState(() => _tab = 1),
-              selectedColor: const Color(0xFFFF1493).withValues(alpha: 0.2),
+              selectedColor: const Color(0xFFEE1E4C).withValues(alpha: 0.2),
               labelStyle: TextStyle(
                 fontWeight: FontWeight.w700,
                 color: _tab == 1 ? const Color(0xFFDB2777) : Colors.black87,
@@ -898,7 +898,7 @@ class _ProfileCard extends StatelessWidget {
                                       vertical: 2,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFFFF1493)
+                                      color: const Color(0xFFEE1E4C)
                                           .withValues(alpha: 0.12),
                                       borderRadius: BorderRadius.circular(6),
                                     ),
@@ -907,7 +907,7 @@ class _ProfileCard extends StatelessWidget {
                                       style: TextStyle(
                                         fontSize: 9,
                                         fontWeight: FontWeight.w800,
-                                        color: Color(0xFFFF1493),
+                                        color: Color(0xFFEE1E4C),
                                       ),
                                     ),
                                   ),
@@ -961,8 +961,8 @@ class _ProfileCard extends StatelessWidget {
                     icon: const Icon(Icons.favorite_rounded, size: 18),
                     label: const Text('Mark as married'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFFFF1493),
-                      side: const BorderSide(color: Color(0xFFFF1493)),
+                      foregroundColor: const Color(0xFFEE1E4C),
+                      side: const BorderSide(color: Color(0xFFEE1E4C)),
                     ),
                   ),
                 ),

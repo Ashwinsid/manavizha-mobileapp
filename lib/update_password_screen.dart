@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth_navigation.dart';
+import 'e2e.dart';
 
 /// Set-new-password screen — mobile counterpart of the web's
 /// `/account/update-password` page. Opened when a Supabase password-recovery
@@ -17,7 +18,7 @@ class UpdatePasswordScreen extends StatefulWidget {
 }
 
 class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
-  static const Color _brand = Color(0xFF2FA086);
+  static const Color _brand = Color(0xFFD61A45);
 
   final _passwordCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
@@ -66,6 +67,8 @@ class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
     try {
       await Supabase.instance.client.auth
           .updateUser(UserAttributes(password: password));
+      // Keep chat history readable: re-lock the chat key with the new password.
+      await E2E.resealAfterPasswordChange(password);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Password updated successfully!')),

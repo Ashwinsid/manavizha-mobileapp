@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_home_screen.dart';
+import 'chat_unlock_dialog.dart';
 import 'premium_utils.dart';
 import 'profile_social_actions.dart';
 import 'subscription_dialog.dart';
@@ -119,6 +120,11 @@ class _MessageDialogState extends State<_MessageDialog> {
       content: body,
     );
     if (!mounted) return;
+    if (err == ProfileSocialActions.chatLockedError) {
+      setState(() => _sending = false);
+      if (await showChatUnlockDialog(context)) await _handleSend();
+      return;
+    }
     if (err != null) {
       setState(() {
         _sending = false;
