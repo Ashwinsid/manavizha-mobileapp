@@ -35,6 +35,15 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="manavizha" android:host="auth-callback"/>
             </intent-filter>
+            <!-- Return from the website's payment page (/pay/return) after a plan
+                 payment. Only brings the app to the front; the app then checks
+                 the order with its own session (lib/plan_service.dart). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="manavizha" android:host="payment-return"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

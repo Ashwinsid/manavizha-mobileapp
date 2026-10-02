@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'chat_security_settings.dart';
 import 'e2e.dart';
 import 'identity_verification_card.dart';
+import 'legal_pages.dart';
 import 'main.dart' show kAuthRedirectUrl;
 import 'profile_social_actions.dart';
 import 'web_api.dart';
@@ -799,6 +800,26 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
           'Hide the floating quick menu button (grid icon) shown in the bottom right corner of the matches screen.',
           _hideQuickMenu,
           (v) => _saveUiPrefs(v),
+        ),
+        const SizedBox(height: 20),
+        _sectionHeader('Legal', Icons.gavel_rounded),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.privacy_tip_outlined),
+          title: const Text('Privacy Policy'),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const PrivacyPolicyScreen()),
+          ),
+        ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.description_outlined),
+          title: const Text('Terms of Service'),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const TermsOfServiceScreen()),
+          ),
         ),
       ],
     );

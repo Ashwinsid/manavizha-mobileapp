@@ -7,6 +7,7 @@ import 'admin_identity_verification_screen.dart';
 import 'admin_manage_profiles_screen.dart';
 import 'admin_profiles_screen.dart';
 import 'admin_master_data_screen.dart';
+import 'admin_plan_requests_screen.dart';
 import 'welcome_screen.dart';
 
 class AdminHomeScreen extends StatefulWidget {
@@ -353,6 +354,21 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                             Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 builder: (context) => const AdminAccountsScreen(),
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                        _ActionTile(
+                          icon: Icons.workspace_premium_rounded,
+                          iconBg: const Color(0xFFEE1E4C).withValues(alpha: 0.1),
+                          iconColor: const Color(0xFFEE1E4C),
+                          title: 'Plan requests & payments',
+                          subtitle: 'Confirm payments to activate plans; see online payments',
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (context) => const AdminPlanRequestsScreen(),
                               ),
                             );
                           },

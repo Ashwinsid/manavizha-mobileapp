@@ -12,6 +12,7 @@ import 'user_profile_completion.dart';
 import 'web_api.dart';
 import 'widgets/adaptive_network_photo.dart';
 import 'premium_utils.dart';
+import 'pricing_screen.dart';
 import 'public_views.dart';
 import 'astrology.dart';
 import 'profile_scoring.dart';
@@ -368,6 +369,26 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
   int? _contactViewsLimit;
   final Set<String> _revealingKeys = {};
 
+  /// Free members / exhausted allowance: offer the plans (web ContactPaywall).
+  Future<void> _showContactPaywall(String message) async {
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Text('View contact details', style: TextStyle(fontWeight: FontWeight.w900)),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not now')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('View plans')),
+        ],
+      ),
+    );
+    if (go == true && mounted) {
+      await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const PricingScreen()));
+      if (mounted) _load();
+    }
+  }
+
   Future<void> _handleReveal(String rowKey, bool isContactView) async {
     if (!isContactView) {
       setState(() => _revealedLocked[rowKey] = true);
@@ -391,6 +412,8 @@ class _MemberProfileViewScreenState extends State<MemberProfileViewScreen> {
           if (r != null) _contactViewsRemaining = (r as num).toInt();
           if (l != null) _contactViewsLimit = (l as num).toInt();
         });
+      } else if (res.data['upgradeRequired'] == true || res.data['limitReached'] == true) {
+        await _showContactPaywall(res.error ?? 'Choose a plan to view contact details.');
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(res.error ?? 'Could not reveal contact details.', textAlign: TextAlign.center)),

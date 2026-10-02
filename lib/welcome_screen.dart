@@ -300,6 +300,23 @@ class _FooterLinks extends StatelessWidget {
             ),
           ),
         ),
+        Wrap(
+          alignment: WrapAlignment.center,
+          children: [
+            TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const PrivacyPolicyScreen()),
+              ),
+              child: const Text('Privacy Policy'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const TermsOfServiceScreen()),
+              ),
+              child: const Text('Terms of Service'),
+            ),
+          ],
+        ),
         TextButton.icon(
           onPressed: () {
             Navigator.of(context).push(

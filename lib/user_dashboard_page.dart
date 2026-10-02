@@ -12,6 +12,7 @@ import 'user_activity_tracker.dart';
 import 'user_match_service.dart';
 import 'user_profile_completion.dart';
 import 'widgets/adaptive_network_photo.dart';
+import 'widgets/plan_status_card.dart';
 
 /// Member home dashboard aligned with [manavizha/components/user-landing-page.tsx].
 class UserDashboardPage extends StatefulWidget {
@@ -388,6 +389,10 @@ class _UserDashboardPageState extends State<UserDashboardPage> {
                 completionPercent: snap.completionPercent,
               ),
             ),
+          ),
+          const SliverPadding(
+            padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+            sliver: SliverToBoxAdapter(child: PlanStatusCard()),
           ),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),

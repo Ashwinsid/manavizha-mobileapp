@@ -17,6 +17,7 @@ import 'profile_screen.dart';
 import 'user_activity_tracker.dart';
 import 'user_pages.dart';
 import 'user_profile_completion.dart';
+import 'premium_utils.dart';
 import 'web_api.dart';
 import 'widgets/radial_menu.dart';
 
@@ -58,7 +59,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
     try {
       final results = await Future.wait<dynamic>([
         client.from('photos').select('user_photos').eq('user_id', uid).maybeSingle(),
-        client.from('user_settings').select('is_premium').eq('user_id', uid).maybeSingle(),
+        client.from('user_settings').select('is_premium, premium_expires_at').eq('user_id', uid).maybeSingle(),
         client.from('personal_details').select('name').eq('user_id', uid).maybeSingle(),
       ]);
       final photos = results[0] as Map<String, dynamic>?;
@@ -72,7 +73,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> with WidgetsBindingObse
       if (!mounted) return;
       setState(() {
         _appBarPhotoUrl = url;
-        _appBarPremium = settings?['is_premium'] == true;
+        _appBarPremium = isPremiumActive(settings == null ? null : Map<String, dynamic>.from(settings as Map));
         _appBarNameHint = personal?['name']?.toString();
         _appBarProfileLoading = false;
       });

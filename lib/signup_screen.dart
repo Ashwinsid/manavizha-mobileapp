@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_config.dart';
+import 'legal_pages.dart';
 import 'main.dart' show kAuthRedirectUrl;
 
 /// Sign-up screen — mirrors the web `components/auth-dialog.tsx` Sign Up tab.
@@ -660,6 +661,22 @@ class _SignupScreenState extends State<SignupScreen> {
 
   // -------------------- Build --------------------
 
+  Widget _legalLink(String label, Widget page) {
+    return GestureDetector(
+      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page)),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.black54,
+          fontSize: 11,
+          height: 1.5,
+          fontWeight: FontWeight.w700,
+          decoration: TextDecoration.underline,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final strength = _computeStrength(_passwordController.text);
@@ -945,16 +962,19 @@ class _SignupScreenState extends State<SignupScreen> {
                 ],
               ),
               const SizedBox(height: 8),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16.0),
-                child: Text(
-                  'By continuing, you agree to our Terms of Service and Privacy Policy.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.black45,
-                    fontSize: 11,
-                    height: 1.5,
-                  ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Text('By continuing, you agree to our ',
+                        style: TextStyle(color: Colors.black45, fontSize: 11, height: 1.5)),
+                    _legalLink('Terms of Service', const TermsOfServiceScreen()),
+                    const Text(' and ', style: TextStyle(color: Colors.black45, fontSize: 11, height: 1.5)),
+                    _legalLink('Privacy Policy', const PrivacyPolicyScreen()),
+                    const Text('.', style: TextStyle(color: Colors.black45, fontSize: 11, height: 1.5)),
+                  ],
                 ),
               ),
               const SizedBox(height: 24),

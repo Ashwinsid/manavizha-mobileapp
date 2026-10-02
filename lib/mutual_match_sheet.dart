@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'admin_home_screen.dart';
+import 'pricing_screen.dart';
 import 'public_views.dart';
 import 'web_api.dart';
 import 'siblings_formatter.dart';
@@ -535,15 +536,30 @@ class _MutualMatchSheetState extends State<_MutualMatchSheet> {
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: const Color(0xFFFDE68A)),
         ),
-        child: Text(
-          _extras.contactError ??
-              'Upgrade to a premium plan to view contact details.',
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            height: 1.4,
-            color: Color(0xFF92400E),
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _extras.contactError ??
+                  'Upgrade to a premium plan to view contact details.',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                height: 1.4,
+                color: Color(0xFF92400E),
+              ),
+            ),
+            // Not offered when the member hid their number — a plan won't help.
+            if (!(_extras.contactError ?? '').contains('hide')) ...[
+              const SizedBox(height: 10),
+              FilledButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const PricingScreen()),
+                ),
+                child: const Text('View plans'),
+              ),
+            ],
+          ],
         ),
       ),
     );
